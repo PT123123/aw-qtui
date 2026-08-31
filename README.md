@@ -23,12 +23,13 @@ inbox 服务，与 aw-webui 承担同样的角色；不包含 Rust 服务端本�
 | --- | --- |
 | 📊  Activity | ActivityWatch 风格统计面板：日期导航 + 24h 活跃柱状图 + Summary/Window/Browser/Editor 标签页 + Top Applications / Top Window Titles / Top Categories 横向条形图 + Timeline (Barchart) 分类彩色时间柱 + Category Tree + Category Sunburst 环形图 |
 | ⏱  Timeline | 可交互多行时间线（afk-status / aw-watcher-window / aw-watcher-web），拖拽平移、滚轮缩放、hover 详情 tooltip；顶部 Interval mode / Show last 工具栏，底部 Tockler 风格统计卡片（Total tracked / AFK / First activity / Last activity） |
-| 📥 收件箱 | MoeMemos 风格卡片流（头部相对时间 + 置顶旗标 + ⋯ 菜单）、完整 Markdown 渲染（标题/列表/引用/代码块/粗斜体/删除线/链接）、任务清单 ☐ 点击勾选、内联 #标签 高亮、本地置顶优先排序、无限滚动、标签侧栏多选过滤、搜索、排序、评论（离线优先：本地缓存 + 待同步队列，重连自动补推）、复制全部、连接状态徽标、右下角悬浮新建 |
+| 📥 收件箱 | MoeMemos 风格卡片流（头部相对时间 + 置顶旗标 + ⋯ 菜单）、完整 Markdown 渲染（标题/列表/引用/代码块/粗斜体/删除线/链接）、任务清单 ☐ 点击勾选、内联 #标签 高亮、本地置顶优先排序、无限滚动、标签侧栏多选过滤、搜索、排序、评论（离线优先：本地缓存 + 待同步队列，重连自动补推）、复制全部、连接状态徽标、右下角悬浮新建、工具栏 ⚙ 设置（全局快捷键） |
 | ⇄ 局域网同步 | 设备注册表（device_id/名称/平台/最后在线/最后同步/待同步/版本）、手动同步（POST /inbox/sync，展示拉取数与冲突）、设备心跳注册、mDNS 自动发现（`_activitywatch._tcp.local.`，Win32 原生 DNS-SD） |
 | 🏷 标签 Day | ManicTime 式时间标签：时间线选择模式（左键拖拽吸附活动边界、Ctrl 多选、双击选整块）→ Add tag（标签/备注/Billable/起止时间/最近标签/Tag picker）、Tag editor（组合/单标签/快捷键/标签源，重命名/替换/删除/改色/导入导出/右键 Skip 与默认可计费）、自动标签规则引擎（Regular/Append/Prepend/Absorb + 间隙填充 + 高亮猜测 + AutoTags lane 实时重算 + 复制到手工标签）、未标记热力图月历、Tag away 一键给未标记时间段打标签、计时工具（秒表/计时器/番茄钟）、高级搜索（日期范围/时间线选择/未标记过滤/批量打标/删除/导出/双击跳转）、当日过滤框（group:/duration>/start>/end>/label=billable/note:/-取反/or/通配符/#regex）。本地数据 `timetags_local.json`（独立于收件箱） |
 | 📈 统计 | 多日统计：多 Tab + 类型（Top / Day duration / Attendance / Custom）、日期范围（本周/本月）、折线/柱状切换、平均值线、多序列应用对比、数据表联动、导出 CSV |
 
-快捷键：`1`/`2`/`3`/`4`/`5`/`6` 切页（Activity / Timeline / 收件箱 / 同步 / 标签 Day / 统计），`F5` 刷新当前页，`Ctrl+F` 聚焦搜索，`Ctrl+Enter` 提交笔记。
+快捷键：窗口内 `1`/`2`/`3`/`4`/`5`/`6` 切页（Activity / Timeline / 收件箱 / 同步 / 标签 Day / 统计），`F5` 刷新当前页，`Ctrl+F` 聚焦搜索，`Ctrl+Enter` 提交笔记。
+全局快捷键（收件箱 ⚙ 设置里可改，系统级注册，应用失焦/最小化也生效）：默认 `Alt+N` 添加记录（唤醒窗口 + 跳收件箱 + 弹新建），默认 `Alt+M` 唤醒并跳转收件箱。配置存 `%APPDATA%\aw-qtui\aw-qtui\awqtui.ini`。
 
 ## 环境要求
 
@@ -177,6 +178,9 @@ aw-qtui/
 ├── src/
 │   ├── main.cpp               # 入口（--url / --screenshot 测试钩子）
 │   ├── config.h/.cpp          # 服务端地址、设备身份（MAC 生成并持久化）
+│   ├── appsettings.h/.cpp     # 全局快捷键配置（INI 读写，默认 Alt+N / Alt+M）
+│   ├── globalshortcut.h/.cpp  # Windows RegisterHotKey 全局热键（WM_HOTKEY -> nativeEvent）
+│   ├── settingsdialog.h/.cpp  # 设置界面（快捷键录入/校验/保存）
 │   ├── models.h               # Note/Tag/Comment/DeviceInfo/SyncSummary + JSON
 │   ├── apiclient.h/.cpp       # QNetworkAccessManager REST 客户端（/inbox/...）
 │   ├── theme.h                # 深色主题 QSS

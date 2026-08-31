@@ -1,8 +1,13 @@
 # 构建产物
 build/
 build-dbg/
+build-asan/
+build-diag/
 dist/
 server-src/
+
+# 崩溃调试残留
+dumps/
 
 # 本地测试残留
 *.obj

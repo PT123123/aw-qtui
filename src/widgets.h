@@ -29,10 +29,14 @@ public:
     enum class State { Connected, Syncing, Disconnected, Error, Unknown };
     explicit StatusBadge(QWidget *parent = nullptr);
     void setState(State s, const QString &text = QString());
+    // 界面缩放：按当前全局缩放因子重应用字体样式
+    void applyUiScale();
 
 private:
+    void applyStyle();
     QLabel *m_dot;
     QLabel *m_label;
+    QString m_color;
 };
 
 // ------------------------------------------------------------------ //
@@ -43,18 +47,29 @@ class NoteCard : public QFrame
 public:
     explicit NoteCard(const Note &note, bool pinned = false, QWidget *parent = nullptr);
     Note note() const { return m_note; }
+    // 在内容下方注入「被评论/被引用笔记」的预览（灰色小字、100 字截断），点击可跳转
+    void setParentReference(qint64 parentId, const QString &preview);
+    // 跳转定位时的视觉反馈：边框高亮闪烁后恢复
+    void flashHighlight();
 signals:
     void editRequested(qint64 id);
     void deleteRequested(qint64 id);
     void commentRequested(qint64 id);
     void togglePinnedRequested(qint64 id);
     void taskToggled(qint64 id, const QString &content);
+    void parentReferenceClicked(qint64 parentId);
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 private:
     void onLinkActivated(const QString &link);
 
     Note m_note;
     bool m_pinned = false;
+    QString m_baseStyle;          // 初始样式，供 flashHighlight 恢复
+    qint64 m_parentId = 0;        // 被评论/被引用笔记 id（0 = 无引用预览）
+    QLabel *m_parentRef = nullptr;
 };
 
 // ------------------------------------------------------------------ //

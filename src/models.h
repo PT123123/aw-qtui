@@ -45,6 +45,8 @@ struct Note {
         n.syncedAt = o.value(QLatin1String("synced_at")).toString();
         n.conflict = o.value(QLatin1String("conflict")).toBool();
         n.pendingOp = o.value(QLatin1String("pending_op")).toString();
+        // 若服务端/本地 JSON 携带父笔记 id（评论笔记引用被评论的笔记），一并读入
+        n.commentParentId = o.value(QLatin1String("comment_parent_id")).toVariant().toLongLong();
         return n;
     }
 };

@@ -21,6 +21,7 @@
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QSignalBlocker>
 #include <QStackedLayout>
@@ -77,32 +78,33 @@ void InboxPage::buildUi()
     // ---- 标签侧栏 ----
     m_tagPanel = new QWidget;
     m_tagPanel->setObjectName(QStringLiteral("TagPanel"));
-    m_tagPanel->setStyleSheet(QStringLiteral(
+    m_tagPanel->setStyleSheet(scaleQss(QStringLiteral(
         "QWidget#TagPanel { background: %1; border-right: 1px solid %2; }")
-                                  .arg(kColorBgElev, kColorBorder));
-    m_tagPanel->setFixedWidth(m_sidebarWidth);
+                                          .arg(kColorBgElev, kColorBorder)));
+    m_tagPanel->setFixedWidth(si(m_sidebarWidth));
     auto *tagLay = new QVBoxLayout(m_tagPanel);
-    tagLay->setContentsMargins(10, 12, 10, 12);
-    tagLay->setSpacing(8);
-    auto *tagTitle = new QLabel(QStringLiteral("标签"));
-    tagTitle->setStyleSheet(QStringLiteral("color: %1; font-size: 11px; font-weight: 700;"
-                                           "padding: 0 2px 2px;")
-                                .arg(kColorFgMuted));
-    tagLay->addWidget(tagTitle);
+    tagLay->setContentsMargins(si(10), si(12), si(10), si(12));
+    tagLay->setSpacing(si(8));
+    m_tagTitle = new QLabel(QStringLiteral("标签"));
+    m_tagTitle->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 11px; font-weight: 700;"
+                                                       "padding: 0 2px 2px;")
+                                           .arg(kColorFgMuted)));
+    tagLay->addWidget(m_tagTitle);
     m_tagList = new QListWidget;
-    m_tagList->setStyleSheet(QStringLiteral(
+    m_tagList->setStyleSheet(scaleQss(QStringLiteral(
         "QListWidget { background: transparent; border: none; outline: none; }"
         "QListWidget::item { padding: 6px 8px; border: none; border-radius: 6px; color: %1; }"
         "QListWidget::item:hover { background: %2; color: white; }")
-                                 .arg(kColorFg, kColorBgElev2));
+                                         .arg(kColorFg, kColorBgElev2)));
     connect(m_tagList, &QListWidget::itemChanged, this, [this](QListWidgetItem *) { onTagToggled(); });
     tagLay->addWidget(m_tagList, 1);
     auto *btnClear = new QPushButton(QStringLiteral("清除过滤"));
-    btnClear->setStyleSheet(QStringLiteral(
+    m_btnClear = btnClear;
+    btnClear->setStyleSheet(scaleQss(QStringLiteral(
         "QPushButton { background: transparent; border: none; color: %1; font-size: 11px;"
         " text-align: left; padding: 2px; }"
         "QPushButton:hover { color: %2; }")
-                                .arg(kColorFgMuted, kColorAccent));
+                                        .arg(kColorFgMuted, kColorAccent)));
     connect(btnClear, &QPushButton::clicked, this, [this] {
         for (int i = 0; i < m_tagList->count(); ++i)
             m_tagList->item(i)->setCheckState(Qt::Unchecked);
@@ -119,17 +121,17 @@ void InboxPage::buildUi()
 
     // 工具栏：大标题 + 搜索（MoeMemos 风格），右侧为次要控件
     auto *toolbar = new QHBoxLayout;
-    toolbar->setContentsMargins(20, 16, 16, 12);
-    toolbar->setSpacing(10);
+    toolbar->setContentsMargins(si(20), si(16), si(16), si(12));
+    toolbar->setSpacing(si(10));
 
-    auto *title = new QLabel(QStringLiteral("收件箱"));
-    title->setStyleSheet(QStringLiteral("font-size: 22px; font-weight: 700; color: white;"));
-    toolbar->addWidget(title);
+    m_title = new QLabel(QStringLiteral("收件箱"));
+    m_title->setStyleSheet(scaleQss(QStringLiteral("font-size: 22px; font-weight: 700; color: white;")));
+    toolbar->addWidget(m_title);
 
     m_search = new QLineEdit;
     m_search->setPlaceholderText(QStringLiteral("搜索…"));
     m_search->setClearButtonEnabled(true);
-    m_search->setFixedWidth(240);
+    m_search->setFixedWidth(si(240));
     connect(m_search, &QLineEdit::textChanged, this, &InboxPage::onSearchChanged);
     toolbar->addWidget(m_search);
 
@@ -142,8 +144,8 @@ void InboxPage::buildUi()
 
     m_btnSidebar = new QPushButton(QStringLiteral("☰"));
     m_btnSidebar->setToolTip(QStringLiteral("显示 / 隐藏标签侧栏"));
-    m_btnSidebar->setFixedSize(30, 30);
-    m_btnSidebar->setStyleSheet(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg));
+    m_btnSidebar->setFixedSize(si(30), si(30));
+    m_btnSidebar->setStyleSheet(scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg)));
     connect(m_btnSidebar, &QPushButton::clicked, this, [this] {
         m_sidebarVisible = !m_sidebarVisible;
         m_tagPanel->setVisible(m_sidebarVisible);
@@ -154,21 +156,28 @@ void InboxPage::buildUi()
     m_sort->addItem(QStringLiteral("最新创建"), QStringLiteral("created"));
     m_sort->addItem(QStringLiteral("最新更新"), QStringLiteral("updated"));
     m_sort->addItem(QStringLiteral("按内容"), QStringLiteral("content"));
-    m_sort->setFixedWidth(108);
+    m_sort->setFixedWidth(si(108));
     connect(m_sort, &QComboBox::currentIndexChanged, this, [this](int) { loadNotes(true); });
     toolbar->addWidget(m_sort);
 
-    auto *btnCopy = new QPushButton(QStringLiteral("复制全部"));
-    btnCopy->setStyleSheet(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg));
-    connect(btnCopy, &QPushButton::clicked, this, &InboxPage::onCopyAll);
-    toolbar->addWidget(btnCopy);
+    m_btnCopy = new QPushButton(QStringLiteral("复制全部"));
+    m_btnCopy->setStyleSheet(scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg)));
+    connect(m_btnCopy, &QPushButton::clicked, this, &InboxPage::onCopyAll);
+    toolbar->addWidget(m_btnCopy);
 
-    auto *btnRefresh = new QPushButton(QStringLiteral("⟳"));
-    btnRefresh->setToolTip(QStringLiteral("刷新 (F5)"));
-    btnRefresh->setFixedSize(30, 30);
-    btnRefresh->setStyleSheet(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg));
-    connect(btnRefresh, &QPushButton::clicked, this, &InboxPage::onRefresh);
-    toolbar->addWidget(btnRefresh);
+    m_btnRefresh = new QPushButton(QStringLiteral("⟳"));
+    m_btnRefresh->setToolTip(QStringLiteral("刷新 (F5)"));
+    m_btnRefresh->setFixedSize(si(30), si(30));
+    m_btnRefresh->setStyleSheet(scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg)));
+    connect(m_btnRefresh, &QPushButton::clicked, this, &InboxPage::onRefresh);
+    toolbar->addWidget(m_btnRefresh);
+
+    m_btnSettings = new QPushButton(QStringLiteral("⚙"));
+    m_btnSettings->setToolTip(QStringLiteral("设置（全局快捷键）"));
+    m_btnSettings->setFixedSize(si(30), si(30));
+    m_btnSettings->setStyleSheet(scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg)));
+    connect(m_btnSettings, &QPushButton::clicked, this, &InboxPage::settingsRequested);
+    toolbar->addWidget(m_btnSettings);
 
     m_badge = new StatusBadge;
     toolbar->addWidget(m_badge);
@@ -178,9 +187,9 @@ void InboxPage::buildUi()
     auto *stackHost = new QWidget;
     m_stack = new QStackedLayout(stackHost);
     m_list = new QListWidget;
-    m_list->setStyleSheet(QStringLiteral(
+    m_list->setStyleSheet(scaleQss(QStringLiteral(
         "QListWidget { background: transparent; border: none; }"
-        "QListWidget::item { background: transparent; border: none; padding: 0; margin: 0; }"));
+        "QListWidget::item { background: transparent; border: none; padding: 0; margin: 0; }")));
     m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_list->setSelectionMode(QAbstractItemView::NoSelection);
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -190,19 +199,19 @@ void InboxPage::buildUi()
     auto *empty = new QWidget;
     auto *emptyLay = new QVBoxLayout(empty);
     emptyLay->setAlignment(Qt::AlignCenter);
-    emptyLay->setSpacing(8);
-    auto *emptyIcon = new QLabel(QStringLiteral("📝"));
-    emptyIcon->setAlignment(Qt::AlignCenter);
-    emptyIcon->setStyleSheet(QStringLiteral("font-size: 42px;"));
-    emptyLay->addWidget(emptyIcon);
-    auto *emptyText = new QLabel(QStringLiteral("还没有笔记"));
-    emptyText->setAlignment(Qt::AlignCenter);
-    emptyText->setStyleSheet(QStringLiteral("color: %1; font-size: 15px;").arg(kColorFgMuted));
-    emptyLay->addWidget(emptyText);
-    auto *emptyHint = new QLabel(QStringLiteral("点击右下角 ＋ 新建一条"));
-    emptyHint->setAlignment(Qt::AlignCenter);
-    emptyHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
-    emptyLay->addWidget(emptyHint);
+    emptyLay->setSpacing(si(8));
+    m_emptyIcon = new QLabel(QStringLiteral("📝"));
+    m_emptyIcon->setAlignment(Qt::AlignCenter);
+    m_emptyIcon->setStyleSheet(scaleQss(QStringLiteral("font-size: 42px;")));
+    emptyLay->addWidget(m_emptyIcon);
+    m_emptyText = new QLabel(QStringLiteral("还没有笔记"));
+    m_emptyText->setAlignment(Qt::AlignCenter);
+    m_emptyText->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 15px;").arg(kColorFgMuted)));
+    emptyLay->addWidget(m_emptyText);
+    m_emptyHint = new QLabel(QStringLiteral("点击右下角 ＋ 新建一条"));
+    m_emptyHint->setAlignment(Qt::AlignCenter);
+    m_emptyHint->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted)));
+    emptyLay->addWidget(m_emptyHint);
     m_stack->addWidget(empty);
     m_stack->setCurrentWidget(m_list);
 
@@ -217,22 +226,22 @@ void InboxPage::buildUi()
 
     m_fab = new QPushButton(QStringLiteral("＋"));
     m_fab->setObjectName(QStringLiteral("Fab"));
-    m_fab->setFixedSize(56, 56);
+    m_fab->setFixedSize(si(56), si(56));
     m_fab->setCursor(Qt::PointingHandCursor);
-    m_fab->setStyleSheet(QStringLiteral(
+    m_fab->setStyleSheet(scaleQss(QStringLiteral(
         "QPushButton#Fab { background: %1; color: white; border: none; border-radius: 28px;"
         " font-size: 28px; font-weight: 400; }"
         "QPushButton#Fab:hover { background: %2; }")
-                             .arg(kColorAccent, kColorAccentHover));
+                                     .arg(kColorAccent, kColorAccentHover)));
     auto *fabShadow = new QGraphicsDropShadowEffect(m_fab);
-    fabShadow->setBlurRadius(24);
+    fabShadow->setBlurRadius(si(24));
     fabShadow->setColor(QColor(0, 0, 0, 150));
-    fabShadow->setOffset(0, 4);
+    fabShadow->setOffset(0, si(4));
     m_fab->setGraphicsEffect(fabShadow);
     connect(m_fab, &QPushButton::clicked, this, &InboxPage::onNewNote);
     auto *fabRow = new QWidget;
     auto *fabLay = new QHBoxLayout(fabRow);
-    fabLay->setContentsMargins(0, 0, 20, 20);
+    fabLay->setContentsMargins(0, 0, si(20), si(20));
     fabLay->addStretch(1);
     fabLay->addWidget(m_fab, 0, Qt::AlignBottom | Qt::AlignRight);
     hostLay->addWidget(fabRow);
@@ -244,6 +253,77 @@ void InboxPage::buildUi()
     body->addWidget(m_tagPanel);
     body->addWidget(host, 1);
     root->addLayout(body);
+}
+
+void InboxPage::applyUiScale()
+{
+    // 标签侧栏
+    if (m_tagPanel) {
+        m_tagPanel->setStyleSheet(scaleQss(QStringLiteral(
+            "QWidget#TagPanel { background: %1; border-right: 1px solid %2; }")
+                                               .arg(kColorBgElev, kColorBorder)));
+        m_tagPanel->setFixedWidth(si(m_sidebarWidth));
+    }
+    if (m_tagTitle)
+        m_tagTitle->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 11px; font-weight: 700; padding: 0 2px 2px;")
+                                               .arg(kColorFgMuted)));
+    if (m_tagList)
+        m_tagList->setStyleSheet(scaleQss(QStringLiteral(
+            "QListWidget { background: transparent; border: none; outline: none; }"
+            "QListWidget::item { padding: 6px 8px; border: none; border-radius: 6px; color: %1; }"
+            "QListWidget::item:hover { background: %2; color: white; }")
+                                             .arg(kColorFg, kColorBgElev2)));
+    if (m_btnClear)
+        m_btnClear->setStyleSheet(scaleQss(QStringLiteral(
+            "QPushButton { background: transparent; border: none; color: %1; font-size: 11px;"
+            " text-align: left; padding: 2px; }"
+            "QPushButton:hover { color: %2; }")
+                                               .arg(kColorFgMuted, kColorAccent)));
+
+    // 工具栏
+    if (m_title)
+        m_title->setStyleSheet(scaleQss(QStringLiteral("font-size: 22px; font-weight: 700; color: white;")));
+    if (m_search)
+        m_search->setFixedWidth(si(240));
+    if (m_sort)
+        m_sort->setFixedWidth(si(108));
+    const QString subtleBtn = QStringLiteral(
+        "QPushButton { background: transparent; border: none; border-radius: 6px;"
+        " color: %1; padding: 5px 10px; font-size: 12px; }"
+        "QPushButton:hover { background: %2; color: %3; }");
+    const QString subtleStyle = scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg));
+    for (QPushButton *b : {m_btnSidebar, m_btnRefresh, m_btnSettings, m_btnCopy}) {
+        if (b)
+            b->setStyleSheet(subtleStyle);
+    }
+    for (QPushButton *b : {m_btnSidebar, m_btnRefresh, m_btnSettings})
+        if (b)
+            b->setFixedSize(si(30), si(30));
+
+    // 空状态
+    if (m_emptyIcon)
+        m_emptyIcon->setStyleSheet(scaleQss(QStringLiteral("font-size: 42px;")));
+    if (m_emptyText)
+        m_emptyText->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 15px;").arg(kColorFgMuted)));
+    if (m_emptyHint)
+        m_emptyHint->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted)));
+
+    // 悬浮 +
+    if (m_fab) {
+        m_fab->setFixedSize(si(56), si(56));
+        m_fab->setStyleSheet(scaleQss(QStringLiteral(
+            "QPushButton#Fab { background: %1; color: white; border: none; border-radius: 28px;"
+            " font-size: 28px; font-weight: 400; }"
+            "QPushButton#Fab:hover { background: %2; }")
+                                         .arg(kColorAccent, kColorAccentHover)));
+    }
+
+    if (m_badge)
+        m_badge->applyUiScale();
+
+    // 重渲染列表：卡片（NoteCard）在创建时按当前缩放比取样式
+    applyClientFilter();
 }
 
 // ------------------------------------------------------------------ //
@@ -648,6 +728,12 @@ void InboxPage::appendNotes(const QList<Note> &notes, bool clear)
 
 void InboxPage::applyClientFilter()
 {
+    // 防重入：循环内 addItem 会触发 verticalScrollBar::valueChanged → onScroll →
+    // loadNotes → 离线时 renderLocal → 本函数重入，内层 m_list->clear() 会删除外层
+    // 刚 addItem 的 item，外层继续 setItemWidget 即 use-after-free 崩溃（三个 dump 证实）。
+    if (m_rebuilding)
+        return;
+    m_rebuilding = true;
     QList<Note> visible = m_notes;
     if (m_selectedTags.size() > 1) {
         visible.clear();
@@ -673,14 +759,16 @@ void InboxPage::applyClientFilter()
             ordered << n;
     visible = ordered;
 
+    m_visibleIds.clear();
     m_list->clear();
     for (const Note &n : visible) {
+        m_visibleIds << n.id;
         QWidget *card = makeCard(n);
         // Inset 分组：卡片左右缩进、上下留缝，模拟 iOS InsetGroupedListStyle
         auto *item = new QListWidgetItem;
         auto *wrap = new QWidget;
         auto *wrapLay = new QVBoxLayout(wrap);
-        wrapLay->setContentsMargins(20, 5, 20, 6);
+        wrapLay->setContentsMargins(si(20), si(5), si(20), si(6));
         wrapLay->setSpacing(0);
         wrapLay->addWidget(card);
         item->setSizeHint(QSize(0, wrap->sizeHint().height()));
@@ -691,6 +779,14 @@ void InboxPage::applyClientFilter()
         m_stack->setCurrentIndex(1);
     else
         m_stack->setCurrentIndex(0);
+
+    // 渲染完成后，若有待跳转目标（此前被搜索/标签过滤），滚动定位并高亮
+    if (m_pendingJumpId != 0) {
+        const qint64 target = m_pendingJumpId;
+        m_pendingJumpId = 0;
+        jumpToNote(target);
+    }
+    m_rebuilding = false;
 }
 
 QWidget *InboxPage::makeCard(const Note &n)
@@ -701,14 +797,79 @@ QWidget *InboxPage::makeCard(const Note &n)
     connect(card, &NoteCard::commentRequested, this, &InboxPage::onComment);
     connect(card, &NoteCard::togglePinnedRequested, this, &InboxPage::onTogglePinned);
     connect(card, &NoteCard::taskToggled, this, &InboxPage::onTaskToggled);
+    connect(card, &NoteCard::parentReferenceClicked, this, &InboxPage::onParentReferenceClicked);
+    // 评论笔记：在内容下方展示被评论笔记的引用预览
+    if (n.commentParentId != 0) {
+        const QString preview = parentPreview(n.commentParentId);
+        if (!preview.isEmpty())
+            card->setParentReference(n.commentParentId, preview);
+    }
     return card;
+}
+
+QString InboxPage::parentPreview(qint64 parentId) const
+{
+    const Note *p = m_store.find(parentId);
+    if (!p || p->deleted)
+        return QString();
+    QString s = p->content;
+    // 轻量去除常见 markdown 标记，保留可读文本（# 标签保留）
+    s.remove(QRegularExpression(QStringLiteral("[`*_~>]")));
+    s.remove(QRegularExpression(QStringLiteral("^#{1,6}\\s+")));
+    // 折叠换行/空白为单个空格
+    s = s.simplified();
+    // 100 字截断
+    if (s.size() > 100)
+        s = s.left(100).trimmed() + QStringLiteral("…");
+    return s;
+}
+
+void InboxPage::jumpToNote(qint64 id)
+{
+    const int idx = m_visibleIds.indexOf(id);
+    if (idx < 0 || idx >= m_list->count())
+        return;
+    QListWidgetItem *item = m_list->item(idx);
+    m_list->scrollToItem(item, QAbstractItemView::PositionAtCenter);
+    QWidget *wrap = m_list->itemWidget(item);
+    if (!wrap)
+        return;
+    if (auto *card = wrap->findChild<NoteCard *>())
+        card->flashHighlight();
+}
+
+void InboxPage::onParentReferenceClicked(qint64 parentId)
+{
+    if (m_visibleIds.contains(parentId)) {
+        jumpToNote(parentId);
+        return;
+    }
+    // 目标不在当前可见列表（被搜索/标签过滤，或尚未加载）：本地也不存在则无法跳转
+    if (!m_store.find(parentId))
+        return;
+    // 清除搜索与标签过滤并重载，重载完成后跳转
+    m_pendingJumpId = parentId;
+    {
+        const QSignalBlocker bSearch(m_search);
+        m_search->clear();
+    }
+    {
+        const QSignalBlocker bTags(m_tagList);
+        for (int i = 0; i < m_tagList->count(); ++i)
+            m_tagList->item(i)->setCheckState(Qt::Unchecked);
+    }
+    m_selectedTags.clear();
+    loadNotes(true);
 }
 
 void InboxPage::onScroll()
 {
     auto *bar = m_list->verticalScrollBar();
     if (bar->value() >= bar->maximum() - 40)
-        loadNotes(false);
+        // 延迟到事件循环再加载：避免在 applyClientFilter 循环内（addItem 引发的
+        // valueChanged 同步回调）同步重入 loadNotes → renderLocal → 重建列表，
+        // 从而清除外层循环刚 addItem 的 item 造成 use-after-free。
+        QTimer::singleShot(0, this, [this] { loadNotes(false); });
 }
 
 void InboxPage::onSearchChanged()
@@ -759,6 +920,11 @@ void InboxPage::onNewNote()
         m_store.save();
         refreshAll();
     });
+}
+
+void InboxPage::openNewNote()
+{
+    onNewNote();
 }
 
 void InboxPage::onEditNote(qint64 id)

@@ -233,9 +233,9 @@ MarkdownRenderResult renderMarkdown(const QString &markdown)
                 flushPara();
                 closeList();
                 const int px = qMax(14, 20 - h * 2);
-                out += QStringLiteral("<h%1 style='margin:8px 0 4px;font-size:%2px;font-weight:700;'>")
+                out += QStringLiteral("<h%1 style='margin:8px 0 4px;font-size:%2;font-weight:700;'>")
                            .arg(h)
-                           .arg(px)
+                           .arg(sp(px))
                        + inlineToHtml(line.mid(h).trimmed(), res.taskCount)
                        + QStringLiteral("</h%1>").arg(h);
                 ++i;
