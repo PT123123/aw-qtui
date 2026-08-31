@@ -15,12 +15,16 @@
 #include "tagstore.h"
 #include "theme.h"
 #include "timelinepage.h"
+#include "todopage.h"
+#include "todostore.h"
 
 #include <QApplication>
 #include <QButtonGroup>
 #include <QComboBox>
+#include <QEasingCurve>
 #include <QEvent>
 #include <QFont>
+#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QKeySequence>
@@ -28,6 +32,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QPropertyAnimation>
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QSpinBox>
@@ -36,6 +41,12 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
+#endif
 
 #include <cmath>
 
@@ -49,6 +60,15 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     m_mdns = new MdnsDiscovery(this);
     m_tagStore = new TagStore;
     m_tagStore->load();
+    m_todoStore = new TodoStore(this);
+
+    // 界面效果配置：先于 buildUi 载入，确保页面在创建时就按配置渲染
+    const UiEffects fx = loadUiEffects();
+    gShadowLevel = fx.shadowLevel;
+    gGlassLevel = fx.glassLevel;
+    gFxAnimations = fx.animations;
+    gDwmBackdrop = fx.dwmBackdrop;
+
     buildUi();
 
     // 页面缩放：应用上次保存的比例（0.3~3.0），并安装全局事件过滤器拦截 Ctrl+滚轮 / +- 键
@@ -67,6 +87,8 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     connect(t, &QTimer::timeout, this, &MainWindow::updateStatus);
     t->start(30000);
     QTimer::singleShot(0, this, &MainWindow::updateStatus);
+    // 窗口显示后应用 DWM 系统背景（Mica/Acrylic），需 HWND 就绪
+    QTimer::singleShot(0, this, &MainWindow::applyDwmBackdrop);
 }
 
 MainWindow::~MainWindow()
@@ -84,7 +106,7 @@ void MainWindow::buildUi()
     // ---- 左侧导航 ----
     m_nav = new QWidget;
     m_nav->setObjectName(QStringLiteral("NavSidebar"));
-    m_nav->setFixedWidth(si(200));
+    m_nav->setFixedWidth(si(148));
     auto *nav = m_nav;
     auto *navLay = new QVBoxLayout(nav);
     navLay->setContentsMargins(0, si(16), 0, si(12));
@@ -92,8 +114,8 @@ void MainWindow::buildUi()
 
     auto *brand = new QLabel(QStringLiteral("aw · qtui"));
     brand->setObjectName(QStringLiteral("NavBrand"));
-    brand->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: white; padding: 0 %2 %3;")
-                             .arg(sp(20), sp(16), sp(12)));
+    brand->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: %2; padding: 0 %3 %4;")
+                             .arg(sp(17), kColorFg, sp(12), sp(10)));
     navLay->addWidget(brand);
 
     // 可折叠分组：header 点击展开/收起，容器内放导航按钮
@@ -132,12 +154,16 @@ void MainWindow::buildUi()
     NavSection inboxSec = makeSection(QStringLiteral("收件箱"), /*expanded*/ true);
 
     m_navInbox = new QPushButton(QStringLiteral("📥  收件箱"));
+    m_navTodo = new QPushButton(QStringLiteral("☑  任务"));
     m_navSync = new QPushButton(QStringLiteral("⇄  局域网同步"));
     m_navInbox->setObjectName(QStringLiteral("NavBtn"));
+    m_navTodo->setObjectName(QStringLiteral("NavBtn"));
     m_navSync->setObjectName(QStringLiteral("NavBtn"));
     m_navInbox->setCheckable(true);
+    m_navTodo->setCheckable(true);
     m_navSync->setCheckable(true);
     inboxSec.layout->addWidget(m_navInbox);
+    inboxSec.layout->addWidget(m_navTodo);
     inboxSec.layout->addWidget(m_navSync);
 
     // ---- 分组 2：ACTIVITYWATCH（默认收起）----
@@ -166,6 +192,7 @@ void MainWindow::buildUi()
     grp->addButton(m_navActivity);
     grp->addButton(m_navTimeline);
     grp->addButton(m_navInbox);
+    grp->addButton(m_navTodo);
     grp->addButton(m_navSync);
     grp->addButton(m_navDay);
     grp->addButton(m_navStats);
@@ -173,15 +200,16 @@ void MainWindow::buildUi()
     connect(m_navActivity, &QPushButton::clicked, this, [this] { switchPage(0); });
     connect(m_navTimeline, &QPushButton::clicked, this, [this] { switchPage(1); });
     connect(m_navInbox, &QPushButton::clicked, this, [this] { switchPage(2); });
-    connect(m_navSync, &QPushButton::clicked, this, [this] { switchPage(3); });
-    connect(m_navDay, &QPushButton::clicked, this, [this] { switchPage(4); });
-    connect(m_navStats, &QPushButton::clicked, this, [this] { switchPage(5); });
+    connect(m_navTodo, &QPushButton::clicked, this, [this] { switchPage(3); });
+    connect(m_navSync, &QPushButton::clicked, this, [this] { switchPage(4); });
+    connect(m_navDay, &QPushButton::clicked, this, [this] { switchPage(5); });
+    connect(m_navStats, &QPushButton::clicked, this, [this] { switchPage(6); });
 
     navLay->addStretch(1);
 
     m_deviceLabel = new QLabel;
     m_deviceLabel->setWordWrap(true);
-    m_deviceLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 11px; padding: 0 16px;")
+    m_deviceLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 11px; padding: 0 12px;")
                                      .arg(kColorFgMuted));
     navLay->addWidget(m_deviceLabel);
     root->addWidget(nav);
@@ -198,6 +226,9 @@ void MainWindow::buildUi()
     m_inbox = new InboxPage(m_api);
     qDebug() << "[MainWindow] InboxPage created";
     connect(m_inbox, &InboxPage::settingsRequested, this, &MainWindow::openSettings);
+    qDebug() << "[MainWindow] creating TodoPage...";
+    m_todo = new TodoPage(m_todoStore);
+    qDebug() << "[MainWindow] TodoPage created";
     qDebug() << "[MainWindow] creating SyncPage...";
     m_sync = new SyncPage(m_api, m_mdns);
     qDebug() << "[MainWindow] SyncPage created";
@@ -210,9 +241,10 @@ void MainWindow::buildUi()
     m_stack->addWidget(m_activity);   // 0
     m_stack->addWidget(m_timeline);   // 1
     m_stack->addWidget(m_inbox);      // 2
-    m_stack->addWidget(m_sync);       // 3
-    m_stack->addWidget(m_day);        // 4
-    m_stack->addWidget(m_stats);      // 5
+    m_stack->addWidget(m_todo);       // 3
+    m_stack->addWidget(m_sync);       // 4
+    m_stack->addWidget(m_day);        // 5
+    m_stack->addWidget(m_stats);      // 6
     qDebug() << "[MainWindow] all pages added to stack";
     root->addWidget(m_stack, 1);
 
@@ -239,11 +271,33 @@ void MainWindow::switchPage(int index)
     m_navActivity->setChecked(index == 0);
     m_navTimeline->setChecked(index == 1);
     m_navInbox->setChecked(index == 2);
-    m_navSync->setChecked(index == 3);
-    m_navDay->setChecked(index == 4);
-    m_navStats->setChecked(index == 5);
-    if (index == 3)
+    m_navTodo->setChecked(index == 3);
+    m_navSync->setChecked(index == 4);
+    m_navDay->setChecked(index == 5);
+    m_navStats->setChecked(index == 6);
+    if (index == 4)
         m_sync->refreshDevices();
+    if (index == 3)
+        m_todo->refresh();
+
+    // 切页淡入（受全局动画开关控制；动画结束即移除透明度效果，避免长期合成分开销）
+    if (gFxAnimations) {
+        if (QWidget *page = m_stack->widget(index)) {
+            auto *eff = new QGraphicsOpacityEffect(page);
+            eff->setOpacity(0.0);
+            page->setGraphicsEffect(eff);
+            auto *anim = new QPropertyAnimation(eff, "opacity", page);
+            anim->setDuration(150);
+            anim->setStartValue(0.0);
+            anim->setEndValue(1.0);
+            anim->setEasingCurve(QEasingCurve::OutCubic);
+            // 注意：setGraphicsEffect(nullptr) 会同步删除原效果，此处不要再对 eff 做 deleteLater
+            connect(anim, &QPropertyAnimation::finished, page, [page] {
+                page->setGraphicsEffect(nullptr);
+            });
+            anim->start(QAbstractAnimation::DeleteWhenStopped);
+        }
+    }
 }
 
 void MainWindow::updateStatus()
@@ -280,11 +334,33 @@ void MainWindow::openSettings()
     // 编辑快捷键期间暂停全局热键：避免录入“当前已绑定”的组合时误触发动作
     m_hotkey->suspendAll();
 
-    SettingsDialog dlg(loadShortcuts(), this);
+    const QString curTheme = gTheme ? QString::fromLatin1(gTheme->id) : QStringLiteral("midnight");
+    const UiEffects curFx = loadUiEffects();
+    SettingsDialog dlg(loadShortcuts(), curTheme, curFx, this);
     if (dlg.exec() != QDialog::Accepted) {
         applyShortcuts(); // 取消：恢复原注册
         return;
     }
+    // 主题变更：应用并持久化
+    const QString newTheme = dlg.themeId();
+    const UiEffects newFx = dlg.uiEffects();
+    const bool fxChanged = newFx.shadowLevel != gShadowLevel || newFx.glassLevel != gGlassLevel
+                           || newFx.animations != gFxAnimations || newFx.dwmBackdrop != gDwmBackdrop;
+    if (newTheme != curTheme)
+        saveThemeId(newTheme);
+    if (fxChanged) {
+        // 界面效果变更：更新全局配置并持久化
+        gShadowLevel = newFx.shadowLevel;
+        gGlassLevel = newFx.glassLevel;
+        gFxAnimations = newFx.animations;
+        gDwmBackdrop = newFx.dwmBackdrop;
+        saveUiEffects(newFx);
+        // DWM 背景变化需要立即应用/撤销
+        applyDwmBackdrop();
+    }
+    if (newTheme != curTheme || fxChanged)
+        applyTheme(newTheme); // 重建全局 QSS + 页面内联样式（阴影/玻璃/动画随之生效）
+
     saveShortcuts(dlg.config());
     const QStringList failed = applyShortcuts();
     if (!failed.isEmpty()) {
@@ -294,6 +370,31 @@ void MainWindow::openSettings()
                            "可在设置中改绑其它组合。")
                 .arg(failed.join(QLatin1Char('\n'))));
     }
+}
+
+void MainWindow::applyTheme(const QString &themeId)
+{
+    const Theme *t = findTheme(themeId);
+    if (!t)
+        return;
+    gTheme = t;
+    applyThemeColors(*t);
+    applyUiScale(); // 重建全局 QSS（按缩放）+ 缩放字体 + 导航 + inbox/todo 页面
+
+    // 页面级内联样式按新主题重建
+    if (m_activity)
+        m_activity->applyTheme();
+    if (m_timeline)
+        m_timeline->applyTheme();
+    if (m_day)
+        m_day->applyTheme();
+    if (m_stats)
+        m_stats->applyTheme();
+
+    // 强制顶层窗口重绘，刷新自绘的图表 / 时间轴等控件
+    for (QWidget *w : QApplication::topLevelWidgets())
+        w->update();
+    qDebug() << "[MainWindow] theme applied:" << t->id;
 }
 
 void MainWindow::wakeUpAndShow()
@@ -353,12 +454,15 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     case Qt::Key_4: switchPage(3); return;
     case Qt::Key_5: switchPage(4); return;
     case Qt::Key_6: switchPage(5); return;
+    case Qt::Key_7: switchPage(6); return;
     case Qt::Key_F5:
         if (m_stack->currentIndex() == 0) m_activity->refresh();
         else if (m_stack->currentIndex() == 1) m_timeline->refresh();
         else if (m_stack->currentIndex() == 2) m_inbox->refreshAll();
-        else if (m_stack->currentIndex() == 4) m_day->refresh();
-        else if (m_stack->currentIndex() == 5) m_stats->refresh();
+        else if (m_stack->currentIndex() == 3) m_todo->refresh();
+        else if (m_stack->currentIndex() == 4) m_sync->refreshDevices();
+        else if (m_stack->currentIndex() == 5) m_day->refresh();
+        else if (m_stack->currentIndex() == 6) m_stats->refresh();
         return;
     default: break;
     }
@@ -417,7 +521,7 @@ void MainWindow::applyUiScale()
     gUiScale = m_zoom;
 
     // 重新生成全局 QSS：把 Npx 字号/间距按缩放比放大，让控件重新布局（文字不糊）
-    qApp->setStyleSheet(scaleQss(kGlobalQss));
+    qApp->setStyleSheet(scaleQss(gGlobalQss));
 
     // 同步放大基准字体（与全局 QSS 基准 13px 一致），未内联字号的控件随之重排
     QFont f = qApp->font();
@@ -426,20 +530,75 @@ void MainWindow::applyUiScale()
 
     // 左侧导航：宽度、品牌字号、间距随缩放比调整（导航按钮样式来自全局 QSS 已缩放）
     if (m_nav) {
-        m_nav->setFixedWidth(si(200));
+        m_nav->setFixedWidth(si(148));
         auto *nl = qobject_cast<QVBoxLayout *>(m_nav->layout());
         if (nl) {
             nl->setContentsMargins(0, si(16), 0, si(12));
             nl->setSpacing(si(4));
         }
         if (auto *b = m_nav->findChild<QLabel *>(QStringLiteral("NavBrand")))
-            b->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: white; padding: 0 %2 %3;")
-                                 .arg(sp(20), sp(16), sp(12)));
+            b->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: %2; padding: 0 %3 %4;")
+                                 .arg(sp(17), kColorFg, sp(12), sp(10)));
     }
 
     // 页面级缩放样式（目前重点：Inbox 页）
     if (m_inbox)
         m_inbox->applyUiScale();
+    if (m_todo)
+        m_todo->applyUiScale();
+}
+
+void MainWindow::applyDwmBackdrop()
+{
+#ifdef Q_OS_WIN
+    HWND hwnd = (HWND)winId();
+    if (!hwnd)
+        return;
+    // DWMWA_SYSTEMBACKDROP_TYPE = 38（Win11 22H2+）
+    // DWMSBT_AUTO=0, DWMSBT_NONE=1, DWMSBT_MAINWINDOW=2(Mica), DWMSBT_TRANSIENTWINDOW=3(Acrylic)
+    const DWORD type = gDwmBackdrop ? 2 : 1;
+    HRESULT hr = DwmSetWindowAttribute(hwnd, 38, &type, sizeof(type));
+    if (gDwmBackdrop && SUCCEEDED(hr)) {
+        setAttribute(Qt::WA_TranslucentBackground, true);
+        // alpha=1 极淡背景：Qt 会在重绘时用它填充整个区域（正确擦除旧像素，避免残影），
+        // 但 alpha=1 人眼几乎不可见，DWM Mica 背景仍能透出。
+        // 不能用 background: transparent —— Qt 会跳过背景绘制，导致旧帧残留（残影）。
+        const QString faint = QStringLiteral("background: rgba(0,0,0,1);");
+        if (auto *cw = centralWidget())
+            cw->setStyleSheet(faint);
+        if (m_stack)
+            m_stack->setStyleSheet(faint);
+    } else {
+        setAttribute(Qt::WA_TranslucentBackground, false);
+        if (auto *cw = centralWidget())
+            cw->setStyleSheet(QString());
+        if (m_stack)
+            m_stack->setStyleSheet(QString());
+    }
+#else
+    Q_UNUSED(this);
+#endif
+}
+
+// DWM 透明背景下，Qt 的 backing store 可能不擦除旧像素导致残影；
+// 此处每次 paintEvent 都用透明色填充整个窗口，强制清除 backing store。
+void MainWindow::paintEvent(QPaintEvent *event)
+{
+    if (gDwmBackdrop) {
+        QPainter p(this);
+        p.setCompositionMode(QPainter::CompositionMode_Clear);
+        p.fillRect(rect(), Qt::transparent);
+        p.end();
+    }
+    QMainWindow::paintEvent(event);
+}
+
+// DWM 透明背景下调整窗口大小时，强制全窗口重绘，避免边缘残影。
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    if (gDwmBackdrop)
+        update();
 }
 
 void MainWindow::showZoomBadge()

@@ -22,6 +22,8 @@ class ActivityPage;
 class TimelinePage;
 class DayPage;
 class StatsPage;
+class TodoPage;
+class TodoStore;
 class TagStore;
 
 class MainWindow : public QMainWindow
@@ -37,14 +39,20 @@ public:
     TimelinePage *timelinePage() const { return m_timeline; }
     DayPage *dayPage() const { return m_day; }
     StatsPage *statsPage() const { return m_stats; }
+    TodoPage *todoPage() const { return m_todo; }
 
     void switchPage(int index);
 
     // 当前页面缩放比（1.0 = 100%）
     qreal zoomScale() const { return m_zoom; }
 
+    // 应用指定主题：更新语义色/全局 QSS、刷新页面内联样式与自绘控件并重绘
+    void applyTheme(const QString &themeId);
+
 protected:
     void keyPressEvent(QKeyEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     bool eventFilter(QObject *obj, QEvent *event) override;
 
@@ -66,6 +74,8 @@ private:
     void setZoom(qreal zoom, bool underMouse);
     // 把当前缩放比落到位：重生成全局 QSS + 放大基准字体，并通知页面重应用其缩放样式
     void applyUiScale();
+    // Windows DWM 系统背景（Mica/Acrylic）：开启时窗口背景透明让 DWM 模糊透出，失败静默回退
+    void applyDwmBackdrop();
     // 右下角短暂显示当前缩放百分比
     void showZoomBadge();
     // 事件目标是否属于可缩放的主窗口内容区
@@ -73,29 +83,32 @@ private:
     // 焦点控件是否为文本输入类（此时无修饰 +/- 应交给输入，不做缩放）
     bool isTextEditingWidget(const QWidget *w) const;
 
-    ApiClient *m_api;
-    MdnsDiscovery *m_mdns;
-    GlobalHotkey *m_hotkey;
-    TagStore *m_tagStore;
-    ActivityPage *m_activity;
-    TimelinePage *m_timeline;
-    InboxPage *m_inbox;
-    SyncPage *m_sync;
-    DayPage *m_day;
-    StatsPage *m_stats;
-    QStackedWidget *m_stack;
+    ApiClient *m_api = nullptr;
+    MdnsDiscovery *m_mdns = nullptr;
+    GlobalHotkey *m_hotkey = nullptr;
+    TagStore *m_tagStore = nullptr;
+    TodoStore *m_todoStore = nullptr;
+    ActivityPage *m_activity = nullptr;
+    TimelinePage *m_timeline = nullptr;
+    InboxPage *m_inbox = nullptr;
+    SyncPage *m_sync = nullptr;
+    DayPage *m_day = nullptr;
+    StatsPage *m_stats = nullptr;
+    TodoPage *m_todo = nullptr;
+    QStackedWidget *m_stack = nullptr;
     // 左侧导航栏（缩放时按比例调整宽度）
-    QWidget *m_nav;
+    QWidget *m_nav = nullptr;
     // 页面缩放：当前缩放比（1.0 = 100%）与右下角百分比提示
-    qreal m_zoom;
-    QLabel *m_zoomBadge;
-    QPushButton *m_navActivity;
-    QPushButton *m_navTimeline;
-    QPushButton *m_navInbox;
-    QPushButton *m_navSync;
-    QPushButton *m_navDay;
-    QPushButton *m_navStats;
-    QLabel *m_deviceLabel;
+    qreal m_zoom = 1.0;
+    QLabel *m_zoomBadge = nullptr;
+    QPushButton *m_navActivity = nullptr;
+    QPushButton *m_navTimeline = nullptr;
+    QPushButton *m_navInbox = nullptr;
+    QPushButton *m_navTodo = nullptr;
+    QPushButton *m_navSync = nullptr;
+    QPushButton *m_navDay = nullptr;
+    QPushButton *m_navStats = nullptr;
+    QLabel *m_deviceLabel = nullptr;
 };
 
 } // namespace awqtui

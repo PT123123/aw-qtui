@@ -80,7 +80,7 @@ void InboxPage::buildUi()
     m_tagPanel->setObjectName(QStringLiteral("TagPanel"));
     m_tagPanel->setStyleSheet(scaleQss(QStringLiteral(
         "QWidget#TagPanel { background: %1; border-right: 1px solid %2; }")
-                                          .arg(kColorBgElev, kColorBorder)));
+                                          .arg(glassBg(kColorBgElev), glassBorder())));
     m_tagPanel->setFixedWidth(si(m_sidebarWidth));
     auto *tagLay = new QVBoxLayout(m_tagPanel);
     tagLay->setContentsMargins(si(10), si(12), si(10), si(12));
@@ -94,8 +94,8 @@ void InboxPage::buildUi()
     m_tagList->setStyleSheet(scaleQss(QStringLiteral(
         "QListWidget { background: transparent; border: none; outline: none; }"
         "QListWidget::item { padding: 6px 8px; border: none; border-radius: 6px; color: %1; }"
-        "QListWidget::item:hover { background: %2; color: white; }")
-                                         .arg(kColorFg, kColorBgElev2)));
+        "QListWidget::item:hover { background: %2; color: %3; }")
+                                         .arg(kColorFg, kColorBgElev2, kColorFg)));
     connect(m_tagList, &QListWidget::itemChanged, this, [this](QListWidgetItem *) { onTagToggled(); });
     tagLay->addWidget(m_tagList, 1);
     auto *btnClear = new QPushButton(QStringLiteral("清除过滤"));
@@ -113,6 +113,18 @@ void InboxPage::buildUi()
     });
     tagLay->addWidget(btnClear);
 
+    // ---- 设置入口（放在最左栏底部，不在收件箱主体工具栏） ----
+    auto *btnSettings = new QPushButton(QStringLiteral("⚙  设置"));
+    m_btnSettings = btnSettings;
+    btnSettings->setToolTip(QStringLiteral("设置（全局快捷键）"));
+    btnSettings->setStyleSheet(scaleQss(QStringLiteral(
+        "QPushButton { background: transparent; border: none; color: %1; font-size: 11px;"
+        " text-align: left; padding: 2px; }"
+        "QPushButton:hover { color: %2; }")
+                                           .arg(kColorFgMuted, kColorAccent)));
+    connect(btnSettings, &QPushButton::clicked, this, &InboxPage::settingsRequested);
+    tagLay->addWidget(btnSettings);
+
     // ---- 主区 ----
     auto *main = new QWidget;
     auto *mainLay = new QVBoxLayout(main);
@@ -125,7 +137,7 @@ void InboxPage::buildUi()
     toolbar->setSpacing(si(10));
 
     m_title = new QLabel(QStringLiteral("收件箱"));
-    m_title->setStyleSheet(scaleQss(QStringLiteral("font-size: 22px; font-weight: 700; color: white;")));
+    m_title->setStyleSheet(scaleQss(QStringLiteral("font-size: 22px; font-weight: 700; color: %1;").arg(kColorFg)));
     toolbar->addWidget(m_title);
 
     m_search = new QLineEdit;
@@ -171,13 +183,6 @@ void InboxPage::buildUi()
     m_btnRefresh->setStyleSheet(scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg)));
     connect(m_btnRefresh, &QPushButton::clicked, this, &InboxPage::onRefresh);
     toolbar->addWidget(m_btnRefresh);
-
-    m_btnSettings = new QPushButton(QStringLiteral("⚙"));
-    m_btnSettings->setToolTip(QStringLiteral("设置（全局快捷键）"));
-    m_btnSettings->setFixedSize(si(30), si(30));
-    m_btnSettings->setStyleSheet(scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg)));
-    connect(m_btnSettings, &QPushButton::clicked, this, &InboxPage::settingsRequested);
-    toolbar->addWidget(m_btnSettings);
 
     m_badge = new StatusBadge;
     toolbar->addWidget(m_badge);
@@ -233,11 +238,8 @@ void InboxPage::buildUi()
         " font-size: 28px; font-weight: 400; }"
         "QPushButton#Fab:hover { background: %2; }")
                                      .arg(kColorAccent, kColorAccentHover)));
-    auto *fabShadow = new QGraphicsDropShadowEffect(m_fab);
-    fabShadow->setBlurRadius(si(24));
-    fabShadow->setColor(QColor(0, 0, 0, 150));
-    fabShadow->setOffset(0, si(4));
-    m_fab->setGraphicsEffect(fabShadow);
+    // 悬浮 + 投影（受全局阴影强度控制）
+    m_fabShadow = makeDropShadow(m_fab);
     connect(m_fab, &QPushButton::clicked, this, &InboxPage::onNewNote);
     auto *fabRow = new QWidget;
     auto *fabLay = new QHBoxLayout(fabRow);
@@ -261,7 +263,7 @@ void InboxPage::applyUiScale()
     if (m_tagPanel) {
         m_tagPanel->setStyleSheet(scaleQss(QStringLiteral(
             "QWidget#TagPanel { background: %1; border-right: 1px solid %2; }")
-                                               .arg(kColorBgElev, kColorBorder)));
+                                               .arg(glassBg(kColorBgElev), glassBorder())));
         m_tagPanel->setFixedWidth(si(m_sidebarWidth));
     }
     if (m_tagTitle)
@@ -272,10 +274,16 @@ void InboxPage::applyUiScale()
         m_tagList->setStyleSheet(scaleQss(QStringLiteral(
             "QListWidget { background: transparent; border: none; outline: none; }"
             "QListWidget::item { padding: 6px 8px; border: none; border-radius: 6px; color: %1; }"
-            "QListWidget::item:hover { background: %2; color: white; }")
-                                             .arg(kColorFg, kColorBgElev2)));
+            "QListWidget::item:hover { background: %2; color: %3; }")
+                                             .arg(kColorFg, kColorBgElev2, kColorFg)));
     if (m_btnClear)
         m_btnClear->setStyleSheet(scaleQss(QStringLiteral(
+            "QPushButton { background: transparent; border: none; color: %1; font-size: 11px;"
+            " text-align: left; padding: 2px; }"
+            "QPushButton:hover { color: %2; }")
+                                               .arg(kColorFgMuted, kColorAccent)));
+    if (m_btnSettings)
+        m_btnSettings->setStyleSheet(scaleQss(QStringLiteral(
             "QPushButton { background: transparent; border: none; color: %1; font-size: 11px;"
             " text-align: left; padding: 2px; }"
             "QPushButton:hover { color: %2; }")
@@ -283,7 +291,7 @@ void InboxPage::applyUiScale()
 
     // 工具栏
     if (m_title)
-        m_title->setStyleSheet(scaleQss(QStringLiteral("font-size: 22px; font-weight: 700; color: white;")));
+        m_title->setStyleSheet(scaleQss(QStringLiteral("font-size: 22px; font-weight: 700; color: %1;").arg(kColorFg)));
     if (m_search)
         m_search->setFixedWidth(si(240));
     if (m_sort)
@@ -293,11 +301,11 @@ void InboxPage::applyUiScale()
         " color: %1; padding: 5px 10px; font-size: 12px; }"
         "QPushButton:hover { background: %2; color: %3; }");
     const QString subtleStyle = scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg));
-    for (QPushButton *b : {m_btnSidebar, m_btnRefresh, m_btnSettings, m_btnCopy}) {
+    for (QPushButton *b : {m_btnSidebar, m_btnRefresh, m_btnCopy}) {
         if (b)
             b->setStyleSheet(subtleStyle);
     }
-    for (QPushButton *b : {m_btnSidebar, m_btnRefresh, m_btnSettings})
+    for (QPushButton *b : {m_btnSidebar, m_btnRefresh})
         if (b)
             b->setFixedSize(si(30), si(30));
 
@@ -317,6 +325,9 @@ void InboxPage::applyUiScale()
             " font-size: 28px; font-weight: 400; }"
             "QPushButton#Fab:hover { background: %2; }")
                                          .arg(kColorAccent, kColorAccentHover)));
+        // 阴影随强度增删（受全局阴影强度控制）
+        clearDropShadow(m_fab, m_fabShadow);
+        m_fabShadow = makeDropShadow(m_fab);
     }
 
     if (m_badge)
@@ -330,6 +341,8 @@ void InboxPage::applyUiScale()
 
 void InboxPage::refreshAll()
 {
+    // 刷新/初次加载：给本次重建的卡片加入场淡入（过滤、翻页不触发）
+    m_animateCards = true;
     if (isOffline()) {
         // 服务端不可用：直接渲染本地缓存，并尝试重连
         rebuildTagsFromLocal();
@@ -774,7 +787,11 @@ void InboxPage::applyClientFilter()
         item->setSizeHint(QSize(0, wrap->sizeHint().height()));
         m_list->addItem(item);
         m_list->setItemWidget(item, wrap);
+        // 入场淡入：仅刷新/初次加载时（阴影在卡片上、透明度在包裹层上，互不冲突）
+        if (m_animateCards)
+            fadeInWidget(wrap, 180);
     }
+    m_animateCards = false;
     if (visible.isEmpty())
         m_stack->setCurrentIndex(1);
     else

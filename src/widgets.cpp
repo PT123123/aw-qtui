@@ -8,6 +8,7 @@
 #include <QClipboard>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QListWidgetItem>
@@ -18,6 +19,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 
 #include <utility>
@@ -131,11 +133,19 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
     : QFrame(parent), m_note(note), m_pinned(pinned)
 {
     setObjectName(QStringLiteral("NoteCard"));
+    // 玻璃卡片背景（半透明 + 顶部高光）+ 玻璃亮边；悬浮时背景向强调色靠拢
+    const QString cardBg = glassBg(kColorBgElev);
+    const QString cardBorder = glassBorder();
+    const qreal d = (gTheme && gTheme->light) ? -1.0 : 1.0;
+    const QString cardHover = glassEnabled() ? withAlpha(mix(kColorBgElev, kColorAccent, 0.10).toUtf8().constData(), 0.85)
+                                              : shade(kColorBgElev, 0.05 * d);
     m_baseStyle = scaleQss(QStringLiteral(
-        "QFrame#NoteCard { background: %1; border: 1px solid %2; border-radius: 10px; }"
-        "QFrame#NoteCard:hover { border-color: %3; }")
-        .arg(kColorBgElev, kColorBorder, kColorAccent));
+        "QFrame#NoteCard { background: %1; border: 1px solid %2; border-radius: 12px; }"
+        "QFrame#NoteCard:hover { background: %3; border-color: %4; }")
+        .arg(cardBg, cardBorder, cardHover, kColorAccent));
     setStyleSheet(m_baseStyle);
+    // 卡片投影（受全局阴影强度控制）
+    makeDropShadow(this);
 
     auto *lay = new QVBoxLayout(this);
     lay->setContentsMargins(si(14), si(10), si(10), si(12));
@@ -296,12 +306,35 @@ bool NoteCard::eventFilter(QObject *obj, QEvent *event)
 }
 
 // 跳转定位时的视觉反馈：边框高亮闪烁，随后恢复基础样式
+// 开启动画时为平滑的「强调色脉冲」；关闭时退化为静态高亮后延迟恢复
 void NoteCard::flashHighlight()
 {
+    const QString bg = glassBg(kColorBgElev);
+    const QString radius = QStringLiteral("12px");
+    if (gFxAnimations) {
+        auto *anim = new QVariantAnimation(this);
+        anim->setStartValue(0.0);
+        anim->setEndValue(1.0);
+        anim->setDuration(700);
+        anim->setEasingCurve(QEasingCurve::OutCubic);
+        connect(anim, &QVariantAnimation::valueChanged, this, [this, bg, radius](const QVariant &v) {
+            const qreal t = v.toReal();
+            const QString bc = mix(kColorBorder, kColorAccent, t);
+            setStyleSheet(scaleQss(QStringLiteral(
+                "QFrame#NoteCard { background: %1; border: 2px solid %2; border-radius: %3; }")
+                .arg(bg, bc, radius)));
+        });
+        connect(anim, &QVariantAnimation::finished, this, [this] {
+            if (!m_baseStyle.isEmpty())
+                setStyleSheet(m_baseStyle);
+        });
+        anim->start(QAbstractAnimation::DeleteWhenStopped);
+        return;
+    }
     setStyleSheet(scaleQss(QStringLiteral(
-        "QFrame#NoteCard { background: %1; border: 2px solid %2; border-radius: 10px; }")
-        .arg(kColorBgElev, kColorAccent)));
-    QTimer::singleShot(1600, this, [this] {
+        "QFrame#NoteCard { background: %1; border: 2px solid %2; border-radius: %3; }")
+        .arg(bg, kColorAccent, radius)));
+    QTimer::singleShot(1200, this, [this] {
         if (!m_baseStyle.isEmpty())
             setStyleSheet(m_baseStyle);
     });
@@ -337,10 +370,10 @@ NoteEditorDialog::NoteEditorDialog(const QString &initial, const QStringList &ex
     m_suggest->setMaximumHeight(si(120));
     m_suggest->setVisible(false);
     m_suggest->setStyleSheet(scaleQss(QStringLiteral(
-        "QListWidget { background: #2a2f37; border: 1px solid %1; border-radius: 6px; }"
+        "QListWidget { background: %1; border: 1px solid %2; border-radius: 6px; }"
         "QListWidget::item { padding: 5px 10px; }"
-        "QListWidget::item:selected { background: %2; }")
-                                 .arg(kColorBorder, kColorAccent)));
+        "QListWidget::item:selected { background: %3; }")
+                                 .arg(kColorBgElev2, kColorBorder, kColorAccent)));
     connect(m_suggest, &QListWidget::itemClicked, this, &NoteEditorDialog::applySuggestion);
     lay->addWidget(m_suggest);
 

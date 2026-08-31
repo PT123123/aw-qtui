@@ -75,7 +75,7 @@ void TagEditorDialog::buildUi()
     toolbar->addWidget(m_exportBtn);
     toolbar->addStretch(1);
     m_status = new QLabel;
-    m_status->setStyleSheet(QStringLiteral("color:#6b7280;font-size:11px;"));
+    m_status->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorMuted2));
     toolbar->addWidget(m_status);
     root->addLayout(toolbar);
 
@@ -116,7 +116,7 @@ void TagEditorDialog::buildUi()
     auto *tagHint = new QLabel(
         QStringLiteral("右键标签可切换 Skip 颜色 / 默认可计费；每个标签有独立颜色，组合显示首个标签的颜色。"));
     tagHint->setWordWrap(true);
-    tagHint->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:11px;"));
+    tagHint->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
     tl->addWidget(tagHint);
     m_tagTable = new QTableWidget(0, 4);
     m_tagTable->setHorizontalHeaderLabels(
@@ -140,7 +140,7 @@ void TagEditorDialog::buildUi()
     auto *shortcutHint = new QLabel(
         QStringLiteral("为最常用标签绑定按键（A-Z 或数字）：在 Day 视图选中时间段后按对应键即打标签。"));
     shortcutHint->setWordWrap(true);
-    shortcutHint->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:11px;"));
+    shortcutHint->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
     sl->addWidget(shortcutHint);
     m_shortcutTable = new QTableWidget(0, 2);
     m_shortcutTable->setHorizontalHeaderLabels({QStringLiteral("Key"), QStringLiteral("Tag")});
@@ -172,7 +172,7 @@ void TagEditorDialog::buildUi()
         QStringLiteral("本地文件 / 手动输入标签：每行一个组合，逗号分隔；支持部分标签展开。\n"
                        "例：\n  Project X,\n  Project Y,\n  ,Design\n  ,Testing\n→ Project X, Design ..."));
     sourceHint->setWordWrap(true);
-    sourceHint->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:11px;"));
+    sourceHint->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
     sol->addWidget(sourceHint);
     m_sourceEdit = new QPlainTextEdit;
     m_sourceEdit->setPlaceholderText(QStringLiteral("在此粘贴标签（每行一个组合，逗号分隔）..."));
@@ -234,7 +234,7 @@ void TagEditorDialog::reloadCombos()
         const TagMeta &m = metas[r];
         const QStringList parts = m.name.split(QLatin1Char(','));
         auto *nameItem = new QTableWidgetItem(m.name);
-        nameItem->setForeground(parts.isEmpty() ? QColor(QStringLiteral("#e6e6e6"))
+        nameItem->setForeground(parts.isEmpty() ? QColor(kColorFg)
                                                 : m_store->tagColor(parts.first().trimmed()));
         m_comboTable->setItem(r, 0, nameItem);
         m_comboTable->setItem(r, 1, new QTableWidgetItem(m.lastUsed.left(10)));

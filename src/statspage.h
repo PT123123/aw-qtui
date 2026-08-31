@@ -27,6 +27,8 @@ class StatsPage : public QWidget
 public:
     explicit StatsPage(TagStore *store, QWidget *parent = nullptr);
     void refresh();
+    // 按当前主题重建页面内联样式与图表（主题切换时调用）
+    void applyTheme();
 
 private slots:
     void onFromChanged();

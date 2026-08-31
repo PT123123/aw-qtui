@@ -1,6 +1,8 @@
 // statschart.cpp
 #include "statschart.h"
 
+#include "theme.h"
+
 #include <QPainter>
 
 namespace awqtui {
@@ -16,7 +18,7 @@ void StatsChartWidget::setSeries(const QList<StatsSeries> &series)
 void StatsChartWidget::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
-    p.fillRect(rect(), QColor(QStringLiteral("#1b1d21")));
+    p.fillRect(rect(), QColor(kColorChartBg));
     p.setRenderHint(QPainter::Antialiasing, true);
 
     const int left = 70;
@@ -28,7 +30,7 @@ void StatsChartWidget::paintEvent(QPaintEvent *)
 
     // 标题
     if (!m_title.isEmpty()) {
-        p.setPen(QColor(QStringLiteral("#e6e6e6")));
+        p.setPen(QColor(kColorFg));
         QFont f = p.font();
         f.setBold(true);
         p.setFont(f);
@@ -38,7 +40,7 @@ void StatsChartWidget::paintEvent(QPaintEvent *)
     }
 
     if (m_series.isEmpty()) {
-        p.setPen(QColor(QStringLiteral("#6b7280")));
+        p.setPen(QColor(kColorMuted2));
         p.drawText(plot, Qt::AlignCenter, QStringLiteral("（无数据）"));
         return;
     }
@@ -57,14 +59,14 @@ void StatsChartWidget::paintEvent(QPaintEvent *)
     yMax *= 1.1;
 
     // 网格 + y 轴
-    p.setPen(QPen(QColor(QStringLiteral("#2c2e33")), 1));
+    p.setPen(QPen(QColor(kColorBgElev2), 1));
     const int gridY = 4;
     for (int i = 0; i <= gridY; ++i) {
         const double v = yMax * i / gridY;
         const int y = plot.bottom() - int(plot.height() * v / yMax);
-        p.setPen(QPen(QColor(QStringLiteral("#2c2e33")), 1));
+        p.setPen(QPen(QColor(kColorBgElev2), 1));
         p.drawLine(plot.left(), y, plot.right(), y);
-        p.setPen(QColor(QStringLiteral("#9aa4b0")));
+        p.setPen(QColor(kColorFgMuted));
         p.drawText(QRect(0, y - 8, left - 8, 16), Qt::AlignRight | Qt::AlignVCenter,
                    QString::number(v, 'f', v < 10 ? 1 : 0));
     }
@@ -78,7 +80,7 @@ void StatsChartWidget::paintEvent(QPaintEvent *)
             const QRect bar(int(plot.left() + groupW * i + groupW * 0.2),
                             plot.bottom() - barH, int(groupW * 0.6), barH);
             p.fillRect(bar, m_series.first().color);
-            p.setPen(QColor(QStringLiteral("#1b1d21")));
+            p.setPen(QColor(kColorChartBg));
             p.drawRect(bar);
         }
     } else {
@@ -125,7 +127,7 @@ void StatsChartWidget::paintEvent(QPaintEvent *)
     }
 
     // x 轴标签（抽样显示）
-    p.setPen(QColor(QStringLiteral("#9aa4b0")));
+    p.setPen(QColor(kColorFgMuted));
     const int step = qMax(1, n / 8);
     for (int i = 0; i < n; i += step) {
         const double x = plot.left() + (n <= 1 ? plot.width() / 2.0
@@ -142,7 +144,7 @@ void StatsChartWidget::paintEvent(QPaintEvent *)
         p.setPen(Qt::NoPen);
         p.setBrush(s.color);
         p.drawRect(lx, top - 22, 10, 10);
-        p.setPen(QColor(QStringLiteral("#c9d1d9")));
+        p.setPen(QColor(kColorFgSoft));
         const int w = p.fontMetrics().horizontalAdvance(s.name) + 6;
         p.drawText(QRect(lx + 14, top - 28, w, 20), Qt::AlignLeft | Qt::AlignVCenter, s.name);
         lx -= (w + 14 + 10);

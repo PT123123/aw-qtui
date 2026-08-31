@@ -7,8 +7,11 @@
 
 #include "appsettings.h"
 
-class QKeyEvent;
+class QComboBox;
+class QCheckBox;
 class QFocusEvent;
+class QKeyEvent;
+class QLabel;
 
 namespace awqtui {
 
@@ -35,20 +38,33 @@ private:
     QKeySequence m_seq;
 };
 
-// 设置对话框：编辑“添加记录”与“唤醒并跳转收件箱”两个全局快捷键
+// 设置对话框：主题选择 + 界面效果开关（阴影/材质/动画）+ 两个全局快捷键
 class SettingsDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit SettingsDialog(const ShortcutConfig &cfg, QWidget *parent = nullptr);
+    explicit SettingsDialog(const ShortcutConfig &cfg, const QString &themeId = QString(),
+                            const UiEffects &fx = UiEffects{}, QWidget *parent = nullptr);
 
     ShortcutConfig config() const;
-    // 校验配置，返回错误信息（空串表示通过）
+    // 当前选择的主题 ID
+    QString themeId() const;
+    // 当前勾选的界面效果开关
+    UiEffects uiEffects() const;
+    // 校验快捷键配置，返回错误信息（空串表示通过）
     static QString validate(const ShortcutConfig &c);
 
 private:
     ShortcutEdit *m_add;
     ShortcutEdit *m_inbox;
+    QComboBox *m_themeCombo;
+    QLabel *m_themeDesc;
+    QComboBox *m_presetCombo;     // 效果预设
+    QComboBox *m_shadowCombo;     // 阴影强度
+    QComboBox *m_glassCombo;      // 玻璃强度
+    QCheckBox *m_cbAnimations;    // 动画
+    QCheckBox *m_cbDwm;           // DWM 系统背景（实验性）
+    bool m_updatingPreset = false;
 };
 
 } // namespace awqtui

@@ -22,6 +22,8 @@ public:
     void setDate(const QDate &date);
     QDate date() const { return m_date; }
     void refresh();
+    // 按当前主题重建页面内联样式（主题切换时调用）
+    void applyTheme();
 
 private slots:
     void onPrevDay();
@@ -38,21 +40,21 @@ private:
     QDate m_date;
     QList<TimelineLane> m_lanes;
 
-    QLabel *m_dateLabel;
-    QPushButton *m_prevBtn;
-    QPushButton *m_nextBtn;
-    QPushButton *m_todayBtn;
-    QComboBox *m_intervalCombo;
-    QComboBox *m_showLastCombo;
-    QLabel *m_eventsLabel;
-    QPushButton *m_resetBtn;
+    QLabel *m_dateLabel = nullptr;
+    QPushButton *m_prevBtn = nullptr;
+    QPushButton *m_nextBtn = nullptr;
+    QPushButton *m_todayBtn = nullptr;
+    QComboBox *m_intervalCombo = nullptr;
+    QComboBox *m_showLastCombo = nullptr;
+    QLabel *m_eventsLabel = nullptr;
+    QPushButton *m_resetBtn = nullptr;
 
-    TimelineWidget *m_timeline;
+    TimelineWidget *m_timeline = nullptr;
 
-    QLabel *m_totalTracked;
-    QLabel *m_afkTime;
-    QLabel *m_firstActivity;
-    QLabel *m_lastActivity;
+    QLabel *m_totalTracked = nullptr;
+    QLabel *m_afkTime = nullptr;
+    QLabel *m_firstActivity = nullptr;
+    QLabel *m_lastActivity = nullptr;
 };
 
 } // namespace awqtui

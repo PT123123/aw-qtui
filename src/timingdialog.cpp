@@ -1,6 +1,8 @@
 // timingdialog.cpp
 #include "timingdialog.h"
 
+#include "theme.h"
+
 #include <QDateTime>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -70,7 +72,7 @@ TimingDialog::TimingDialog(TagStore *store, QWidget *parent)
     auto *swl = new QVBoxLayout(sw);
     m_swDisplay = new QLabel(QStringLiteral("00:00:00"));
     m_swDisplay->setAlignment(Qt::AlignCenter);
-    m_swDisplay->setStyleSheet(QStringLiteral("font-size:42px;font-weight:700;color:#e6e6e6;"));
+    m_swDisplay->setStyleSheet(QStringLiteral("font-size:42px;font-weight:700;color:%1;").arg(kColorFg));
     swl->addWidget(m_swDisplay);
     auto *swBtns = new QHBoxLayout;
     m_swStart = new QPushButton(QStringLiteral("Start"));
@@ -87,7 +89,7 @@ TimingDialog::TimingDialog(TagStore *store, QWidget *parent)
     auto *swHint = new QLabel(
         QStringLiteral("开始前先选标签；停止后生成一条时间段标签。暂停再继续会累计时长。"));
     swHint->setWordWrap(true);
-    swHint->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:11px;"));
+    swHint->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
     swl->addWidget(swHint);
     tabs->addTab(sw, QStringLiteral("秒表"));
 
@@ -100,7 +102,7 @@ TimingDialog::TimingDialog(TagStore *store, QWidget *parent)
     m_timerMin->setRange(1, 600);
     m_timerMin->setValue(25);
     m_timerDisplay = new QLabel(QStringLiteral("00:00"));
-    m_timerDisplay->setStyleSheet(QStringLiteral("font-size:32px;font-weight:700;color:#e6e6e6;"));
+    m_timerDisplay->setStyleSheet(QStringLiteral("font-size:32px;font-weight:700;color:%1;").arg(kColorFg));
     trow->addWidget(m_timerMin);
     trow->addWidget(m_timerDisplay);
     trow->addStretch(1);
@@ -115,14 +117,14 @@ TimingDialog::TimingDialog(TagStore *store, QWidget *parent)
     auto *pl = new QVBoxLayout(pomo);
     m_pomoDisplay = new QLabel(QStringLiteral("25:00"));
     m_pomoDisplay->setAlignment(Qt::AlignCenter);
-    m_pomoDisplay->setStyleSheet(QStringLiteral("font-size:42px;font-weight:700;color:#e6e6e6;"));
+    m_pomoDisplay->setStyleSheet(QStringLiteral("font-size:42px;font-weight:700;color:%1;").arg(kColorFg));
     pl->addWidget(m_pomoDisplay);
     m_pomoStart = new QPushButton(QStringLiteral("开始 25 分钟工作"));
     m_pomoStart->setObjectName(QStringLiteral("PrimaryBtn"));
     pl->addWidget(m_pomoStart);
     auto *pomoHint = new QLabel(QStringLiteral("工作 25 分钟 → 选标签 → 休息 5 分钟（Break）。"));
     pomoHint->setWordWrap(true);
-    pomoHint->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:11px;"));
+    pomoHint->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
     pl->addWidget(pomoHint);
     tabs->addTab(pomo, QStringLiteral("番茄钟"));
 
