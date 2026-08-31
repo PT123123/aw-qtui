@@ -1,9 +1,46 @@
 // theme.h —— 深色主题 QSS（气质对齐 aw-webui 暗色界面）
 #pragma once
 
+#include <QRegularExpression>
 #include <QString>
 
 namespace awqtui {
+
+// 全局 UI 缩放因子（1.0 = 100%）。B 方案：清晰重排式缩放——
+// 按该因子放大基准字号并重新生成 Npx 样式，让控件重新布局，而非像素等比拉伸。
+inline qreal gUiScale = 1.0;
+
+// 样式表内 Npx -> 缩放后 Npx（仅匹配 "数字px"，不会误伤 #rrggbb / rgba 颜色）
+inline QString scaleQss(const QString &base)
+{
+    if (qAbs(gUiScale - 1.0) < 0.0001)
+        return base;
+    static const QRegularExpression re(QStringLiteral("(\\d+)px"));
+    QString out;
+    out.reserve(base.size() + 32);
+    int last = 0;
+    auto it = re.globalMatch(base);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        out += base.mid(last, m.capturedStart() - last);
+        out += QString::number(qRound(m.captured(1).toInt() * gUiScale));
+        out += QLatin1String("px");
+        last = m.capturedEnd();
+    }
+    out += base.mid(last);
+    return out;
+}
+
+// 缩放后的 px 字符串（用于拼样式表），如 sp(14) -> "21px"（scale=1.5）
+inline QString sp(qreal px)
+{
+    return QString::number(qRound(px * gUiScale)) + QLatin1String("px");
+}
+// 缩放后的整数值（用于 setFixedWidth / setFixedSize 等）
+inline int si(qreal px)
+{
+    return qRound(px * gUiScale);
+}
 
 // 调色板
 inline constexpr const char *kColorBg = "#1a1d21";
@@ -53,6 +90,13 @@ QPushButton#NavBtn:checked {
     background: rgba(76, 139, 245, 0.16); color: white;
     border-left: 3px solid #4c8bf5;
 }
+QToolButton#NavSection {
+    text-align: left; color: #6b7280; font-size: 10px; font-weight: 700;
+    letter-spacing: 1px; padding: 8px 16px 4px;
+    border: none; background: transparent;
+}
+QToolButton#NavSection:hover { color: #9ca3af; }
+QToolButton#NavSection:checked { background: transparent; }
 QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox {
     background: #22262c; border: 1px solid #343a44; border-radius: 6px;
     padding: 6px 10px; selection-background-color: #4c8bf5;

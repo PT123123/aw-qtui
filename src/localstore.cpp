@@ -180,8 +180,9 @@ QList<Note> LocalStore::dirtyNotes() const
 {
     QList<Note> out;
     for (const Note &n : m_notes) {
-        // 评论笔记不在此推送：它们走评论待同步队列（POST /comments 保持 Comment 关系）
-        if (n.commentParentId != 0)
+        // 仅未同步的本地评论笔记走评论端点补推（保持 Comment 关系）；
+        // 已同步的评论笔记视作普通笔记，编辑/删除等后续改动按普通笔记推送
+        if (n.commentParentId != 0 && n.pendingOp == QLatin1String("create"))
             continue;
         if (!n.pendingOp.isEmpty())
             out << n;
@@ -193,8 +194,8 @@ int LocalStore::pendingCount() const
 {
     int c = 0;
     for (const Note &n : m_notes) {
-        // 评论笔记计入待同步评论队列（避免与 pendingComment 重复计数）
-        if (n.commentParentId != 0)
+        // 未同步的本地评论笔记计入待同步评论队列（避免与 pendingComment 重复计数）
+        if (n.commentParentId != 0 && n.pendingOp == QLatin1String("create"))
             continue;
         if (!n.pendingOp.isEmpty())
             ++c;
@@ -238,10 +239,16 @@ void LocalStore::applyServerNotes(const QList<Note> &server)
         Note *local = mutableFind(s.id);
         if (local && !local->pendingOp.isEmpty())
             continue; // 有本地未同步改动，保留本地，避免覆盖
-        if (local)
-            *local = s; // 覆盖干净镜像
-        else
+        if (local) {
+            // 服务端笔记 JSON 不携带 comment_parent_id：覆盖时保留本地已知的父引用，
+            // 否则同步后的评论笔记每次刷新都会被冲成普通笔记，引用预览随之丢失
+            const qint64 keepParent = local->commentParentId;
+            *local = s;
+            if (keepParent != 0)
+                local->commentParentId = keepParent;
+        } else {
             m_notes << s;
+        }
     }
     // 注意：不做“服务端没有就删本地”的清理——分页只拉到部分数据
 }
@@ -348,6 +355,12 @@ void LocalStore::remapId(qint64 from, qint64 to)
     Note *n = mutableFind(from);
     if (n)
         n->id = to;
+    // 其它笔记若以 from 作为被评论/被引用的父笔记 id，跟随重映射
+    // （离线给「尚未同步的新笔记」发的评论，父笔记推送成功后引用必须指向新的服务端 id）
+    for (Note &x : m_notes) {
+        if (x.commentParentId == from)
+            x.commentParentId = to;
+    }
     // 待同步评论与评论缓存里的 note_id 跟随重映射（不依赖笔记是否找到）：
     // 离线给「尚未同步的新笔记」发的评论，笔记推送成功后必须指向新的服务端 id
     for (PendingComment &c : m_pendingComments) {
@@ -490,8 +503,8 @@ void LocalStore::confirmComment(qint64 noteId, const QString &content, const QSt
         Note &n = m_notes[i];
         if (n.commentParentId == noteId && n.createdAt == createdAt) {
             n.id = serverNoteId;
-            n.commentParentId = 0;
             n.pendingOp.clear();
+            // 保留 commentParentId：评论笔记同步转正后仍需在收件箱显示「被评论笔记」的引用预览
             break;
         }
     }

@@ -6,6 +6,7 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QMessageBox>
@@ -14,6 +15,79 @@
 #include <QStringList>
 #include <exception>
 #include <new>
+
+// 崩溃诊断：SEH 未处理异常（如访问违例 0xC0000005）走这里落盘 minidump + 异常上下文，
+// 便于定位 Qt 层 use-after-free / 内存破坏。产物在 %TEMP%\awqtui_crash\ 下。
+#include <windows.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+
+static LONG WINAPI CrashHandler(EXCEPTION_POINTERS *ep)
+{
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    const QString stamp = QStringLiteral("%1%2%3_%4%5%6")
+                              .arg(st.wYear, 4, 10, QLatin1Char('0'))
+                              .arg(st.wMonth, 2, 10, QLatin1Char('0'))
+                              .arg(st.wDay, 2, 10, QLatin1Char('0'))
+                              .arg(st.wHour, 2, 10, QLatin1Char('0'))
+                              .arg(st.wMinute, 2, 10, QLatin1Char('0'))
+                              .arg(st.wSecond, 2, 10, QLatin1Char('0'));
+    const QString dir = QDir::tempPath() + QStringLiteral("/awqtui_crash");
+    QDir().mkpath(dir);
+
+    // 1) 异常上下文日志
+    {
+        const QString logPath = dir + QStringLiteral("/crash_%1.log").arg(stamp);
+        QFile f(logPath);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&f);
+            out << "exception=0x" << QString::number(ep->ExceptionRecord->ExceptionCode, 16)
+                << " address=0x" << QString::number(reinterpret_cast<quintptr>(ep->ExceptionRecord->ExceptionAddress), 16)
+                << "\n";
+            if (ep->ContextRecord) {
+                const auto *c = ep->ContextRecord;
+                out << "rip=0x" << QString::number(c->Rip, 16)
+                    << " rsp=0x" << QString::number(c->Rsp, 16)
+                    << " rbp=0x" << QString::number(c->Rbp, 16)
+                    << " rax=0x" << QString::number(c->Rax, 16)
+                    << " rbx=0x" << QString::number(c->Rbx, 16)
+                    << " rcx=0x" << QString::number(c->Rcx, 16)
+                    << " rdx=0x" << QString::number(c->Rdx, 16)
+                    << " rsi=0x" << QString::number(c->Rsi, 16)
+                    << " rdi=0x" << QString::number(c->Rdi, 16)
+                    << "\n";
+                // 返回地址栈（调用栈回溯，供无符号快速定位）
+                const quintptr *p = reinterpret_cast<const quintptr *>(c->Rsp);
+                for (int i = 0; i < 32; ++i) {
+                    quintptr val;
+                    if (!IsBadReadPtr(p, sizeof(quintptr))) {
+                        val = *p;
+                        out << "rsp[" << i << "]=0x" << QString::number(val, 16) << "\n";
+                    }
+                    ++p;
+                }
+            }
+            out.flush();
+        }
+    }
+    // 2) 完整 minidump
+    {
+        const QString dmpPath = dir + QStringLiteral("/crash_%1.dmp").arg(stamp);
+        const HANDLE h = CreateFileW(reinterpret_cast<LPCWSTR>(dmpPath.utf16()), GENERIC_WRITE, 0,
+                                     nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h != INVALID_HANDLE_VALUE) {
+            MINIDUMP_EXCEPTION_INFORMATION mei{};
+            mei.ThreadId = GetCurrentThreadId();
+            mei.ExceptionPointers = ep;
+            mei.ClientPointers = FALSE;
+            MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), h,
+                              MiniDumpWithFullMemory, &mei, nullptr, nullptr);
+            CloseHandle(h);
+        }
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
 
 using namespace awqtui;
 
@@ -41,6 +115,7 @@ static void debugMessageHandler(QtMsgType type, const QMessageLogContext &ctx, c
 int main(int argc, char *argv[])
 {
     qInstallMessageHandler(debugMessageHandler);
+    SetUnhandledExceptionFilter(&CrashHandler);
     qDebug() << "=== awqtui starting ===";
 
     QApplication app(argc, argv);

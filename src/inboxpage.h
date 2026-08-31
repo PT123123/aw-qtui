@@ -37,8 +37,15 @@ public:
     QString searchTerm() const;
     StatusBadge *badge() const { return m_badge; }
 
+    // 全局热键“添加记录”入口：等同点击右下角 ＋
+    void openNewNote();
+    // 界面缩放：按当前全局缩放因子重应用本页所有 Npx 样式/固定尺寸，并重渲染列表
+    void applyUiScale();
+
 signals:
     void noteCountChanged(int n);
+    // 用户点击工具栏 ⚙，请求打开设置界面（由 MainWindow 响应）
+    void settingsRequested();
 
 private slots:
     void onSearchChanged();
@@ -51,6 +58,7 @@ private slots:
     void onComment(qint64 id);
     void onTogglePinned(qint64 id);
     void onTaskToggled(qint64 id, const QString &content);
+    void onParentReferenceClicked(qint64 parentId);
     void onScroll();
     void onCopyAll();
 
@@ -63,6 +71,10 @@ private:
     QWidget *makeCard(const Note &n);
     // 把新内容应用到笔记（在线 PUT / 离线本地），供编辑与任务勾选共用
     void applyContent(qint64 id, const QString &text);
+    // 生成被评论/被引用笔记的预览文本（100 字截断、去除常见 markdown 标记）
+    QString parentPreview(qint64 parentId) const;
+    // 滚动定位到指定笔记所在卡片并高亮闪烁
+    void jumpToNote(qint64 id);
 
     // ---- 离线优先（本地存储） ----
     void renderLocal();               // 服务端不可用时，用本地缓存渲染（含客户端过滤/排序）
@@ -90,11 +102,24 @@ private:
     QList<Note> m_notes;
     QList<DetailedTag> m_tags;
     QStringList m_selectedTags;
+    // 当前渲染列表的笔记 id 顺序（与 m_list 逐项对应），供「跳转到被评论笔记」定位
+    QList<qint64> m_visibleIds;
+    // 待跳转目标：目标笔记被过滤掉时先清过滤重载，渲染完成后消费
+    qint64 m_pendingJumpId = 0;
 
     QLineEdit *m_search;
     QComboBox *m_sort;
     StatusBadge *m_badge;
     QPushButton *m_btnSidebar;
+    QPushButton *m_btnRefresh;
+    QPushButton *m_btnSettings;
+    QPushButton *m_btnCopy;
+    QPushButton *m_btnClear;
+    QLabel *m_tagTitle;
+    QLabel *m_title;
+    QLabel *m_emptyIcon;
+    QLabel *m_emptyText;
+    QLabel *m_emptyHint;
     QWidget *m_tagPanel;
     QListWidget *m_tagList;
     QListWidget *m_list;
@@ -105,6 +130,7 @@ private:
     int m_limit = 20;
     bool m_hasMore = true;
     bool m_loading = false;
+    bool m_rebuilding = false;      // applyClientFilter 重入保护：addItem 触发滚动条 valueChanged → onScroll → loadNotes → renderLocal 会同步重入，内层 clear() 会删掉外层刚 addItem 的 item 造成 use-after-free
     int m_sidebarWidth = 180;
     bool m_sidebarVisible = true;
 };

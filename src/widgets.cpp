@@ -12,8 +12,10 @@
 #include <QKeyEvent>
 #include <QListWidgetItem>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QRegularExpression>
 #include <QStyle>
+#include <QTimer>
 #include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -72,34 +74,44 @@ StatusBadge::StatusBadge(QWidget *parent) : QWidget(parent)
 {
     auto *lay = new QHBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(6);
+    lay->setSpacing(si(6));
     m_dot = new QLabel(QStringLiteral("●"));
-    m_dot->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
     m_label = new QLabel(QStringLiteral("未知"));
-    m_label->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
     lay->addWidget(m_dot);
     lay->addWidget(m_label);
     setState(State::Unknown);
 }
 
+void StatusBadge::applyStyle()
+{
+    const QString c = m_color.isEmpty() ? kColorFgMuted : m_color;
+    m_dot->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 12px;").arg(c)));
+    m_label->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 12px;").arg(c)));
+}
+
+void StatusBadge::applyUiScale()
+{
+    applyStyle();
+}
+
 void StatusBadge::setState(State s, const QString &text)
 {
-    const char *color = kColorFgMuted;
+    m_color = kColorFgMuted;
     QString label = text;
     switch (s) {
     case State::Connected:
-        color = kColorOk;
+        m_color = kColorOk;
         if (label.isEmpty())
             label = QStringLiteral("已连接");
         break;
     case State::Syncing:
-        color = kColorWarn;
+        m_color = kColorWarn;
         if (label.isEmpty())
             label = QStringLiteral("同步中…");
         break;
     case State::Disconnected:
     case State::Error:
-        color = kColorDanger;
+        m_color = kColorDanger;
         if (label.isEmpty())
             label = (s == State::Error) ? QStringLiteral("出错") : QStringLiteral("已断开");
         break;
@@ -108,9 +120,8 @@ void StatusBadge::setState(State s, const QString &text)
             label = QStringLiteral("未知");
         break;
     }
-    m_dot->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(color));
     m_label->setText(label);
-    m_label->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(color));
+    applyStyle();
     setToolTip(label);
 }
 
@@ -120,72 +131,87 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
     : QFrame(parent), m_note(note), m_pinned(pinned)
 {
     setObjectName(QStringLiteral("NoteCard"));
-    setStyleSheet(QStringLiteral(
+    m_baseStyle = scaleQss(QStringLiteral(
         "QFrame#NoteCard { background: %1; border: 1px solid %2; border-radius: 10px; }"
         "QFrame#NoteCard:hover { border-color: %3; }")
-                      .arg(kColorBgElev, kColorBorder, kColorAccent));
+        .arg(kColorBgElev, kColorBorder, kColorAccent));
+    setStyleSheet(m_baseStyle);
 
     auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(14, 10, 10, 12);
-    lay->setSpacing(6);
+    lay->setContentsMargins(si(14), si(10), si(10), si(12));
+    lay->setSpacing(si(6));
 
     // ---- 头部行：时间（左）+ 状态图标 + ⋯ 菜单（右） ----
     auto *header = new QHBoxLayout;
-    header->setSpacing(6);
+    header->setSpacing(si(6));
 
     auto *time = new QLabel(formatRelative(note.updatedAt.isEmpty() ? note.createdAt : note.updatedAt));
     time->setToolTip(QStringLiteral("创建 %1\n更新 %2")
                          .arg(formatLocal(note.createdAt), formatLocal(note.updatedAt)));
-    time->setStyleSheet(QStringLiteral("color: %1; font-size: 11px; background: transparent; border: none;")
-                            .arg(kColorFgMuted));
+    time->setStyleSheet(scaleQss(QStringLiteral(
+        "color: %1; font-size: 11px; background: transparent; border: none;")
+        .arg(kColorFgMuted)));
     header->addWidget(time);
 
     if (m_pinned) {
         auto *pin = new QLabel(QStringLiteral("⚑"));
         pin->setToolTip(QStringLiteral("已置顶"));
-        pin->setStyleSheet(QStringLiteral("color: %1; font-size: 13px; background: transparent; border: none;")
-                               .arg(kColorWarn));
+        pin->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 13px; background: transparent; border: none;")
+            .arg(kColorWarn)));
         header->addWidget(pin);
     }
     if (note.conflict) {
         auto *warn = new QLabel(QStringLiteral("⚠"));
         warn->setToolTip(QStringLiteral("存在同步冲突"));
-        warn->setStyleSheet(QStringLiteral("color: %1; font-size: 12px; background: transparent; border: none;")
-                                .arg(kColorWarn));
+        warn->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 12px; background: transparent; border: none;")
+            .arg(kColorWarn)));
         header->addWidget(warn);
     }
     if (!note.pendingOp.isEmpty()) {
         const bool del = note.pendingOp == QLatin1String("delete");
         auto *pend = new QLabel(del ? QStringLiteral("🗑") : QStringLiteral("⏳"));
         pend->setToolTip(del ? QStringLiteral("待同步删除") : QStringLiteral("待同步"));
-        pend->setStyleSheet(QStringLiteral("color: %1; font-size: 12px; background: transparent; border: none;")
-                                .arg(kColorWarn));
+        pend->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 12px; background: transparent; border: none;")
+            .arg(kColorWarn)));
         header->addWidget(pend);
     }
 
     header->addStretch(1);
 
-    auto *menuBtn = new QToolButton;
-    menuBtn->setText(QStringLiteral("⋯"));
+    // 用普通按钮 + 手动 exec() 弹菜单：QToolButton::setMenu 会自动画一个三角箭头与
+    // "⋯" 重叠，且 InstantPopup 弹窗在 QGraphicsProxyWidget 内会卡鼠标抓取导致界面假死。
+    auto *menuBtn = new QPushButton(QStringLiteral("⋯"));
     menuBtn->setCursor(Qt::PointingHandCursor);
-    menuBtn->setPopupMode(QToolButton::InstantPopup);
-    menuBtn->setFixedSize(30, 26);
-    menuBtn->setStyleSheet(QStringLiteral(
-        "QToolButton { background: transparent; border: none; border-radius: 5px;"
+    menuBtn->setFixedSize(si(30), si(26));
+    menuBtn->setStyleSheet(scaleQss(QStringLiteral(
+        "QPushButton { background: transparent; border: none; border-radius: 5px;"
         " color: %1; font-size: 16px; font-weight: 700; }"
-        "QToolButton:hover { background: %2; color: %3; }")
-                              .arg(kColorFgMuted, kColorBgElev2, kColorFg));
-    auto *menu = new QMenu(menuBtn);
-    menu->addAction(m_pinned ? QStringLiteral("取消置顶") : QStringLiteral("置顶"), this,
-                    [this] { emit togglePinnedRequested(m_note.id); });
-    menu->addAction(QStringLiteral("复制内容"), this, [this] {
-        QApplication::clipboard()->setText(m_note.content);
+        "QPushButton:hover { background: %2; color: %3; }")
+        .arg(kColorFgMuted, kColorBgElev2, kColorFg)));
+    connect(menuBtn, &QPushButton::clicked, this, [this, menuBtn] {
+        // 菜单在栈上构建，exec() 关闭后才执行动作，避免列表重建时销毁打开中的菜单
+        QMenu menu(menuBtn);
+        QAction *actPin = menu.addAction(m_pinned ? QStringLiteral("取消置顶") : QStringLiteral("置顶"));
+        QAction *actCopy = menu.addAction(QStringLiteral("复制内容"));
+        QAction *actEdit = menu.addAction(QStringLiteral("编辑"));
+        QAction *actCmt = menu.addAction(QStringLiteral("评论"));
+        QAction *actDel = menu.addAction(QStringLiteral("删除"));
+        actDel->setIcon(QApplication::style()->standardIcon(QStyle::SP_TrashIcon));
+        QAction *chosen = menu.exec(menuBtn->mapToGlobal(QPoint(0, menuBtn->height())));
+        if (chosen == actPin)
+            emit togglePinnedRequested(m_note.id);
+        else if (chosen == actCopy)
+            QApplication::clipboard()->setText(m_note.content);
+        else if (chosen == actEdit)
+            emit editRequested(m_note.id);
+        else if (chosen == actCmt)
+            emit commentRequested(m_note.id);
+        else if (chosen == actDel)
+            emit deleteRequested(m_note.id);
     });
-    menu->addAction(QStringLiteral("编辑"), this, [this] { emit editRequested(m_note.id); });
-    menu->addAction(QStringLiteral("评论"), this, [this] { emit commentRequested(m_note.id); });
-    auto *del = menu->addAction(QStringLiteral("删除"), this, [this] { emit deleteRequested(m_note.id); });
-    del->setIcon(QApplication::style()->standardIcon(QStyle::SP_TrashIcon));
-    menuBtn->setMenu(menu);
     header->addWidget(menuBtn);
 
     lay->addLayout(header);
@@ -197,8 +223,9 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
     content->setTextFormat(Qt::RichText);
     content->setTextInteractionFlags(Qt::TextBrowserInteraction);
     content->setOpenExternalLinks(false); // 手动分发：任务切换 / 外链
-    content->setStyleSheet(QStringLiteral("color: %1; background: transparent; border: none; font-size: 14px;")
-                               .arg(kColorFg));
+    content->setStyleSheet(scaleQss(QStringLiteral(
+        "color: %1; background: transparent; border: none; font-size: 14px;")
+        .arg(kColorFg)));
     connect(content, &QLabel::linkActivated, this, &NoteCard::onLinkActivated);
     lay->addWidget(content);
 }
@@ -235,6 +262,51 @@ void NoteCard::onLinkActivated(const QString &link)
         QDesktopServices::openUrl(url);
 }
 
+// 在内容下方注入「被评论/被引用笔记」预览：灰色小字 + 圆角底衬，点击可跳转
+void NoteCard::setParentReference(qint64 parentId, const QString &preview)
+{
+    if (parentId <= 0 || preview.isEmpty())
+        return;
+    m_parentId = parentId;
+    m_parentRef = new QLabel(QStringLiteral("↩ %1").arg(preview));
+    m_parentRef->setObjectName(QStringLiteral("ParentRef"));
+    m_parentRef->setWordWrap(true);
+    m_parentRef->setTextInteractionFlags(Qt::NoTextInteraction);
+    m_parentRef->setCursor(Qt::PointingHandCursor);
+    m_parentRef->setToolTip(QStringLiteral("跳转到被评论的笔记（#%1）\n%2").arg(parentId).arg(preview));
+    m_parentRef->setStyleSheet(scaleQss(QStringLiteral(
+        "QLabel#ParentRef { color: %1; font-size: 12px; background: %2;"
+        " border-radius: 6px; padding: 5px 8px; }"
+        "QLabel#ParentRef:hover { color: %3; }")
+        .arg(kColorFgMuted, kColorBgElev2, kColorAccent)));
+    m_parentRef->installEventFilter(this);
+    // 卡片主布局为 QVBoxLayout：预览追加在内容之后
+    static_cast<QVBoxLayout *>(layout())->addWidget(m_parentRef);
+}
+
+bool NoteCard::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == m_parentRef && event->type() == QEvent::MouseButtonRelease) {
+        auto *me = static_cast<QMouseEvent *>(event);
+        if (me->button() == Qt::LeftButton && m_parentId > 0)
+            emit parentReferenceClicked(m_parentId);
+        return true; // 吞掉事件，避免冒泡
+    }
+    return QFrame::eventFilter(obj, event);
+}
+
+// 跳转定位时的视觉反馈：边框高亮闪烁，随后恢复基础样式
+void NoteCard::flashHighlight()
+{
+    setStyleSheet(scaleQss(QStringLiteral(
+        "QFrame#NoteCard { background: %1; border: 2px solid %2; border-radius: 10px; }")
+        .arg(kColorBgElev, kColorAccent)));
+    QTimer::singleShot(1600, this, [this] {
+        if (!m_baseStyle.isEmpty())
+            setStyleSheet(m_baseStyle);
+    });
+}
+
 // ------------------------------------------------------------------ //
 // NoteEditorDialog
 NoteEditorDialog::NoteEditorDialog(const QString &initial, const QStringList &existingTags,
@@ -246,29 +318,29 @@ NoteEditorDialog::NoteEditorDialog(const QString &initial, const QStringList &ex
     resize(560, 320);
 
     auto *lay = new QVBoxLayout(this);
-    lay->setSpacing(10);
+    lay->setSpacing(si(10));
 
     auto *hint = new QLabel(QStringLiteral("提示：# 输入标签，Ctrl+Enter 或 Alt+S 提交，Esc 取消"));
-    hint->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;").arg(kColorFgMuted));
+    hint->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 11px;").arg(kColorFgMuted)));
     lay->addWidget(hint);
 
     m_editor = new QPlainTextEdit;
     m_editor->setPlaceholderText(QStringLiteral("写点什么… 用 #标签 归类"));
     m_editor->setPlainText(initial);
-    m_editor->setStyleSheet(QStringLiteral(
+    m_editor->setStyleSheet(scaleQss(QStringLiteral(
         "QPlainTextEdit { background: %1; border: 1px solid %2; border-radius: 6px;"
         " padding: 10px; font-size: 14px; }")
-                                .arg(kColorBgElev, kColorBorder));
+                                .arg(kColorBgElev, kColorBorder)));
     lay->addWidget(m_editor, 1);
 
     m_suggest = new QListWidget;
-    m_suggest->setMaximumHeight(120);
+    m_suggest->setMaximumHeight(si(120));
     m_suggest->setVisible(false);
-    m_suggest->setStyleSheet(QStringLiteral(
+    m_suggest->setStyleSheet(scaleQss(QStringLiteral(
         "QListWidget { background: #2a2f37; border: 1px solid %1; border-radius: 6px; }"
         "QListWidget::item { padding: 5px 10px; }"
         "QListWidget::item:selected { background: %2; }")
-                                 .arg(kColorBorder, kColorAccent));
+                                 .arg(kColorBorder, kColorAccent)));
     connect(m_suggest, &QListWidget::itemClicked, this, &NoteEditorDialog::applySuggestion);
     lay->addWidget(m_suggest);
 
@@ -411,23 +483,23 @@ CommentsDialog::CommentsDialog(qint64 noteId, QWidget *parent)
     resize(480, 420);
 
     auto *lay = new QVBoxLayout(this);
-    lay->setSpacing(8);
+    lay->setSpacing(si(8));
 
     m_list = new QListWidget;
-    m_list->setStyleSheet(QStringLiteral(
+    m_list->setStyleSheet(scaleQss(QStringLiteral(
         "QListWidget { background: %1; border: 1px solid %2; border-radius: 6px; }")
-                              .arg(kColorBgElev, kColorBorder));
+                              .arg(kColorBgElev, kColorBorder)));
     lay->addWidget(m_list, 1);
 
     auto *row = new QHBoxLayout;
     m_input = new QPlainTextEdit;
     m_input->setPlaceholderText(QStringLiteral("添加评论… 以 [[时间戳]] 关联其它笔记"));
-    m_input->setMaximumHeight(70);
+    m_input->setMaximumHeight(si(70));
     row->addWidget(m_input, 1);
     auto *btn = new QPushButton(QStringLiteral("发表"));
-    btn->setStyleSheet(QStringLiteral("QPushButton { background: %1; color: white; border: none;"
-                                      " border-radius: 6px; padding: 6px 16px; }")
-                           .arg(kColorAccent));
+    btn->setStyleSheet(scaleQss(QStringLiteral("QPushButton { background: %1; color: white; border: none;"
+                                               " border-radius: 6px; padding: 6px 16px; }")
+                           .arg(kColorAccent)));
     connect(btn, &QPushButton::clicked, this, &QDialog::accept);
     row->addWidget(btn);
     lay->addLayout(row);
