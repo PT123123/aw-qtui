@@ -2,6 +2,7 @@
 #include "timelinewidget.h"
 
 #include "charts.h"
+#include "theme.h"
 
 #include <QDateTime>
 #include <QMouseEvent>
@@ -200,8 +201,8 @@ void TimelineWidget::paintAxis(QPainter &p)
     const int axisH = m_axisH;
 
     // 背景
-    p.fillRect(QRect(0, 0, width(), axisH), QColor(QStringLiteral("#22262c")));
-    p.setPen(QPen(QColor(QStringLiteral("#343a44")), 1));
+    p.fillRect(QRect(0, 0, width(), axisH), QColor(kColorBgElev));
+    p.setPen(QPen(QColor(kColorBorder), 1));
     p.drawLine(0, axisH - 1, width(), axisH - 1);
     p.drawLine(tx - 1, 0, tx - 1, axisH);
 
@@ -212,7 +213,7 @@ void TimelineWidget::paintAxis(QPainter &p)
     qint64 firstTick = (m_viewStartMs / interval) * interval;
     if (firstTick < m_viewStartMs) firstTick += interval;
 
-    p.setPen(QColor(QStringLiteral("#9aa4b0")));
+    p.setPen(QColor(kColorFgMuted));
     QFont f = p.font();
     f.setPointSize(8);
     p.setFont(f);
@@ -226,7 +227,7 @@ void TimelineWidget::paintAxis(QPainter &p)
         if (x < tx - 1 || x > tx + tw + 1) continue;
 
         // 刻度线
-        p.setPen(QPen(QColor(QStringLiteral("#3a414b")), 1));
+        p.setPen(QPen(QColor(kColorAxis), 1));
         p.drawLine(x, axisH - 7, x, axisH - 1);
 
         // 标签
@@ -239,7 +240,7 @@ void TimelineWidget::paintAxis(QPainter &p)
         else
             label = dt.toString(QStringLiteral("HH:mm"));
 
-        p.setPen(QColor(QStringLiteral("#9aa4b0")));
+        p.setPen(QColor(kColorFgMuted));
         const int textW = fm.horizontalAdvance(label);
         p.drawText(QRect(x - textW / 2, 4, textW + 4, axisH - 10),
                    Qt::AlignCenter, label);
@@ -258,13 +259,13 @@ void TimelineWidget::paintLanes(QPainter &p)
         const QRect laneRect(tx, y, tw, m_laneH);
 
         // 交替背景
-        const QColor bg = (i % 2 == 0) ? QColor(QStringLiteral("#1e2228"))
-                                         : QColor(QStringLiteral("#22262c"));
+        const QColor bg = (i % 2 == 0) ? QColor(kColorRowAlt)
+                                         : QColor(kColorBgElev);
         p.fillRect(laneRect, bg);
 
         // lane 名称区域
-        p.fillRect(QRect(0, y, m_laneNameW, m_laneH), QColor(QStringLiteral("#22262c")));
-        p.setPen(QColor(QStringLiteral("#c8cdd4")));
+        p.fillRect(QRect(0, y, m_laneNameW, m_laneH), QColor(kColorBgElev));
+        p.setPen(QColor(kColorFgSoft));
         QFont f = p.font();
         f.setPointSize(9);
         f.setBold(true);
@@ -275,7 +276,7 @@ void TimelineWidget::paintLanes(QPainter &p)
                    Qt::AlignLeft | Qt::AlignVCenter, name);
 
         // 分隔线
-        p.setPen(QPen(QColor(QStringLiteral("#343a44")), 1));
+        p.setPen(QPen(QColor(kColorBorder), 1));
         p.drawLine(0, y + m_laneH - 1, width(), y + m_laneH - 1);
 
         // 事件
@@ -283,7 +284,7 @@ void TimelineWidget::paintLanes(QPainter &p)
     }
 
     // lane 名称区右边框
-    p.setPen(QPen(QColor(QStringLiteral("#343a44")), 1));
+    p.setPen(QPen(QColor(kColorBorder), 1));
     p.drawLine(tx - 1, top, tx - 1, top + m_lanes.size() * m_laneH);
 }
 
@@ -338,7 +339,7 @@ void TimelineWidget::paintEvent(QPaintEvent *)
     p.setRenderHint(QPainter::Antialiasing, true);
 
     // 整体背景
-    p.fillRect(rect(), QColor(QStringLiteral("#1a1d21")));
+    p.fillRect(rect(), QColor(kColorBg));
 
     paintAxis(p);
     paintLanes(p);
@@ -346,7 +347,7 @@ void TimelineWidget::paintEvent(QPaintEvent *)
 
     // 如果没有 lanes
     if (m_lanes.isEmpty()) {
-        p.setPen(QColor(QStringLiteral("#9aa4b0")));
+        p.setPen(QColor(kColorFgMuted));
         p.drawText(rect(), Qt::AlignCenter, QStringLiteral("暂无时间线数据"));
     }
 
@@ -436,7 +437,8 @@ void TimelineWidget::mouseMoveEvent(QMouseEvent *event)
         if (!ev.detail.isEmpty() && ev.detail != ev.label)
             tip += QStringLiteral("<br>%1").arg(ev.detail.toHtmlEscaped());
         if (!ev.category.isEmpty())
-            tip += QStringLiteral("<br><span style='color:#9aa4b0'>分类：%1</span>").arg(ev.category);
+            tip += QStringLiteral("<br><span style='color:%1'>分类：%2</span>")
+                       .arg(kColorFgMuted, ev.category);
         QToolTip::showText(event->globalPos(), tip, this);
     } else {
         QToolTip::hideText();

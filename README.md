@@ -1,8 +1,8 @@
 # aw-qtui
 
-用 **原生 C++ Qt 6 (Widgets)** 实现的 ActivityWatch 桌面客户端，包含六个页面：
-**Activity 统计面板**、**Timeline 可交互时间线**、**收件箱（Inbox）**、**局域网同步（LAN Sync）**、
-**标签 Day（ManicTime 式时间标签）** 与 **多日统计**。
+用 **原生 C++ Qt 6 (Widgets)** 实现的 ActivityWatch 桌面客户端，包含七个页面：
+**Activity 统计面板**、**Timeline 可交互时间线**、**收件箱（Inbox）**、**任务（Todo）**、
+**局域网同步（LAN Sync）**、**标签 Day（ManicTime 式时间标签）** 与 **多日统计**。
 
 实现参照 `PT123123/aw-android` fork（含 `aw-inbox-rust` 服务端与 `aw-webui`
 前端）。本工程是**客户端 UI**，后端复用 aw-server-rust 里挂在 **5600 端口**的
@@ -24,11 +24,12 @@ inbox 服务，与 aw-webui 承担同样的角色；不包含 Rust 服务端本�
 | 📊  Activity | ActivityWatch 风格统计面板：日期导航 + 24h 活跃柱状图 + Summary/Window/Browser/Editor 标签页 + Top Applications / Top Window Titles / Top Categories 横向条形图 + Timeline (Barchart) 分类彩色时间柱 + Category Tree + Category Sunburst 环形图 |
 | ⏱  Timeline | 可交互多行时间线（afk-status / aw-watcher-window / aw-watcher-web），拖拽平移、滚轮缩放、hover 详情 tooltip；顶部 Interval mode / Show last 工具栏，底部 Tockler 风格统计卡片（Total tracked / AFK / First activity / Last activity） |
 | 📥 收件箱 | MoeMemos 风格卡片流（头部相对时间 + 置顶旗标 + ⋯ 菜单）、完整 Markdown 渲染（标题/列表/引用/代码块/粗斜体/删除线/链接）、任务清单 ☐ 点击勾选、内联 #标签 高亮、本地置顶优先排序、无限滚动、标签侧栏多选过滤、搜索、排序、评论（离线优先：本地缓存 + 待同步队列，重连自动补推）、复制全部、连接状态徽标、右下角悬浮新建、工具栏 ⚙ 设置（全局快捷键） |
+| ☑ 任务 | TickTick / Super Productivity 式 Todo：左侧「收集箱/今天/最近 7 天/全部 + 彩色清单」导航，中间任务列表（快速添加、优先级/期限/标签元信息、已完成折叠区），右侧详情面板（标题/已完成/清单/优先级/截止日期/重复/标签/备注/子任务）。数据源走 `TodoSource` 抽象，当前为本地 mock（`todo_local.json` 持久化 + 种子数据），后续接入 Rust 时新增 `TodoApiStore` 实现同一接口即可，页面零改动 |
 | ⇄ 局域网同步 | 设备注册表（device_id/名称/平台/最后在线/最后同步/待同步/版本）、手动同步（POST /inbox/sync，展示拉取数与冲突）、设备心跳注册、mDNS 自动发现（`_activitywatch._tcp.local.`，Win32 原生 DNS-SD） |
 | 🏷 标签 Day | ManicTime 式时间标签：时间线选择模式（左键拖拽吸附活动边界、Ctrl 多选、双击选整块）→ Add tag（标签/备注/Billable/起止时间/最近标签/Tag picker）、Tag editor（组合/单标签/快捷键/标签源，重命名/替换/删除/改色/导入导出/右键 Skip 与默认可计费）、自动标签规则引擎（Regular/Append/Prepend/Absorb + 间隙填充 + 高亮猜测 + AutoTags lane 实时重算 + 复制到手工标签）、未标记热力图月历、Tag away 一键给未标记时间段打标签、计时工具（秒表/计时器/番茄钟）、高级搜索（日期范围/时间线选择/未标记过滤/批量打标/删除/导出/双击跳转）、当日过滤框（group:/duration>/start>/end>/label=billable/note:/-取反/or/通配符/#regex）。本地数据 `timetags_local.json`（独立于收件箱） |
 | 📈 统计 | 多日统计：多 Tab + 类型（Top / Day duration / Attendance / Custom）、日期范围（本周/本月）、折线/柱状切换、平均值线、多序列应用对比、数据表联动、导出 CSV |
 
-快捷键：窗口内 `1`/`2`/`3`/`4`/`5`/`6` 切页（Activity / Timeline / 收件箱 / 同步 / 标签 Day / 统计），`F5` 刷新当前页，`Ctrl+F` 聚焦搜索，`Ctrl+Enter` 提交笔记。
+快捷键：窗口内 `1`/`2`/`3`/`4`/`5`/`6`/`7` 切页（Activity / Timeline / 收件箱 / 任务 / 同步 / 标签 Day / 统计），`F5` 刷新当前页，`Ctrl+F` 聚焦搜索，`Ctrl+Enter` 提交笔记。
 全局快捷键（收件箱 ⚙ 设置里可改，系统级注册，应用失焦/最小化也生效）：默认 `Alt+N` 添加记录（唤醒窗口 + 跳收件箱 + 弹新建），默认 `Alt+M` 唤醒并跳转收件箱。配置存 `%APPDATA%\aw-qtui\aw-qtui\awqtui.ini`。
 
 ## 环境要求
@@ -189,6 +190,9 @@ aw-qtui/
 │   ├── syncpage.h/.cpp        # 局域网同步页
 │   ├── mdnsdiscovery.h/.cpp   # Win32 DNS-SD mDNS（QThread 工作线程 + 信号桥接）
 │   ├── tagstore.h/.cpp        # 时间标签本地存储（段 CRUD/颜色模型/字典/快捷键/自动标签规则）
+│   ├── todomodels.h           # Todo 数据模型（任务/清单/子任务/优先级/重复，字段对齐未来 Rust 契约）
+│   ├── todostore.h/.cpp       # Todo 数据源抽象 TodoSource + 本地 mock TodoStore（todo_local.json 持久化 + 种子数据）
+│   ├── todopage.h/.cpp        # Todo 页（TickTick 式侧栏/任务列表/详情面板）
 │   ├── filterparser.h/.cpp    # 当日过滤/高级搜索共用过滤语法解析器
 │   ├── autotagengine.h/.cpp   # 自动标签计算引擎（模板展开/规则匹配/间隙填充）
 │   ├── autotagdialog.h/.cpp   # 自动标签规则编辑器
@@ -202,7 +206,8 @@ aw-qtui/
 │   ├── daypage.h/.cpp         # 标签 Day 页
 │   └── mainwindow.h/.cpp      # 左侧导航 + 页面堆栈
 ├── tools/
-│   └── mock_inbox_server.py   # 联调用 mock 服务端（纯标准库）
+│   ├── mock_inbox_server.py   # 联调用 mock 服务端（纯标准库）
+│   └── todostore_selftest.cpp # TodoStore 本地 mock 逻辑自测（回归测试）
 └── _prototype_python/         # 早期 PySide6 原型（已归档，可删）
 ```
 
@@ -230,6 +235,23 @@ sync / devices / tags 均 200 / 204）：
 - 服务端另有 `POST /inbox/notes/<source_id>/relations/<target_id>`、
   `GET /inbox/notes/<note_id>/relations`、`POST /inbox/route-debug`（调试）——客户端当前未用；
 - 无 `/healthz`、无 `/version` 端点（M3 规划补 `/inbox/version`）。
+
+## 任务（Todo）数据层与 Rust 对接点
+
+Todo 页只依赖 `TodoSource` 抽象（`src/todostore.h`），当前实现 `TodoStore` 是**本地 mock**：
+
+- 内存态 + `%APPDATA%\aw-qtui\aw-qtui\todo_local.json` 原子持久化，首次运行写入种子数据；
+- 全部写操作「改内存 → 保存 → 异步广播 `dataChanged`」（`QTimer` 后投递），模拟未来
+  Rust 服务端 `QNetworkAccessManager` 的异步回包，页面按信号驱动渲染，不假设同步可见；
+- 重复任务完成时自动生成下一实例（daily / weekdays / weekly / monthly）。
+
+**接入 Rust**：新增 `class TodoApiStore : public TodoSource`，用 HTTP 实现同一套
+方法（lists/tasks 快照 + create/update/delete/completed/subtask）并把服务端响应转为
+`dataChanged` 信号，`TodoPage` 代码零改动。`TodoStore` 的字段（`todomodels.h`）即后续
+Rust 契约的字段基线。
+
+自测：`tools/todostore_selftest.cpp`（覆盖重复任务/CRUD/子任务/删清单迁移/持久化重载，
+编译方式见文件头注释，用独立应用名运行不碰真实数据）。
 
 ## mDNS 说明
 

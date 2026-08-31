@@ -3,6 +3,7 @@
 
 #include "charts.h"
 #include "mockdata.h"
+#include "theme.h"
 
 #include <QDateTime>
 #include <QFrame>
@@ -32,43 +33,55 @@ static QLabel *createCardTitle(const QString &text, QWidget *parent = nullptr)
 ActivityPage::ActivityPage(QWidget *parent) : QWidget(parent), m_date(QDate::currentDate())
 {
     qDebug() << "[ActivityPage] ctor start";
+    applyTheme();
+    qDebug() << "[ActivityPage] stylesheet set, calling buildUi...";
+    buildUi();
+    applyTheme();
+    qDebug() << "[ActivityPage] buildUi done, calling reloadData...";
+    reloadData();
+    qDebug() << "[ActivityPage] ctor done";
+}
+
+void ActivityPage::applyTheme()
+{
     setStyleSheet(QStringLiteral(R"(
         QFrame#Card {
-            background: #22262c;
-            border: 1px solid #343a44;
+            background: %1;
+            border: 1px solid %2;
             border-radius: 8px;
         }
         QLabel#CardTitle {
-            color: #e6e6e6;
+            color: %3;
             font-size: 13px;
             font-weight: 600;
             padding: 10px 12px 2px;
         }
-        QLabel#ToolbarLabel { color: #9aa4b0; font-size: 12px; }
+        QLabel#ToolbarLabel { color: %4; font-size: 12px; }
         QPushButton#NavArrow {
-            background: transparent; border: 1px solid #343a44; border-radius: 4px;
-            padding: 4px 10px; color: #c8cdd4; font-size: 14px;
+            background: transparent; border: 1px solid %2; border-radius: 4px;
+            padding: 4px 10px; color: %5; font-size: 14px;
         }
-        QPushButton#NavArrow:hover { background: #2a2f37; border-color: #4c8bf5; }
+        QPushButton#NavArrow:hover { background: %6; border-color: %7; }
         QPushButton#ToolBtn {
-            background: #2a2f37; border: 1px solid #343a44; border-radius: 6px;
-            padding: 5px 12px; color: #c8cdd4; font-size: 12px;
+            background: %6; border: 1px solid %2; border-radius: 6px;
+            padding: 5px 12px; color: %5; font-size: 12px;
         }
-        QPushButton#ToolBtn:hover { background: #30363f; border-color: #4c8bf5; }
-        QTabWidget::pane { border: 1px solid #343a44; border-radius: 8px; background: #1a1d21; }
+        QPushButton#ToolBtn:hover { background: %8; border-color: %7; }
+        QTabWidget::pane { border: 1px solid %2; border-radius: 8px; background: %9; }
         QTabBar::tab {
-            background: transparent; color: #9aa4b0; padding: 8px 18px;
+            background: transparent; color: %4; padding: 8px 18px;
             border: none; border-bottom: 2px solid transparent; font-size: 12px;
         }
-        QTabBar::tab:selected { color: #4c8bf5; border-bottom-color: #4c8bf5; }
-        QTabBar::tab:hover { color: #e6e6e6; }
-    )"));
-
-    qDebug() << "[ActivityPage] stylesheet set, calling buildUi...";
-    buildUi();
-    qDebug() << "[ActivityPage] buildUi done, calling reloadData...";
-    reloadData();
-    qDebug() << "[ActivityPage] ctor done";
+        QTabBar::tab:selected { color: %7; border-bottom-color: %7; }
+        QTabBar::tab:hover { color: %3; }
+    )")
+                                  .arg(kColorBgElev, kColorBorder, kColorFg, kColorFgMuted,
+                                       kColorFgSoft, kColorBgElev2, kColorAccent, kColorHover,
+                                       kColorBg));
+    if (m_dateLabel)
+        m_dateLabel->setStyleSheet(
+            QStringLiteral("color: %1; font-size: 14px; font-weight: 600; padding: 0 4px;")
+                .arg(kColorFg));
 }
 
 void ActivityPage::buildUi()
@@ -84,7 +97,6 @@ void ActivityPage::buildUi()
     m_prevBtn = new QPushButton(QStringLiteral("◀"));
     m_prevBtn->setObjectName(QStringLiteral("NavArrow"));
     m_dateLabel = new QLabel;
-    m_dateLabel->setStyleSheet(QStringLiteral("color: #e6e6e6; font-size: 14px; font-weight: 600; padding: 0 4px;"));
     m_nextBtn = new QPushButton(QStringLiteral("▶"));
     m_nextBtn->setObjectName(QStringLiteral("NavArrow"));
     m_todayBtn = new QPushButton(QStringLiteral("Today"));

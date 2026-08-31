@@ -39,7 +39,7 @@ AddTagDialog::AddTagDialog(TagStore *store, qint64 startMs, qint64 endMs, QWidge
     el->setSpacing(8);
 
     auto *tagLbl = new QLabel(QStringLiteral("Tags"));
-    tagLbl->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:12px;"));
+    tagLbl->setStyleSheet(QStringLiteral("color:%1;font-size:12px;").arg(kColorFgMuted));
     el->addWidget(tagLbl);
     m_tagsEdit = new QLineEdit;
     m_tagsEdit->setPlaceholderText(QStringLiteral("用逗号分隔（如 \"Project 1, Testing\"）"));
@@ -54,7 +54,7 @@ AddTagDialog::AddTagDialog(TagStore *store, qint64 startMs, qint64 endMs, QWidge
     el->addLayout(timeRow);
 
     auto *startLbl = new QLabel(QStringLiteral("Start"));
-    startLbl->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:12px;"));
+    startLbl->setStyleSheet(QStringLiteral("color:%1;font-size:12px;").arg(kColorFgMuted));
     el->addWidget(startLbl);
     m_startEdit = new QDateTimeEdit;
     m_startEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
@@ -62,7 +62,7 @@ AddTagDialog::AddTagDialog(TagStore *store, qint64 startMs, qint64 endMs, QWidge
     el->addWidget(m_startEdit);
 
     auto *endLbl = new QLabel(QStringLiteral("End"));
-    endLbl->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:12px;"));
+    endLbl->setStyleSheet(QStringLiteral("color:%1;font-size:12px;").arg(kColorFgMuted));
     el->addWidget(endLbl);
     m_endEdit = new QDateTimeEdit;
     m_endEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
@@ -70,11 +70,11 @@ AddTagDialog::AddTagDialog(TagStore *store, qint64 startMs, qint64 endMs, QWidge
     el->addWidget(m_endEdit);
 
     m_durationLabel = new QLabel;
-    m_durationLabel->setStyleSheet(QStringLiteral("color:#4c8bf5;font-weight:600;"));
+    m_durationLabel->setStyleSheet(QStringLiteral("color:%1;font-weight:600;").arg(kColorAccent));
     el->addWidget(m_durationLabel);
 
     auto *notesLbl = new QLabel(QStringLiteral("Notes"));
-    notesLbl->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:12px;"));
+    notesLbl->setStyleSheet(QStringLiteral("color:%1;font-size:12px;").arg(kColorFgMuted));
     el->addWidget(notesLbl);
     m_notesEdit = new QPlainTextEdit;
     m_notesEdit->setPlaceholderText(QStringLiteral("备注（可选）"));
@@ -89,7 +89,7 @@ AddTagDialog::AddTagDialog(TagStore *store, qint64 startMs, qint64 endMs, QWidge
     pl->setContentsMargins(0, 0, 0, 0);
     pl->setSpacing(6);
     auto *pickerTitle = new QLabel(QStringLiteral("Tag picker"));
-    pickerTitle->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:12px;font-weight:600;"));
+    pickerTitle->setStyleSheet(QStringLiteral("color:%1;font-size:12px;font-weight:600;").arg(kColorFgMuted));
     pl->addWidget(pickerTitle);
 
     auto *pickerBar = new QHBoxLayout;
@@ -115,7 +115,7 @@ AddTagDialog::AddTagDialog(TagStore *store, qint64 startMs, qint64 endMs, QWidge
 
     // 最近标签
     auto *recentLbl = new QLabel(QStringLiteral("最近使用"));
-    recentLbl->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:12px;"));
+    recentLbl->setStyleSheet(QStringLiteral("color:%1;font-size:12px;").arg(kColorFgMuted));
     root->addWidget(recentLbl);
     m_recent = new QListWidget;
     m_recent->setMaximumHeight(120);
@@ -125,7 +125,7 @@ AddTagDialog::AddTagDialog(TagStore *store, qint64 startMs, qint64 endMs, QWidge
     // 按钮行
     auto *btnRow = new QHBoxLayout;
     auto *help = new QLabel(QStringLiteral("提示：标签用逗号分隔，首个标签决定颜色"));
-    help->setStyleSheet(QStringLiteral("color:#6b7280;font-size:11px;"));
+    help->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorMuted2));
     btnRow->addWidget(help);
     btnRow->addStretch(1);
     auto *cancel = new QPushButton(QStringLiteral("Cancel"));
@@ -279,7 +279,7 @@ void AddTagDialog::refreshPicker()
     if (!m_path.isEmpty()) {
         auto *commit = new QListWidgetItem(QStringLiteral("✔ 使用：%1").arg(m_path.join(QStringLiteral(", "))));
         commit->setData(Qt::UserRole, QStringLiteral("__commit__"));
-        commit->setForeground(QColor(QStringLiteral("#3fb950")));
+        commit->setForeground(QColor(kColorOk));
         m_picker->addItem(commit);
     }
 

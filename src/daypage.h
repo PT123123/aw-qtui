@@ -33,6 +33,8 @@ public:
     QDate currentDate() const { return m_date; }
     void goToDay(qint64 dayStartMs);
     void refresh() { reload(); }
+    // 按当前主题重建页面内联样式并重载表格前景色（主题切换时调用）
+    void applyTheme();
 
 signals:
     void tagsChanged();

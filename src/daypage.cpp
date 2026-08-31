@@ -89,6 +89,23 @@ DayPage::DayPage(TagStore *store, QWidget *parent)
     reload();
 }
 
+void DayPage::applyTheme()
+{
+    if (m_dateLabel)
+        m_dateLabel->setStyleSheet(
+            QStringLiteral("color:%1;font-size:15px;font-weight:600;").arg(kColorFg));
+    if (m_statusLabel)
+        m_statusLabel->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorMuted2));
+    if (m_bottomSummary)
+        m_bottomSummary->setStyleSheet(
+            QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
+    if (m_untaggedScroll)
+        m_untaggedScroll->setStyleSheet(
+            QStringLiteral("QScrollArea{background:%1;border:none;}").arg(kColorChartBg));
+    // 重建表格项前景色（主题色）
+    reload();
+}
+
 void DayPage::buildUi()
 {
     auto *root = new QVBoxLayout(this);
@@ -104,7 +121,7 @@ void DayPage::buildUi()
     m_todayBtn = new QPushButton(QStringLiteral("Today"));
     m_todayBtn->setObjectName(QStringLiteral("ToolBtn"));
     m_dateLabel = new QLabel;
-    m_dateLabel->setStyleSheet(QStringLiteral("color:#e6e6e6;font-size:15px;font-weight:600;"));
+    m_dateLabel->setStyleSheet(QStringLiteral("color:%1;font-size:15px;font-weight:600;").arg(kColorFg));
     row1->addWidget(m_prevBtn);
     row1->addWidget(m_nextBtn);
     row1->addWidget(m_todayBtn);
@@ -112,7 +129,7 @@ void DayPage::buildUi()
     row1->addWidget(m_dateLabel);
     row1->addStretch(1);
     m_statusLabel = new QLabel;
-    m_statusLabel->setStyleSheet(QStringLiteral("color:#6b7280;font-size:11px;"));
+    m_statusLabel->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorMuted2));
     row1->addWidget(m_statusLabel);
     root->addLayout(row1);
 
@@ -197,7 +214,7 @@ void DayPage::buildUi()
     m_summaryTable->setColumnWidth(0, 28);
     sml->addWidget(m_summaryTable, 1);
     m_bottomSummary = new QLabel;
-    m_bottomSummary->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:11px;"));
+    m_bottomSummary->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
     sml->addWidget(m_bottomSummary);
     m_bottomTabs->addTab(summaryPane, QStringLiteral("Summary"));
 
@@ -213,7 +230,7 @@ void DayPage::buildUi()
     m_untaggedScroll = new QScrollArea;
     m_untaggedScroll->setWidget(m_untaggedView);
     m_untaggedScroll->setWidgetResizable(true);
-    m_untaggedScroll->setStyleSheet(QStringLiteral("QScrollArea{background:#1b1d21;border:none;}"));
+    m_untaggedScroll->setStyleSheet(QStringLiteral("QScrollArea{background:%1;border:none;}").arg(kColorChartBg));
     m_stack->addWidget(m_untaggedScroll);
     root->addWidget(m_stack, 1);
 
@@ -423,7 +440,7 @@ void DayPage::rebuildDetails()
             title->setForeground(m_store->segmentColor(
                 m_store->find(info.tagId) ? *m_store->find(info.tagId) : TagSegment{}));
         else
-            title->setForeground(QColor(QStringLiteral("#e6e6e6")));
+            title->setForeground(QColor(kColorFg));
         m_detailsTable->setItem(r, 1, title);
         m_detailsTable->setItem(r, 2, new QTableWidgetItem(info.group));
         const QDateTime st(QDateTime::fromMSecsSinceEpoch(info.startMs, Qt::LocalTime));

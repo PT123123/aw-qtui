@@ -25,6 +25,8 @@ public:
     void setDate(const QDate &date);
     QDate date() const { return m_date; }
     void refresh();
+    // 按当前主题重建页面内联样式（主题切换时调用）
+    void applyTheme();
 
 private slots:
     void onPrevDay();
@@ -42,27 +44,27 @@ private:
     QDate m_date;
     QList<TimelineLane> m_lanes;
 
-    QLabel *m_dateLabel;
-    QLabel *m_hostLabel;
-    QLabel *m_activeLabel;
-    QPushButton *m_prevBtn;
-    QPushButton *m_nextBtn;
-    QPushButton *m_todayBtn;
-    HourlyActivityBars *m_hourlyBars;
-    QTabWidget *m_tabs;
+    QLabel *m_dateLabel = nullptr;
+    QLabel *m_hostLabel = nullptr;
+    QLabel *m_activeLabel = nullptr;
+    QPushButton *m_prevBtn = nullptr;
+    QPushButton *m_nextBtn = nullptr;
+    QPushButton *m_todayBtn = nullptr;
+    HourlyActivityBars *m_hourlyBars = nullptr;
+    QTabWidget *m_tabs = nullptr;
 
-    HorizontalBarChart *m_topApps;
-    HorizontalBarChart *m_topTitles;
-    HorizontalBarChart *m_topCats;
-    CategoryBars *m_catBars;
-    HorizontalBarChart *m_catTree;
-    DonutChart *m_donut;
+    HorizontalBarChart *m_topApps = nullptr;
+    HorizontalBarChart *m_topTitles = nullptr;
+    HorizontalBarChart *m_topCats = nullptr;
+    CategoryBars *m_catBars = nullptr;
+    HorizontalBarChart *m_catTree = nullptr;
+    DonutChart *m_donut = nullptr;
 
-    HorizontalBarChart *m_winApps;
-    HorizontalBarChart *m_winTitles;
+    HorizontalBarChart *m_winApps = nullptr;
+    HorizontalBarChart *m_winTitles = nullptr;
 
-    HorizontalBarChart *m_topDomains;
-    HorizontalBarChart *m_topUrls;
+    HorizontalBarChart *m_topDomains = nullptr;
+    HorizontalBarChart *m_topUrls = nullptr;
 
     HorizontalBarChart *m_editorFiles;
 };

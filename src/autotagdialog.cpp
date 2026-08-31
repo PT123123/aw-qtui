@@ -69,7 +69,7 @@ static bool editRuleDlg(TagStore *store, AutoTagRule &rule, QWidget *parent)
 
     // 条件编辑
     auto *condHint = new QLabel(QStringLiteral("条件（AND 关系）"));
-    condHint->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:11px;"));
+    condHint->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
     form->addRow(condHint);
     auto *condTable = new QTableWidget(0, 3);
     condTable->setHorizontalHeaderLabels(
@@ -160,7 +160,7 @@ AutoTagDialog::AutoTagDialog(TagStore *store, QWidget *parent)
         QStringLiteral("自动标签是按规则计算的结果，规则变更后历史任意一天随之重算。"
                        "点击时间线活动后可用右上角「自动标签」按钮快速建规则。"));
     hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("color:#9aa4b0;font-size:11px;"));
+    hint->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
     root->addWidget(hint);
 
     m_table = new QTableWidget(0, 5);
@@ -193,7 +193,7 @@ AutoTagDialog::AutoTagDialog(TagStore *store, QWidget *parent)
     root->addLayout(btns);
 
     m_status = new QLabel;
-    m_status->setStyleSheet(QStringLiteral("color:#6b7280;font-size:11px;"));
+    m_status->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorMuted2));
     root->addWidget(m_status);
 
     connect(add, &QPushButton::clicked, this, &AutoTagDialog::onAdd);
@@ -217,8 +217,8 @@ void AutoTagDialog::reload()
         const AutoTagRule &rule = rules[r];
         m_table->setItem(r, 0, new QTableWidgetItem(QString::number(rule.order)));
         auto *on = new QTableWidgetItem(rule.enabled ? QStringLiteral("✓") : QString());
-        on->setForeground(rule.enabled ? QColor(QStringLiteral("#3fb950"))
-                                       : QColor(QStringLiteral("#6b7280")));
+        on->setForeground(rule.enabled ? QColor(kColorOk)
+                                       : QColor(kColorMuted2));
         m_table->setItem(r, 1, on);
         auto *name = new QTableWidgetItem(rule.name);
         name->setForeground(colorForString(rule.name));

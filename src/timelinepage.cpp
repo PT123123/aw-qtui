@@ -1,8 +1,9 @@
-// timelinepage.cpp
+// timelinepage.cpp —— ActivityWatch Timeline / Tockler 风格可交互时间线页
 #include "timelinepage.h"
 
 #include "charts.h"
 #include "mockdata.h"
+#include "theme.h"
 #include "timelinewidget.h"
 
 #include <QComboBox>
@@ -25,38 +26,49 @@ static QFrame *createStatCard(QWidget *parent = nullptr)
 TimelinePage::TimelinePage(QWidget *parent) : QWidget(parent), m_date(QDate::currentDate())
 {
     qDebug() << "[TimelinePage] ctor start";
-    setStyleSheet(QStringLiteral(R"(
-        QFrame#StatCard {
-            background: #22262c;
-            border: 1px solid #343a44;
-            border-radius: 8px;
-        }
-        QLabel#StatLabel { color: #9aa4b0; font-size: 11px; padding: 8px 12px 0; }
-        QLabel#StatValue { color: #e6e6e6; font-size: 18px; font-weight: 700; padding: 2px 12px 10px; }
-        QLabel#ToolbarLabel { color: #9aa4b0; font-size: 12px; }
-        QPushButton#NavArrow {
-            background: transparent; border: 1px solid #343a44; border-radius: 4px;
-            padding: 4px 10px; color: #c8cdd4; font-size: 14px;
-        }
-        QPushButton#NavArrow:hover { background: #2a2f37; border-color: #4c8bf5; }
-        QPushButton#ToolBtn {
-            background: #2a2f37; border: 1px solid #343a44; border-radius: 6px;
-            padding: 5px 12px; color: #c8cdd4; font-size: 12px;
-        }
-        QPushButton#ToolBtn:hover { background: #30363f; border-color: #4c8bf5; }
-        QComboBox {
-            background: #2a2f37; border: 1px solid #343a44; border-radius: 6px;
-            padding: 4px 8px; color: #c8cdd4; font-size: 12px; min-width: 100px;
-        }
-        QComboBox:hover { border-color: #4c8bf5; }
-        QComboBox QAbstractItemView { background: #2a2f37; border: 1px solid #343a44; selection-background-color: #4c8bf5; }
-    )"));
-
+    applyTheme();
     qDebug() << "[TimelinePage] stylesheet set, calling buildUi...";
     buildUi();
+    applyTheme();
     qDebug() << "[TimelinePage] buildUi done, calling reloadData...";
     reloadData();
     qDebug() << "[TimelinePage] ctor done";
+}
+
+void TimelinePage::applyTheme()
+{
+    setStyleSheet(QStringLiteral(R"(
+        QFrame#StatCard {
+            background: %1;
+            border: 1px solid %2;
+            border-radius: 8px;
+        }
+        QLabel#StatLabel { color: %4; font-size: 11px; padding: 8px 12px 0; }
+        QLabel#StatValue { color: %3; font-size: 18px; font-weight: 700; padding: 2px 12px 10px; }
+        QLabel#ToolbarLabel { color: %4; font-size: 12px; }
+        QPushButton#NavArrow {
+            background: transparent; border: 1px solid %2; border-radius: 4px;
+            padding: 4px 10px; color: %5; font-size: 14px;
+        }
+        QPushButton#NavArrow:hover { background: %6; border-color: %7; }
+        QPushButton#ToolBtn {
+            background: %6; border: 1px solid %2; border-radius: 6px;
+            padding: 5px 12px; color: %5; font-size: 12px;
+        }
+        QPushButton#ToolBtn:hover { background: %8; border-color: %7; }
+        QComboBox {
+            background: %6; border: 1px solid %2; border-radius: 6px;
+            padding: 4px 8px; color: %5; font-size: 12px; min-width: 100px;
+        }
+        QComboBox:hover { border-color: %7; }
+        QComboBox QAbstractItemView { background: %6; border: 1px solid %2; selection-background-color: %7; }
+    )")
+                                  .arg(kColorBgElev, kColorBorder, kColorFg, kColorFgMuted,
+                                       kColorFgSoft, kColorBgElev2, kColorAccent, kColorHover));
+    if (m_dateLabel)
+        m_dateLabel->setStyleSheet(
+            QStringLiteral("color: %1; font-size: 14px; font-weight: 600; padding: 0 4px;")
+                .arg(kColorFg));
 }
 
 void TimelinePage::buildUi()
@@ -72,7 +84,6 @@ void TimelinePage::buildUi()
     m_prevBtn = new QPushButton(QStringLiteral("◀"));
     m_prevBtn->setObjectName(QStringLiteral("NavArrow"));
     m_dateLabel = new QLabel;
-    m_dateLabel->setStyleSheet(QStringLiteral("color: #e6e6e6; font-size: 14px; font-weight: 600; padding: 0 4px;"));
     m_nextBtn = new QPushButton(QStringLiteral("▶"));
     m_nextBtn->setObjectName(QStringLiteral("NavArrow"));
     m_todayBtn = new QPushButton(QStringLiteral("Today"));
@@ -125,7 +136,7 @@ void TimelinePage::buildUi()
 
     auto *hintLabel = new QLabel(QStringLiteral("Drag to pan and scroll to zoom"));
     hintLabel->setObjectName(QStringLiteral("ToolbarLabel"));
-    hintLabel->setStyleSheet(QStringLiteral("color: #6b7280; font-size: 11px; font-style: italic;"));
+    hintLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 11px; font-style: italic;").arg(kColorMuted2));
     toolbar->addWidget(hintLabel);
     toolbar->addSpacing(8);
 

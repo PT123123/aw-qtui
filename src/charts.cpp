@@ -1,6 +1,8 @@
 // charts.cpp
 #include "charts.h"
 
+#include "theme.h"
+
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -73,7 +75,7 @@ void HorizontalBarChart::paintEvent(QPaintEvent *)
 
     // 标题
     if (!m_title.isEmpty()) {
-        p.setPen(QColor(QStringLiteral("#e6e6e6")));
+        p.setPen(QColor(kColorFg));
         QFont f = p.font();
         f.setBold(true);
         f.setPointSize(10);
@@ -82,7 +84,7 @@ void HorizontalBarChart::paintEvent(QPaintEvent *)
     }
 
     if (m_items.isEmpty()) {
-        p.setPen(QColor(QStringLiteral("#9aa4b0")));
+        p.setPen(QColor(kColorFgMuted));
         p.drawText(rect(), Qt::AlignCenter, QStringLiteral("无数据"));
         return;
     }
@@ -100,7 +102,7 @@ void HorizontalBarChart::paintEvent(QPaintEvent *)
         }
 
         // label
-        p.setPen(QColor(QStringLiteral("#e6e6e6")));
+        p.setPen(QColor(kColorFg));
         QFont lf = p.font();
         lf.setPointSize(9);
         p.setFont(lf);
@@ -112,7 +114,7 @@ void HorizontalBarChart::paintEvent(QPaintEvent *)
         // 条形背景
         const int barY = y + 7;
         const int barH = rowH - 16;
-        p.fillRect(QRect(barX, barY, barW, barH), QColor(QStringLiteral("#2a2f37")));
+        p.fillRect(QRect(barX, barY, barW, barH), QColor(kColorBgElev2));
 
         // 条形前景
         const double ratio = it.valueSeconds / double(maxVal);
@@ -122,7 +124,7 @@ void HorizontalBarChart::paintEvent(QPaintEvent *)
         p.fillPath(path, it.color);
 
         // 时长文字
-        p.setPen(QColor(QStringLiteral("#9aa4b0")));
+        p.setPen(QColor(kColorFgMuted));
         p.drawText(QRect(barX + barW + 4, y, valueWidth - 4, rowH - 2),
                    Qt::AlignLeft | Qt::AlignVCenter, formatDuration(it.valueSeconds));
     }
@@ -183,7 +185,7 @@ void HourlyActivityBars::paintEvent(QPaintEvent *)
     const double barW = barAreaW / 24.0;
 
     // 基线
-    p.setPen(QPen(QColor(QStringLiteral("#343a44")), 1));
+    p.setPen(QPen(QColor(kColorBorder), 1));
     p.drawLine(4, topPad + chartH, w - 4, topPad + chartH);
 
     // 柱子
@@ -204,7 +206,7 @@ void HourlyActivityBars::paintEvent(QPaintEvent *)
     }
 
     // x 轴标签
-    p.setPen(QColor(QStringLiteral("#9aa4b0")));
+    p.setPen(QColor(kColorFgMuted));
     QFont f = p.font();
     f.setPointSize(8);
     p.setFont(f);
@@ -276,7 +278,7 @@ void CategoryBars::paintEvent(QPaintEvent *)
     const int chartH = h - axisH - topPad;
     const double barW = (w - 8) / 24.0;
 
-    p.setPen(QPen(QColor(QStringLiteral("#343a44")), 1));
+    p.setPen(QPen(QColor(kColorBorder), 1));
     p.drawLine(4, topPad + chartH, w - 4, topPad + chartH);
 
     for (int i = 0; i < 24; ++i) {
@@ -291,7 +293,7 @@ void CategoryBars::paintEvent(QPaintEvent *)
         p.fillRect(QRect(bx, by, bw, bh), col);
     }
 
-    p.setPen(QColor(QStringLiteral("#9aa4b0")));
+    p.setPen(QColor(kColorFgMuted));
     QFont f = p.font();
     f.setPointSize(8);
     p.setFont(f);
@@ -357,7 +359,7 @@ void DonutChart::paintEvent(QPaintEvent *)
     const QRectF innerRect(cx - side / 4.0, cy - side / 4.0, side / 2.0, side / 2.0);
 
     if (m_items.isEmpty()) {
-        p.setPen(QColor(QStringLiteral("#9aa4b0")));
+        p.setPen(QColor(kColorFgMuted));
         p.drawText(rect(), Qt::AlignCenter, QStringLiteral("无数据"));
         return;
     }
@@ -383,10 +385,10 @@ void DonutChart::paintEvent(QPaintEvent *)
     }
 
     // 内圈背景
-    p.fillRect(innerRect, QColor(QStringLiteral("#1a1d21")));
+    p.fillRect(innerRect, QColor(kColorBg));
 
     // 中心文字
-    p.setPen(QColor(QStringLiteral("#e6e6e6")));
+    p.setPen(QColor(kColorFg));
     QFont f = p.font();
     f.setPointSize(10);
     f.setBold(true);
@@ -402,7 +404,7 @@ void DonutChart::paintEvent(QPaintEvent *)
     p.setFont(lf);
     for (int i = 0; i < m_items.size(); ++i) {
         p.fillRect(QRect(legendX, ly + 3, 10, 10), m_items[i].color);
-        p.setPen(QColor(QStringLiteral("#c8cdd4")));
+        p.setPen(QColor(kColorFgSoft));
         const QString txt = m_items[i].label.left(18);
         p.drawText(QRect(legendX + 16, ly, 120, 16), Qt::AlignLeft | Qt::AlignVCenter, txt);
         ly += 18;

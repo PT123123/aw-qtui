@@ -96,7 +96,7 @@ AdvancedSearchDialog::AdvancedSearchDialog(TagStore *store, QWidget *parent)
     bottom->addWidget(exp);
     bottom->addStretch(1);
     m_summary = new QLabel;
-    m_summary->setStyleSheet(QStringLiteral("color:#9aa4b0;"));
+    m_summary->setStyleSheet(QStringLiteral("color:%1;").arg(kColorFgMuted));
     bottom->addWidget(m_summary);
     auto *close = new QPushButton(QStringLiteral("Close"));
     bottom->addWidget(close);
@@ -227,7 +227,7 @@ void AdvancedSearchDialog::fillTable()
         m_table->setItem(r, 0, new QTableWidgetItem(start.date().toString(QStringLiteral("yyyy-MM-dd"))));
         auto *titleItem = new QTableWidgetItem(res.title);
         if (res.isTagSegment)
-            titleItem->setForeground(QColor(QStringLiteral("#4c8bf5")));
+            titleItem->setForeground(QColor(kColorAccent));
         m_table->setItem(r, 1, titleItem);
         m_table->setItem(r, 2,
                          new QTableWidgetItem(start.time().toString(QStringLiteral("HH:mm:ss"))));

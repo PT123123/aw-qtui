@@ -51,6 +51,11 @@ add_executable(awqtui WIN32
     src/mainwindow.h
     src/tagstore.cpp
     src/tagstore.h
+    src/todomodels.h
+    src/todostore.cpp
+    src/todostore.h
+    src/todopage.cpp
+    src/todopage.h
     src/filterparser.cpp
     src/filterparser.h
     src/autotagengine.cpp

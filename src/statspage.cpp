@@ -75,7 +75,7 @@ StatsPage::StatsPage(TagStore *store, QWidget *parent)
     root->addWidget(m_tabs, 1);
 
     m_status = new QLabel;
-    m_status->setStyleSheet(QStringLiteral("color:#6b7280;font-size:11px;"));
+    m_status->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorMuted2));
     root->addWidget(m_status);
 
     // 默认本周
@@ -283,7 +283,7 @@ void StatsPage::rebuildTab(TabData &tab)
             // Day duration
             StatsSeries s;
             s.name = QStringLiteral("每日活跃时长");
-            s.color = QColor(QStringLiteral("#4c8bf5"));
+            s.color = QColor(kColorAccent);
             s.points = pts;
             tab.chart->setTitle(QStringLiteral("Day duration · 每日活跃时长（分钟）"));
             tab.chart->setUnit(QStringLiteral("min"));
@@ -304,7 +304,7 @@ void StatsPage::rebuildTab(TabData &tab)
             // Attendance：柱状，绿=≥1h 活跃，红=<1h
             StatsSeries s;
             s.name = QStringLiteral("每日活跃分钟");
-            s.color = QColor(QStringLiteral("#3fb950"));
+            s.color = QColor(kColorOk);
             s.points = pts;
             tab.chart->setTitle(QStringLiteral("Attendance · 每日活跃时长（绿=≥1h）"));
             tab.chart->setUnit(QStringLiteral("min"));
@@ -392,6 +392,14 @@ void StatsPage::refresh()
                           .arg(m_fromEdit->date().toString(QStringLiteral("yyyy-MM-dd")),
                                m_toEdit->date().toString(QStringLiteral("yyyy-MM-dd")))
                           .arg(days));
+}
+
+void StatsPage::applyTheme()
+{
+    if (m_status)
+        m_status->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorMuted2));
+    for (auto &tab : m_tabsData)
+        rebuildTab(tab);
 }
 
 void StatsPage::exportCsv()

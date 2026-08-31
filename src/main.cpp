@@ -1,10 +1,13 @@
 // main.cpp —— 入口：python 之外完全独立运行的 C++ Qt 客户端
 #include "apiclient.h"
+#include "appsettings.h"
 #include "config.h"
 #include "mainwindow.h"
+#include "settingsdialog.h"
 #include "theme.h"
 
 #include <QApplication>
+#include <QColor>
 #include <QCommandLineParser>
 #include <QDateTime>
 #include <QDir>
@@ -140,10 +143,20 @@ int main(int argc, char *argv[])
                                     QStringLiteral("截图前等待毫秒数（默认 1200，配合 --screenshot）"),
                                     QStringLiteral("ms"), QStringLiteral("1200"));
     parser.addOption(shotDelayOpt);
+    QCommandLineOption shotSettingsOpt(QStringLiteral("shot-settings"),
+                                       QStringLiteral("打开设置对话框并截图后退出（测试用）"),
+                                       QStringLiteral("dir"));
+    parser.addOption(shotSettingsOpt);
     parser.process(app);
 
-    app.setStyleSheet(kGlobalQss);
-    qDebug() << "stylesheet set";
+    // 应用主题：加载上次保存的主题，更新语义色并生成全局 QSS
+    const QString themeId = loadThemeId();
+    gTheme = findTheme(themeId);
+    applyThemeColors(*gTheme);
+    app.setStyleSheet(gGlobalQss);
+    // emoji 程序图标（纯代码渲染，无需额外资源文件）
+    app.setWindowIcon(makeEmojiIcon(QString::fromUtf8(gTheme->emoji), QColor(gTheme->accent)));
+    qDebug() << "stylesheet set, theme =" << gTheme->id;
 
     qDebug() << "creating MainWindow...";
     MainWindow win(parser.value(urlOpt));
@@ -157,9 +170,28 @@ int main(int argc, char *argv[])
         const int shotDelay = qMax(0, parser.value(shotDelayOpt).toInt());
         QTimer::singleShot(shotDelay, &win, [&win, &app, shotDir] {
             win.grab().save(shotDir + QStringLiteral("/inbox.png"));
-            win.switchPage(1);
+            win.switchPage(3); // Todo
             QTimer::singleShot(600, &win, [&win, &app, shotDir] {
-                win.grab().save(shotDir + QStringLiteral("/sync.png"));
+                win.grab().save(shotDir + QStringLiteral("/todo.png"));
+                win.switchPage(1); // Timeline（沿用原 sync.png 命名，保持测试脚本兼容）
+                QTimer::singleShot(600, &win, [&win, &app, shotDir] {
+                    win.grab().save(shotDir + QStringLiteral("/sync.png"));
+                    app.quit();
+                });
+            });
+        });
+    }
+
+    // 设置对话框截图（测试用）：直接构造对话框，抓图后退出
+    const QString shotSettingsDir = parser.value(shotSettingsOpt);
+    if (!shotSettingsDir.isEmpty()) {
+        QDir().mkpath(shotSettingsDir);
+        const int shotDelay = qMax(0, parser.value(shotDelayOpt).toInt());
+        QTimer::singleShot(shotDelay, &win, [&app, shotSettingsDir] {
+            SettingsDialog dlg(loadShortcuts(), loadThemeId(), loadUiEffects());
+            dlg.show();
+            QTimer::singleShot(600, &dlg, [&dlg, &app, shotSettingsDir] {
+                dlg.grab().save(shotSettingsDir + QStringLiteral("/settings.png"));
                 app.quit();
             });
         });

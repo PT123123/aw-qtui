@@ -1,13 +1,14 @@
 // untaggedview.cpp —— 未标记时间热力图实现
 #include "untaggedview.h"
 
+#include "mockdata.h"
+#include "theme.h"
+
 #include <QDate>
 #include <QMap>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QSet>
-
-#include "mockdata.h"
 
 namespace awqtui {
 
@@ -74,7 +75,7 @@ QSize UntaggedView::minimumSizeHint() const
 void UntaggedView::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
-    p.fillRect(rect(), QColor(QStringLiteral("#1b1d21")));
+    p.fillRect(rect(), QColor(kColorChartBg));
     p.setRenderHint(QPainter::Antialiasing, false);
 
     const QFont f = p.font();
@@ -103,7 +104,7 @@ void UntaggedView::paintEvent(QPaintEvent *)
 void UntaggedView::paintMonth(QPainter &p, const QDate &monthStart, const QList<DayStat> &stats,
                               int baseY, const QRect &)
 {
-    p.setPen(QColor(QStringLiteral("#c9d1d9")));
+    p.setPen(QColor(kColorFgSoft));
     p.drawText(QRect(0, baseY, m_labelW - 8, m_cell),
                Qt::AlignRight | Qt::AlignVCenter,
                monthStart.toString(QStringLiteral("yyyy-MM")));
@@ -111,31 +112,31 @@ void UntaggedView::paintMonth(QPainter &p, const QDate &monthStart, const QList<
     int x = m_labelW;
     for (const auto &st : stats) {
         const QRect cell(x, baseY + 22, m_cell, m_cell);
-        // 颜色语义：深绿=全部已标记；浅绿=已标记；橙=未标记；白=无数据
+        // 颜色语义：深绿=全部已标记；浅绿=已标记；橙=未标记；灰=无数据
         const bool hasActive = st.activeSec > 0;
-        QColor base = QColor(QStringLiteral("#2c2e33")); // 无数据（深色主题的“白”）
+        QColor base = QColor(kColorBgElev2); // 无数据
         if (hasActive) {
             const qreal ratio = qBound<qreal>(0.0, static_cast<qreal>(st.taggedSec) / st.activeSec, 1.0);
             if (ratio >= 0.999) {
-                base = QColor(QStringLiteral("#1f7a4d")); // 深绿
+                base = QColor(kColorOk); // 深绿
                 p.fillRect(cell.adjusted(0, 0, -1, -1), base);
             } else if (ratio <= 0.001) {
-                base = QColor(QStringLiteral("#c07f00")); // 橙
+                base = QColor(kColorWarn); // 橙
                 p.fillRect(cell.adjusted(0, 0, -1, -1), base);
             } else {
                 // 混合：左绿右橙，宽度按已标记比例
                 const int greenW = static_cast<int>(cell.width() * ratio);
                 p.fillRect(QRect(cell.x(), cell.y(), qMax(1, greenW), cell.height()).adjusted(0, 0, -1, -1),
-                           QColor(QStringLiteral("#2ea043"))); // 浅绿
+                           QColor(kColorOk)); // 浅绿
                 p.fillRect(QRect(cell.x() + greenW, cell.y(), cell.width() - greenW, cell.height())
                                .adjusted(0, 0, -1, -1),
-                           QColor(QStringLiteral("#c07f00"))); // 橙
-                base = QColor(QStringLiteral("#2ea043"));
+                           QColor(kColorWarn)); // 橙
+                base = QColor(kColorOk);
             }
         } else {
             p.fillRect(cell.adjusted(0, 0, -1, -1), base);
         }
-        p.setPen(QColor(QStringLiteral("#1b1d21")));
+        p.setPen(QColor(kColorChartBg));
         p.drawRect(cell.adjusted(0, 0, -1, -1));
         // 日期数字
         p.setPen(base.lightness() > 150 ? QColor(QStringLiteral("#111")) : QColor(QStringLiteral("#ddd")));

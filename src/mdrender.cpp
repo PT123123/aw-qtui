@@ -44,7 +44,7 @@ QString inlineToHtml(const QString &text, int &taskNo)
                     const QString url = escapeHtml(QStringView(text).mid(close + 2, end - close - 2));
                     const QString alt = escapeHtml(QStringView(text).mid(i + 2, close - i - 2));
                     out += QStringLiteral("<a href=\"") + url
-                           + QStringLiteral("\" style='color:#7fb3ff;text-decoration:none;'>🖼 ") + alt
+                           + QStringLiteral("\" style='color:%1;text-decoration:none;'>🖼 ").arg(kColorAccent) + alt
                            + QStringLiteral("</a>");
                     i = end + 1;
                     continue;
@@ -55,8 +55,9 @@ QString inlineToHtml(const QString &text, int &taskNo)
         if (c == QLatin1Char('`')) {
             const int j = text.indexOf(QLatin1Char('`'), i + 1);
             if (j > i) {
-                out += QStringLiteral("<code style='background:#2a2f37;color:#e3b341;border-radius:4px;"
+                out += QStringLiteral("<code style='background:%1;color:%2;border-radius:4px;"
                                       "padding:1px 5px;font-family:Consolas,monospace;'>")
+                           .arg(kColorBgElev2, kColorWarn)
                        + escapeHtml(QStringView(text).mid(i + 1, j - i - 1)) + QStringLiteral("</code>");
                 i = j + 1;
                 continue;
@@ -103,7 +104,7 @@ QString inlineToHtml(const QString &text, int &taskNo)
                     const QString url = escapeHtml(QStringView(text).mid(close + 2, end - close - 2));
                     const QString label = escapeHtml(QStringView(text).mid(i + 1, close - i - 1));
                     out += QStringLiteral("<a href=\"") + url
-                           + QStringLiteral("\" style='color:#7fb3ff;text-decoration:none;'>") + label
+                           + QStringLiteral("\" style='color:%1;text-decoration:none;'>").arg(kColorAccent) + label
                            + QStringLiteral("</a>");
                     i = end + 1;
                     continue;
@@ -216,8 +217,8 @@ MarkdownRenderResult renderMarkdown(const QString &markdown)
                 code << lines[i];
                 ++i;
             }
-            out += QStringLiteral("<pre style='background:#2a2f37;border-radius:8px;padding:8px 10px;"
-                                  "margin:4px 0;'><code")
+            out += QStringLiteral("<pre style='background:%1;border-radius:8px;padding:8px 10px;"
+                                  "margin:4px 0;'><code").arg(kColorBgElev2)
                    + (lang.isEmpty() ? QString() : QStringLiteral(" class=\"lang-%1\"").arg(escapeHtml(lang)))
                    + QStringLiteral(">") + escapeHtml(code.join(QLatin1Char('\n')))
                    + QStringLiteral("</code></pre>");
@@ -249,7 +250,8 @@ MarkdownRenderResult renderMarkdown(const QString &markdown)
             if (t == QStringLiteral("---") || t == QStringLiteral("***") || t == QStringLiteral("___")) {
                 flushPara();
                 closeList();
-                out += QStringLiteral("<hr style='border:none;border-top:1px solid #343a44;margin:8px 0;'>");
+                out += QStringLiteral("<hr style='border:none;border-top:1px solid %1;margin:8px 0;'>")
+                           .arg(kColorBorder);
                 ++i;
                 continue;
             }
@@ -269,7 +271,8 @@ MarkdownRenderResult renderMarkdown(const QString &markdown)
                 ++i;
             }
             out += QStringLiteral("<blockquote style='margin:6px 0;padding:2px 12px;"
-                                  "border-left:3px solid #4c8bf5;color:#9aa4b0;'>")
+                                  "border-left:3px solid %1;color:%2;'>")
+                       .arg(kColorAccent, kColorFgMuted)
                    + inlineToHtml(quote.join(QLatin1Char('\n')), res.taskCount)
                    + QStringLiteral("</blockquote>");
             continue;
@@ -291,8 +294,9 @@ MarkdownRenderResult renderMarkdown(const QString &markdown)
                                                 : QStringLiteral("☐");
                         out += QStringLiteral("<li style='margin:2px 0;'>")
                                + QStringLiteral("<a href=\"awtask://%1\" style='text-decoration:none;"
-                                                "color:#d29922;'>%2</a> ")
+                                                "color:%2;'>%3</a> ")
                                      .arg(res.taskCount)
+                                     .arg(kColorWarn)
                                      .arg(box)
                                + inlineToHtml(tm.captured(3), res.taskCount)
                                + QStringLiteral("</li>");

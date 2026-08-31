@@ -10,6 +10,7 @@
 #include "widgets.h" // StatusBadge 完整定义（嵌套枚举 State）
 
 class QComboBox;
+class QGraphicsDropShadowEffect;
 class QLineEdit;
 class QListWidget;
 class QStackedLayout;
@@ -125,6 +126,10 @@ private:
     QListWidget *m_list;
     QPushButton *m_fab;
     QStackedLayout *m_stack;
+    // 悬浮 + 按钮的投影阴影（受全局阴影开关控制，运行时增删）
+    QGraphicsDropShadowEffect *m_fabShadow = nullptr;
+    // 是否给本次重建的卡片列表加入场淡入（仅刷新/初次加载时置真，过滤/翻页时不加）
+    bool m_animateCards = false;
 
     int m_offset = 0;
     int m_limit = 20;

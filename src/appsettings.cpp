@@ -56,4 +56,97 @@ void saveUiZoom(double zoom)
     s.sync();
 }
 
+QString loadThemeId()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    return s.value(QStringLiteral("ui/theme"), QStringLiteral("midnight")).toString();
+}
+
+void saveThemeId(const QString &id)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("ui/theme"), id);
+    s.sync();
+}
+
+UiEffects UiEffects::fromPreset(Preset p)
+{
+    UiEffects e;
+    switch (p) {
+    case Refined:
+        e.shadowLevel = 3;
+        e.glassLevel = 3;
+        e.animations = true;
+        e.dwmBackdrop = true;
+        break;
+    case Standard:
+        e.shadowLevel = 2;
+        e.glassLevel = 2;
+        e.animations = true;
+        e.dwmBackdrop = false;
+        break;
+    case Minimal:
+        e.shadowLevel = 1;
+        e.glassLevel = 1;
+        e.animations = false;
+        e.dwmBackdrop = false;
+        break;
+    case Performance:
+        e.shadowLevel = 0;
+        e.glassLevel = 0;
+        e.animations = false;
+        e.dwmBackdrop = false;
+        break;
+    default:
+        break;
+    }
+    return e;
+}
+
+UiEffects::Preset UiEffects::preset() const
+{
+    const UiEffects refined = fromPreset(Refined);
+    const UiEffects standard = fromPreset(Standard);
+    const UiEffects minimal = fromPreset(Minimal);
+    const UiEffects performance = fromPreset(Performance);
+    if (*this == refined)
+        return Refined;
+    if (*this == standard)
+        return Standard;
+    if (*this == minimal)
+        return Minimal;
+    if (*this == performance)
+        return Performance;
+    return Custom;
+}
+
+UiEffects loadUiEffects()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    UiEffects e;
+    // 兼容旧版布尔字段：shadows/material → 强度档位
+    const bool oldShadows = s.value(QStringLiteral("ui/shadows"), true).toBool();
+    const bool oldMaterial = s.value(QStringLiteral("ui/material"), true).toBool();
+    e.shadowLevel = s.value(QStringLiteral("ui/shadowLevel"), oldShadows ? 2 : 0).toInt();
+    e.glassLevel = s.value(QStringLiteral("ui/glassLevel"), oldMaterial ? 2 : 0).toInt();
+    e.animations = s.value(QStringLiteral("ui/animations"), true).toBool();
+    e.dwmBackdrop = s.value(QStringLiteral("ui/dwmBackdrop"), false).toBool();
+    e.shadowLevel = qBound(0, e.shadowLevel, 3);
+    e.glassLevel = qBound(0, e.glassLevel, 3);
+    return e;
+}
+
+void saveUiEffects(const UiEffects &e)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("ui/shadowLevel"), e.shadowLevel);
+    s.setValue(QStringLiteral("ui/glassLevel"), e.glassLevel);
+    s.setValue(QStringLiteral("ui/animations"), e.animations);
+    s.setValue(QStringLiteral("ui/dwmBackdrop"), e.dwmBackdrop);
+    // 清理旧版字段
+    s.remove(QStringLiteral("ui/shadows"));
+    s.remove(QStringLiteral("ui/material"));
+    s.sync();
+}
+
 } // namespace awqtui
