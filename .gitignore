@@ -1,0 +1,21 @@
+# 构建产物
+build/
+build-dbg/
+dist/
+server-src/
+
+# 本地测试残留
+*.obj
+*.ilk
+*.pdb
+*.log
+
+# 早期原型 / 截图
+_prototype_python/
+_shots/
+
+# IDE / 系统
+.vs/
+.vscode/
+*.user
+Thumbs.db
