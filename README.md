@@ -57,7 +57,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 powershell -ExecutionPolicy Bypass -File build-server.ps1
 ```
 
-自动定位服务端源码（`-ServerSrc` → `AW_SERVER_SRC` → `vendor\aw-server-rust` → WSL 默认路径），
+自动定位服务端源码（`-ServerSrc` → `AW_SERVER_SRC` → `vendor\aw-inbox` submodule → `vendor\aw-server-rust\aw-inbox-rust` → WSL 默认路径），
 把 `aw-inbox-rust` crate 同步到 `server-src\` 并用 **Windows 原生 MSVC 工具链**（vcvars64 + cargo）构建。
 产物：`build\server\aw-inbox-rust.exe`。源码来源与缺失行为见
 [服务端依赖（aw-inbox-rust）](#服务端依赖aw-inbox-rust)。
@@ -111,23 +111,38 @@ aw-qtui 对 aw-inbox-rust 是**运行期进程 + REST 契约依赖**，不是编
 - 两者只约定 REST 接口（`/inbox/...`）与 mDNS 服务类型 `_activitywatch._tcp.local.`；
 - 构建**客户端**不需要任何 Rust 工具链；只有构建/打包服务端才需要。
 
-### 源码来源
+### 源码来源（git submodule）
 
-服务端源码 = `PT123123/aw-server-rust` 的 **`feature/inbox` 分支**（inbox 只在该分支）：
+服务端源码以 **git submodule** 形式挂载在 `vendor/` 下，共两个远端（都是底层 Rust 依赖）：
+
+| submodule | 远端 | 分支 / 提交 | 角色 |
+| --- | --- | --- | --- |
+| `vendor/aw-inbox` | `PT123123/aw-inbox` | master（`38bcf3b`） | **构建源**：独立 crate（`aw-inbox-rust`），Cargo.toml 在仓库根，可单 crate 构建 |
+| `vendor/aw-server-rust` | `PT123123/aw-server-rust` | `feature/inbox`（`2f11667`） | 参考工作区：官方集成环境；其 `aw-inbox-rust` 成员即指向 `PT123123/aw-inbox` 的嵌套 submodule |
+
+> `aw-server-rust` 工作区把 `aw-inbox-rust` 作为 **submodule 指向 `PT123123/aw-inbox`（同一提交）**，
+> 所以两处代码是同一份，不存在分叉；`aw-server-rust` 还含 `aw-webui`（约 675MB）等嵌套 submodule，
+> **构建不需要它们**，无需 `--recursive`。
+
+**初始化 / 拉取 submodule：**
 
 ```powershell
-git clone git@github.com:PT123123/aw-server-rust.git
-cd aw-server-rust
-git checkout feature/inbox
+# 在本仓库内补齐子模块：
+git submodule update --init --recursive
+
+# 全新克隆时直接带上：
+git clone --recurse-submodules git@github.com:PT123123/aw-qtui.git
+
+# 更新到上游最新（feature/inbox 会跟随远端分支）：
+git submodule update --remote vendor/aw-inbox
+git submodule update --remote vendor/aw-server-rust
 ```
 
-> ⚠️ 该分支可能有**本地未提交修改**；`build-server.ps1` 构建的是当前工作区状态，不是远端提交。
-> 若需干净复现，先 `git status` 确认，或 `git stash` 后重新构建。
-
 `build-server.ps1` 的源码定位顺序：
-`-ServerSrc` 参数 → 环境变量 `AW_SERVER_SRC`（Windows/UNC 路径）→ 本地 `vendor\aw-server-rust`
-→ WSL 默认路径 `/home/user/project/aw-android/aw-server-rust`（Linux 路径可用
-`AW_SERVER_SRC_WSL` 覆盖）。
+`-ServerSrc` 参数（独立 crate 根或 workspace 根均可）→ 环境变量 `AW_SERVER_SRC`
+→ `vendor\aw-inbox`（构建源）→ `vendor\aw-server-rust\aw-inbox-rust`（需先 init 嵌套 submodule）
+→ WSL 默认路径 `/home/user/project/aw-android/aw-server-rust`（旧版兜底，可能有本地未提交修改，
+可用 `AW_SERVER_SRC_WSL` 覆盖 Linux 路径）。
 
 ### 缺失行为
 
@@ -135,7 +150,8 @@ git checkout feature/inbox
 
 - `build.ps1` 不带 `-WithServer`：纯客户端构建，不接触服务端，永不失败；
 - `build.ps1 -WithServer` / `build-server.ps1`：找不到源码 → **明确报错**并提示定位方式；
-  cargo 构建失败 → 报错退出，不静默降级。
+  - submodule 已登记但未 checkout（目录为空）→ 提示先执行 `git submodule update --init --recursive`；
+  - cargo 构建失败 → 报错退出，不静默降级。
 
 **运行期**（当前为纯客户端模式，服务端需手动启动或用 mock 联调）
 
@@ -157,6 +173,7 @@ aw-qtui/
 ├── build-server.ps1           # 单独构建服务端 aw-inbox-rust.exe（Windows 原生 MSVC）
 ├── release.ps1                # 联合构建 + 打包发布（dist\aw-qtui-<ver>-win64.zip）
 ├── server-src/                # 构建时同步的服务端源码暂存（aw-inbox-rust crate + target）
+├── vendor/                    # git submodule：aw-inbox（构建源）+ aw-server-rust（参考工作区）
 ├── src/
 │   ├── main.cpp               # 入口（--url / --screenshot 测试钩子）
 │   ├── config.h/.cpp          # 服务端地址、设备身份（MAC 生成并持久化）
@@ -185,9 +202,12 @@ aw-qtui/
 └── _prototype_python/         # 早期 PySide6 原型（已归档，可删）
 ```
 
-## 对接的服务端端点
+## 对接的服务端端点（API 契约核对）
 
-均来自 `aw-inbox`（Rocket，挂载在 `/inbox`）：
+均来自 `aw-inbox`（Rocket，挂载在 `/inbox`）。客户端 apiclient.cpp 调用的 12 个端点
+与服务端路由的**方法 / 路径 / 请求体 / 响应字段全部对上**，并已用 submodule 构建出的
+`aw-inbox-rust.exe` 实测全链路（create / get / put / delete / comment / heartbeat /
+sync / devices / tags 均 200 / 204）：
 
 - 笔记：`GET/POST /inbox/notes`、`PUT/DELETE /inbox/notes/<id>`
 - 标签：`GET /inbox/tags`、`GET /inbox/tags/detailed`
@@ -195,6 +215,17 @@ aw-qtui/
 - 同步：`POST /inbox/sync`、`GET /inbox/sync/devices`、`POST /inbox/sync/devices/heartbeat`
 
 所有写请求带 `X-Device-ID` 头，与服务端 `DeviceIdGuard` 对齐。
+
+**已知契约缺口（服务端侧，不影响当前单页可用性，列为待办）：**
+
+- `GET /inbox/notes` 的 `offset`、`sort_by` 参数服务端**解析但忽略**（SQL 无 `OFFSET`、
+  排序固定 `created_at DESC`，编译警告 `fields offset and sort_by are never read`）。
+  已实测：`limit=1&offset=0` 与 `limit=1&offset=1` 返回同一笔记；客户端 infinite scroll
+  依赖 offset 分页，笔记数超过单页 limit 时“加载更多”会重复返回同一页；
+- `SyncRequest.device_versions` / `last_full_sync_at` 服务端**解析但未使用**（简化版冲突模型）；
+- 服务端另有 `POST /inbox/notes/<source_id>/relations/<target_id>`、
+  `GET /inbox/notes/<note_id>/relations`、`POST /inbox/route-debug`（调试）——客户端当前未用；
+- 无 `/healthz`、无 `/version` 端点（M3 规划补 `/inbox/version`）。
 
 ## mDNS 说明
 
