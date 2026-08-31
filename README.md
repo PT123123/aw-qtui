@@ -1,0 +1,212 @@
+# aw-qtui
+
+用 **原生 C++ Qt 6 (Widgets)** 实现的 ActivityWatch 桌面客户端，包含六个页面：
+**Activity 统计面板**、**Timeline 可交互时间线**、**收件箱（Inbox）**、**局域网同步（LAN Sync）**、
+**标签 Day（ManicTime 式时间标签）** 与 **多日统计**。
+
+实现参照 `PT123123/aw-android` fork（含 `aw-inbox-rust` 服务端与 `aw-webui`
+前端）。本工程是**客户端 UI**，后端复用 aw-server-rust 里挂在 **5600 端口**的
+inbox 服务，与 aw-webui 承担同样的角色；不包含 Rust 服务端本体。
+
+标签功能参照 ManicTime Windows Client 特性移植，需求基线见
+[需求文档-ManicTime特性移植.md](需求文档-ManicTime特性移植.md)。
+
+## 为什么是 C++ Qt
+
+- 原生编译，启动与渲染性能远高于 Python 绑定（PySide/PyQt）
+- 零运行时依赖（除 Qt 动态库），单 exe 可分发
+- `QNetworkAccessManager` 异步 HTTP，`QThread` + Win32 DNS-SD 做 mDNS 自动发现
+
+## 页面
+
+| 页面 | 说明 |
+| --- | --- |
+| 📊  Activity | ActivityWatch 风格统计面板：日期导航 + 24h 活跃柱状图 + Summary/Window/Browser/Editor 标签页 + Top Applications / Top Window Titles / Top Categories 横向条形图 + Timeline (Barchart) 分类彩色时间柱 + Category Tree + Category Sunburst 环形图 |
+| ⏱  Timeline | 可交互多行时间线（afk-status / aw-watcher-window / aw-watcher-web），拖拽平移、滚轮缩放、hover 详情 tooltip；顶部 Interval mode / Show last 工具栏，底部 Tockler 风格统计卡片（Total tracked / AFK / First activity / Last activity） |
+| 📥 收件箱 | MoeMemos 风格卡片流（头部相对时间 + 置顶旗标 + ⋯ 菜单）、完整 Markdown 渲染（标题/列表/引用/代码块/粗斜体/删除线/链接）、任务清单 ☐ 点击勾选、内联 #标签 高亮、本地置顶优先排序、无限滚动、标签侧栏多选过滤、搜索、排序、评论（离线优先：本地缓存 + 待同步队列，重连自动补推）、复制全部、连接状态徽标、右下角悬浮新建 |
+| ⇄ 局域网同步 | 设备注册表（device_id/名称/平台/最后在线/最后同步/待同步/版本）、手动同步（POST /inbox/sync，展示拉取数与冲突）、设备心跳注册、mDNS 自动发现（`_activitywatch._tcp.local.`，Win32 原生 DNS-SD） |
+| 🏷 标签 Day | ManicTime 式时间标签：时间线选择模式（左键拖拽吸附活动边界、Ctrl 多选、双击选整块）→ Add tag（标签/备注/Billable/起止时间/最近标签/Tag picker）、Tag editor（组合/单标签/快捷键/标签源，重命名/替换/删除/改色/导入导出/右键 Skip 与默认可计费）、自动标签规则引擎（Regular/Append/Prepend/Absorb + 间隙填充 + 高亮猜测 + AutoTags lane 实时重算 + 复制到手工标签）、未标记热力图月历、Tag away 一键给未标记时间段打标签、计时工具（秒表/计时器/番茄钟）、高级搜索（日期范围/时间线选择/未标记过滤/批量打标/删除/导出/双击跳转）、当日过滤框（group:/duration>/start>/end>/label=billable/note:/-取反/or/通配符/#regex）。本地数据 `timetags_local.json`（独立于收件箱） |
+| 📈 统计 | 多日统计：多 Tab + 类型（Top / Day duration / Attendance / Custom）、日期范围（本周/本月）、折线/柱状切换、平均值线、多序列应用对比、数据表联动、导出 CSV |
+
+快捷键：`1`/`2`/`3`/`4`/`5`/`6` 切页（Activity / Timeline / 收件箱 / 同步 / 标签 Day / 统计），`F5` 刷新当前页，`Ctrl+F` 聚焦搜索，`Ctrl+Enter` 提交笔记。
+
+## 环境要求
+
+- Windows 10/11（mDNS 用 Win10+ 原生 DNS-SD API）
+- MSVC 2022（VS Community 即可，含 C++ 桌面开发工作负载）
+- Qt 6.8.x（msvc2022_64）—— 用 aqt 命令行安装，无需 Qt 安装器 GUI：
+
+```powershell
+python -m pip install aqtinstall
+python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt
+```
+
+## 构建 & 运行
+
+### 单独构建客户端（默认）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build.ps1
+```
+
+自动配置 vcvars、CMake、Ninja、windeployqt。产物：`build\awqtui.exe`（Qt DLL 已部署到同目录）。
+
+### 单独构建服务端（aw-inbox-rust.exe）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build-server.ps1
+```
+
+自动定位服务端源码（`-ServerSrc` → `AW_SERVER_SRC` → `vendor\aw-server-rust` → WSL 默认路径），
+把 `aw-inbox-rust` crate 同步到 `server-src\` 并用 **Windows 原生 MSVC 工具链**（vcvars64 + cargo）构建。
+产物：`build\server\aw-inbox-rust.exe`。源码来源与缺失行为见
+[服务端依赖（aw-inbox-rust）](#服务端依赖aw-inbox-rust)。
+
+### 联合构建（客户端 + 服务端）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build.ps1 -WithServer
+```
+
+产物：`build\awqtui.exe` + `build\server\aw-inbox-rust.exe`。
+
+### Release 打包
+
+```powershell
+powershell -ExecutionPolicy Bypass -File release.ps1
+```
+
+产物：`dist\aw-qtui-<版本>-win64\`（awqtui.exe + Qt DLL/plugins + aw-inbox-rust.exe + README）
+及同名 `.zip`。版本号默认读取 `CMakeLists.txt`，可用 `-Version` 覆盖；`-SkipBuild` 复用已有 `build\`。
+
+### 运行
+
+先启动真实服务端（spawn 属 M2 规划，当前需手动），再连客户端：
+
+```powershell
+.\build\server\aw-inbox-rust.exe
+.\build\awqtui.exe                        # 默认 http://127.0.0.1:5600
+```
+
+连其它地址：
+
+```powershell
+.\build\awqtui.exe --url http://192.168.1.10:5600
+```
+
+无 Rust 服务端时，用内置 mock 联调（纯标准库，实现同一套 REST 契约）：
+
+```powershell
+python tools\mock_inbox_server.py 5620
+.\build\awqtui.exe --url http://127.0.0.1:5620
+```
+
+## 服务端依赖（aw-inbox-rust）
+
+### 依赖本质
+
+aw-qtui 对 aw-inbox-rust 是**运行期进程 + REST 契约依赖**，不是编译期链接依赖：
+
+- 客户端经 `QNetworkAccessManager` 访问 `http://127.0.0.1:5600`，服务端是**独立进程**；
+- 两者只约定 REST 接口（`/inbox/...`）与 mDNS 服务类型 `_activitywatch._tcp.local.`；
+- 构建**客户端**不需要任何 Rust 工具链；只有构建/打包服务端才需要。
+
+### 源码来源
+
+服务端源码 = `PT123123/aw-server-rust` 的 **`feature/inbox` 分支**（inbox 只在该分支）：
+
+```powershell
+git clone git@github.com:PT123123/aw-server-rust.git
+cd aw-server-rust
+git checkout feature/inbox
+```
+
+> ⚠️ 该分支可能有**本地未提交修改**；`build-server.ps1` 构建的是当前工作区状态，不是远端提交。
+> 若需干净复现，先 `git status` 确认，或 `git stash` 后重新构建。
+
+`build-server.ps1` 的源码定位顺序：
+`-ServerSrc` 参数 → 环境变量 `AW_SERVER_SRC`（Windows/UNC 路径）→ 本地 `vendor\aw-server-rust`
+→ WSL 默认路径 `/home/user/project/aw-android/aw-server-rust`（Linux 路径可用
+`AW_SERVER_SRC_WSL` 覆盖）。
+
+### 缺失行为
+
+**构建期**
+
+- `build.ps1` 不带 `-WithServer`：纯客户端构建，不接触服务端，永不失败；
+- `build.ps1 -WithServer` / `build-server.ps1`：找不到源码 → **明确报错**并提示定位方式；
+  cargo 构建失败 → 报错退出，不静默降级。
+
+**运行期**（当前为纯客户端模式，服务端需手动启动或用 mock 联调）
+
+- 服务端未启动：UI 保持可用，收件箱/同步页显示离线徽标「已离线 · 本地已存/待同步」，
+  断线自动重连，本地数据离线优先（写入待同步队列，恢复后自动补推）；
+- 规划（M2 里程碑，尚未实现）：启动时探测 5600 → 已有服务则复用（`owned=false`，退出不带走）→
+  无服务则 spawn `build\server\aw-inbox-rust.exe`（`owned=true`，退出 terminate）→
+  轮询就绪 → 失败降级「未连接」+ 重试；debug 构建可切 mock。
+- ⚠️ spawn 注意：Windows 下服务端数据库是 **CWD 相对路径 `inbox.db`**（非 Android 环境不读 data_dir）。
+  拉起时需指定固定可写工作目录（如 `%APPDATA%\aw-qtui\server`），或设置 `DATABASE_URL` 指向固定位置，
+  否则每次启动目录不同会各建一份库。
+
+## 工程结构
+
+```
+aw-qtui/
+├── CMakeLists.txt
+├── build.ps1                  # 客户端一键构建（-WithServer 联合构建服务端）
+├── build-server.ps1           # 单独构建服务端 aw-inbox-rust.exe（Windows 原生 MSVC）
+├── release.ps1                # 联合构建 + 打包发布（dist\aw-qtui-<ver>-win64.zip）
+├── server-src/                # 构建时同步的服务端源码暂存（aw-inbox-rust crate + target）
+├── src/
+│   ├── main.cpp               # 入口（--url / --screenshot 测试钩子）
+│   ├── config.h/.cpp          # 服务端地址、设备身份（MAC 生成并持久化）
+│   ├── models.h               # Note/Tag/Comment/DeviceInfo/SyncSummary + JSON
+│   ├── apiclient.h/.cpp       # QNetworkAccessManager REST 客户端（/inbox/...）
+│   ├── theme.h                # 深色主题 QSS
+│   ├── widgets.h/.cpp         # NoteCard / TagChip / StatusBadge / 编辑器 / 评论
+│   ├── inboxpage.h/.cpp       # 收件箱页
+│   ├── syncpage.h/.cpp        # 局域网同步页
+│   ├── mdnsdiscovery.h/.cpp   # Win32 DNS-SD mDNS（QThread 工作线程 + 信号桥接）
+│   ├── tagstore.h/.cpp        # 时间标签本地存储（段 CRUD/颜色模型/字典/快捷键/自动标签规则）
+│   ├── filterparser.h/.cpp    # 当日过滤/高级搜索共用过滤语法解析器
+│   ├── autotagengine.h/.cpp   # 自动标签计算引擎（模板展开/规则匹配/间隙填充）
+│   ├── autotagdialog.h/.cpp   # 自动标签规则编辑器
+│   ├── addtagdialog.h/.cpp    # Add tag 窗口
+│   ├── tageditordialog.h/.cpp # Tag editor（组合/单标签/快捷键/标签源）
+│   ├── advancedsearchdialog.h/.cpp # 高级搜索
+│   ├── untaggedview.h/.cpp    # 未标记月历热力图
+│   ├── statschart.h/.cpp      # 自绘统计图表（多序列折线/柱状/平均线/图例）
+│   ├── statspage.h/.cpp       # 多日统计页
+│   ├── timingdialog.h/.cpp    # 计时工具（秒表/计时器/番茄钟）
+│   ├── daypage.h/.cpp         # 标签 Day 页
+│   └── mainwindow.h/.cpp      # 左侧导航 + 页面堆栈
+├── tools/
+│   └── mock_inbox_server.py   # 联调用 mock 服务端（纯标准库）
+└── _prototype_python/         # 早期 PySide6 原型（已归档，可删）
+```
+
+## 对接的服务端端点
+
+均来自 `aw-inbox`（Rocket，挂载在 `/inbox`）：
+
+- 笔记：`GET/POST /inbox/notes`、`PUT/DELETE /inbox/notes/<id>`
+- 标签：`GET /inbox/tags`、`GET /inbox/tags/detailed`
+- 评论：`GET/POST /inbox/notes/<id>/comments`
+- 同步：`POST /inbox/sync`、`GET /inbox/sync/devices`、`POST /inbox/sync/devices/heartbeat`
+
+所有写请求带 `X-Device-ID` 头，与服务端 `DeviceIdGuard` 对齐。
+
+## mDNS 说明
+
+局域网自动发现使用 Windows 10+ 原生 `DnsServiceBrowse` / `DnsServiceResolve` /
+`DnsServiceRegister`（`dnsapi.dll`），不依赖 Bonjour 或第三方库。服务类型
+`_activitywatch._tcp.local.`，与 `aw-sync-transport/src/discovery.rs` 一致。
+发现/注册在独立 QThread 里运行，结果通过 Qt 信号投递到 UI 线程。
+若所在网络屏蔽多播，可用「手动添加对端」兜底。
+
+## 验证
+
+- CMake + MSVC 19.44 编译链接通过，产物 `awqtui.exe`（~270KB）
+- 连 mock 服务端启动：收件箱加载 3 条种子笔记、5 个标签、状态「已连接」；
+  同步页设备表加载、心跳注册、mDNS 浏览/注册接口可用
+- API 全链路：创建 / 标签过滤 / 更新 / 评论 / sync / 心跳 / 设备表 / 删除
