@@ -116,6 +116,9 @@ inline const Theme kThemes[] = {
 
 inline const Theme *gTheme = &kThemes[0];
 
+// 程序 / 托盘图标固定用的 emoji（独立于主题。🌿 香草 + 白色圆形背景，flomo 风格）
+inline const char *kAppEmoji = "🌿";
+
 // ---------------------------------------------------------------- //
 // 语义色：主色直接指向主题字符串常量；派生色在 applyThemeColors() 中计算
 // ---------------------------------------------------------------- //
@@ -487,9 +490,15 @@ inline void applyThemeColors(const Theme &t)
 }
 
 // ---------------------------------------------------------------- //
-// emoji 程序图标：圆角渐变徽章 + emoji，多尺寸，无外部资源文件
+// emoji 程序图标：多尺寸、纯代码、无外部资源文件。
+// badge 控制背景：None=透明(纯 emoji)；Gradient=原渐变圆角徽章；WhiteCircle=白色圆形底 + emoji。
+// 默认 WhiteCircle：白色圆形背景 + emoji（flomo 风格，干净、托盘辨识度高）。
 // ---------------------------------------------------------------- //
-inline QIcon makeEmojiIcon(const QString &emoji, const QColor &c)
+enum class IconBadge { None, Gradient, WhiteCircle };
+
+inline QIcon makeEmojiIcon(const QString &emoji,
+                           const QColor &c = Qt::white,
+                           IconBadge badge = IconBadge::WhiteCircle)
 {
     QIcon icon;
     const int sizes[] = {256, 128, 64, 48, 32, 16};
@@ -499,15 +508,26 @@ inline QIcon makeEmojiIcon(const QString &emoji, const QColor &c)
         QPainter p(&pm);
         p.setRenderHint(QPainter::Antialiasing);
 
-        QLinearGradient g(0, 0, 0, px);
-        g.setColorAt(0, c.lighter(115));
-        g.setColorAt(1, c.darker(140));
-        QPainterPath path;
-        path.addRoundedRect(QRectF(0, 0, px, px), px * 0.22, px * 0.22);
-        p.fillPath(path, g);
-        p.setBrush(Qt::NoBrush);
-        p.setPen(QPen(QColor(255, 255, 255, 46), qMax(1, px / 80)));
-        p.drawPath(path);
+        if (badge != IconBadge::None) {
+            QPainterPath path;
+            path.addEllipse(0, 0, px, px);
+            if (badge == IconBadge::Gradient) {
+                QLinearGradient g(0, 0, 0, px);
+                g.setColorAt(0, c.lighter(115));
+                g.setColorAt(1, c.darker(140));
+                p.fillPath(path, g);
+                p.setBrush(Qt::NoBrush);
+                p.setPen(QPen(QColor(255, 255, 255, 46), qMax(1, px / 80)));
+                p.drawPath(path);
+            } else { // WhiteCircle
+                p.setBrush(Qt::white);
+                p.setPen(Qt::NoPen);
+                p.drawPath(path);
+                // 极淡描边：浅色 / 白色任务栏上也能看出圆形轮廓（白圆本身会融进白底）
+                p.setPen(QPen(QColor(0, 0, 0, 26), qMax(1, px / 64)));
+                p.drawPath(path);
+            }
+        }
 
         QFont f;
         f.setPixelSize(qMax(8, int(px * 0.55)));

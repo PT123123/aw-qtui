@@ -20,6 +20,7 @@
 
 #include <QApplication>
 #include <QButtonGroup>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QEasingCurve>
 #include <QEvent>
@@ -31,11 +32,13 @@
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPlainTextEdit>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QSpinBox>
+#include <QSystemTrayIcon>
 #include <QTextEdit>
 #include <QTimer>
 #include <QToolButton>
@@ -89,11 +92,67 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     QTimer::singleShot(0, this, &MainWindow::updateStatus);
     // 窗口显示后应用 DWM 系统背景（Mica/Acrylic），需 HWND 就绪
     QTimer::singleShot(0, this, &MainWindow::applyDwmBackdrop);
+
+    // 系统托盘：emoji 图标（复用主题 emoji，无外部资源），左键切换显示/隐藏，右键菜单
+    setupTray();
 }
 
 MainWindow::~MainWindow()
 {
     delete m_tagStore;
+}
+
+// 系统托盘：图标用固定 kAppEmoji(🌿) + 白色圆形背景（makeEmojiIcon 默认 WhiteCircle，已含 16/32px 托盘尺寸），零外部资源。
+// 交互：左键/双击切换显示隐藏；右键菜单「显示/隐藏主窗口」「退出」；关窗默认最小化到托盘。
+void MainWindow::setupTray()
+{
+    if (!QSystemTrayIcon::isSystemTrayAvailable())
+        return;
+    m_tray = new QSystemTrayIcon(this);
+    m_tray->setIcon(makeEmojiIcon(QString::fromUtf8(kAppEmoji)));
+    m_tray->setToolTip(QStringLiteral("aw-qtui · %1").arg(QString::fromUtf8(gTheme->name)));
+
+    auto *menu = new QMenu(this);
+    auto *toggleAct = menu->addAction(QStringLiteral("显示 / 隐藏主窗口"));
+    menu->addSeparator();
+    auto *quitAct = menu->addAction(QStringLiteral("退出"));
+    m_tray->setContextMenu(menu);
+
+    const auto toggleWindow = [this] {
+        if (isVisible() && !isMinimized())
+            hide();
+        else
+            wakeUpAndShow();
+    };
+    connect(toggleAct, &QAction::triggered, this, toggleWindow);
+    connect(quitAct, &QAction::triggered, this, [this] {
+        m_trayExiting = true;
+        qApp->quit();
+    });
+    connect(m_tray, &QSystemTrayIcon::activated, this,
+            [toggleWindow](QSystemTrayIcon::ActivationReason reason) {
+                if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick)
+                    toggleWindow();
+            });
+
+    m_tray->show();
+}
+
+// 关窗最小化到托盘：保持后台运行（全局热键 / 服务端看护照常工作）；托盘菜单「退出」才真正退出。
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (m_tray && m_tray->isVisible() && !m_trayExiting) {
+        hide();
+        if (!m_trayHintShown) {
+            m_trayHintShown = true;
+            m_tray->showMessage(QStringLiteral("aw-qtui"),
+                                QStringLiteral("已最小化到托盘，点击图标可恢复，右键可退出。"),
+                                QSystemTrayIcon::Information, 3000);
+        }
+        event->ignore();
+        return;
+    }
+    QMainWindow::closeEvent(event);
 }
 
 void MainWindow::buildUi()
@@ -391,6 +450,11 @@ void MainWindow::applyTheme(const QString &themeId)
     // 强制顶层窗口重绘，刷新自绘的图表 / 时间轴等控件
     for (QWidget *w : QApplication::topLevelWidgets())
         w->update();
+    // 托盘图标随主题刷新（固定 kAppEmoji + 白底圆，与主题无关）
+    if (m_tray) {
+        m_tray->setIcon(makeEmojiIcon(QString::fromUtf8(kAppEmoji)));
+        m_tray->setToolTip(QStringLiteral("aw-qtui · %1").arg(QString::fromUtf8(gTheme->name)));
+    }
     qDebug() << "[MainWindow] theme applied:" << t->id;
 }
 

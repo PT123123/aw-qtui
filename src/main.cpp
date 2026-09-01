@@ -175,8 +175,8 @@ int main(int argc, char *argv[])
     gTheme = findTheme(themeId);
     applyThemeColors(*gTheme);
     app.setStyleSheet(gGlobalQss);
-    // emoji 程序图标（纯代码渲染，无需额外资源文件）
-    app.setWindowIcon(makeEmojiIcon(QString::fromUtf8(gTheme->emoji), QColor(gTheme->accent)));
+    // emoji 程序图标（纯代码渲染，无需额外资源文件）：固定 kAppEmoji(🌿) + 白色圆形背景
+    app.setWindowIcon(makeEmojiIcon(QString::fromUtf8(kAppEmoji)));
     qDebug() << "stylesheet set, theme =" << gTheme->id;
 
     qDebug() << "creating MainWindow...";
