@@ -24,13 +24,13 @@
 #include <QEasingCurve>
 #include <QEvent>
 #include <QFont>
+#include <QFontMetrics>
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPropertyAnimation>
 #include <QPushButton>
@@ -363,13 +363,10 @@ void MainWindow::openSettings()
 
     saveShortcuts(dlg.config());
     const QStringList failed = applyShortcuts();
-    if (!failed.isEmpty()) {
-        QMessageBox::warning(
-            this, QStringLiteral("快捷键冲突"),
-            QStringLiteral("以下快捷键未能注册（可能已被其它程序占用），已保存但暂不生效：\n\n%1\n\n"
-                           "可在设置中改绑其它组合。")
-                .arg(failed.join(QLatin1Char('\n'))));
-    }
+    // 冲突提示用非模态 toast：短暂显示后自动消失，不阻塞、无需点击
+    if (!failed.isEmpty())
+        showToast(QStringLiteral("快捷键冲突：%1（可能已被其它程序占用，已保存但暂不生效）")
+                      .arg(failed.join(QLatin1Char(' '))));
 }
 
 void MainWindow::applyTheme(const QString &themeId)
@@ -613,6 +610,32 @@ void MainWindow::showZoomBadge()
     m_zoomBadge->show();
     m_zoomBadge->raise();
     QTimer::singleShot(1200, m_zoomBadge, [this] { m_zoomBadge->hide(); });
+}
+
+void MainWindow::showToast(const QString &text, int ms)
+{
+    if (!m_toast) {
+        m_toast = new QLabel(this);
+        m_toast->setWordWrap(true);
+        m_toast->setStyleSheet(
+            QStringLiteral("background: rgba(0,0,0,0.78); color: #ffffff; "
+                           "border: 1px solid %1; border-radius: 6px; "
+                           "padding: 8px 14px; font-size: 13px;")
+                .arg(kColorBorder));
+        m_toast->setMaximumWidth(400);
+    }
+    m_toast->setText(text);
+    // 按最大宽度换行后计算实际尺寸（含 padding/border）
+    const QFontMetrics fm(m_toast->font());
+    const QRect br = fm.boundingRect(QRect(0, 0, m_toast->maximumWidth() - 30, 2000),
+                                     Qt::TextWordWrap, text);
+    m_toast->resize(qMin(br.width(), m_toast->maximumWidth() - 30) + 30, br.height() + 20);
+    const QWidget *cw = centralWidget();
+    const int w = cw ? cw->width() : width();
+    m_toast->move(w - m_toast->width() - 16, 48);
+    m_toast->show();
+    m_toast->raise();
+    QTimer::singleShot(ms, m_toast, [this] { m_toast->hide(); });
 }
 
 bool MainWindow::isInsideZoomable(QObject *obj) const

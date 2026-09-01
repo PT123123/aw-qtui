@@ -78,6 +78,8 @@ private:
     void applyDwmBackdrop();
     // 右下角短暂显示当前缩放百分比
     void showZoomBadge();
+    // 非模态 toast 提示：右上角短暂显示后自动消失，无需用户点击，ms 为显示时长
+    void showToast(const QString &text, int ms = 4000);
     // 事件目标是否属于可缩放的主窗口内容区
     bool isInsideZoomable(QObject *obj) const;
     // 焦点控件是否为文本输入类（此时无修饰 +/- 应交给输入，不做缩放）
@@ -101,6 +103,7 @@ private:
     // 页面缩放：当前缩放比（1.0 = 100%）与右下角百分比提示
     qreal m_zoom = 1.0;
     QLabel *m_zoomBadge = nullptr;
+    QLabel *m_toast = nullptr;
     QPushButton *m_navActivity = nullptr;
     QPushButton *m_navTimeline = nullptr;
     QPushButton *m_navInbox = nullptr;
