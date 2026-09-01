@@ -210,8 +210,9 @@ git submodule update --remote vendor/aw-server-rust
   `--data-dir %APPDATA%\aw-qtui\aw-qtui\server`，局域网多机互通）→
   看护轮询（每 15s 探测，异常退出自动重新拉起）→ 登录自启（HKCU Run，`server/autostart` 配置，默认开）。
   单实例互斥：`QLockFile` 防双开（重复启动直接退出）。
-- 防火墙放行：server 监听 `0.0.0.0:5600` 后，首次启动检测入站规则缺失则**主动弹 UAC 请求授权**
-  （`ShellExecute runas` 提权执行 `netsh advfirewall`，规则名 `aw-qtui-server`，仅限专用网络 profile），
+- 防火墙放行：server 监听 `0.0.0.0:5600` 后，首次启动检测入站规则缺失则**主动弹 UAC 请求授权**——
+  **提权运行 aw-qtui 自身**（`runas` + `--firewall-allow`，UAC 授权对象是 aw-qtui，而非系统工具 net/netsh），
+  提权实例执行 `netsh advfirewall` 添加规则（规则名 `aw-qtui-server`，仅限专用网络 profile）后静默退出；
   用户确认即放行，无需手动；拒绝/未提权则仅本机可用，下次启动重试。
 - 服务端未启动/外部地址不可达：UI 保持可用，收件箱/同步页显示离线徽标「已离线 · 本地已存/待同步」，
   断线自动重连，本地数据离线优先（写入待同步队列，恢复后自动补推）。

@@ -121,6 +121,12 @@ static void debugMessageHandler(QtMsgType type, const QMessageLogContext &ctx, c
 
 int main(int argc, char *argv[])
 {
+    // 防火墙放行提权模式：由提权后的自身实例执行 netsh 添加规则后退出。
+    // 发起端以 runas 运行自身（--firewall-allow），因此 UAC 授权对象是 aw-qtui 自身而非系统工具。
+    for (int i = 1; i < argc; ++i) {
+        if (qstrcmp(argv[i], "--firewall-allow") == 0)
+            return ServerLauncher::applyFirewallRule();
+    }
     qInstallMessageHandler(debugMessageHandler);
     SetUnhandledExceptionFilter(&CrashHandler);
     qDebug() << "=== awqtui starting ===";
