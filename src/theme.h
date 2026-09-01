@@ -12,6 +12,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
+#include <QPointer>
 #include <QPropertyAnimation>
 #include <QRegularExpression>
 #include <QString>
@@ -288,6 +289,10 @@ inline void clearDropShadow(QWidget *w, QGraphicsDropShadowEffect *&effect)
 }
 
 // 入场淡入（受全局动画开关控制；关闭时不做任何处理）
+// 注意：动画结束后必须移除透明度效果。否则 QGraphicsOpacityEffect 会长期挂在列表项
+// 外层 widget 上，与卡片（NoteCard）自身的 QGraphicsDropShadowEffect 形成“嵌套
+// GraphicsEffect”。在 Windows 上，这种嵌套在 hover 重绘时会使卡片整块消失
+// （表现为“鼠标移过去笔记就没了”）。淡入结束即 setGraphicsEffect(nullptr) 同步删除它。
 inline void fadeInWidget(QWidget *w, int duration = 200)
 {
     if (!gFxAnimations || !w)
@@ -300,6 +305,13 @@ inline void fadeInWidget(QWidget *w, int duration = 200)
     anim->setStartValue(0.0);
     anim->setEndValue(1.0);
     anim->setEasingCurve(QEasingCurve::OutCubic);
+    // 淡入结束（opacity=1.0）即移除效果：避免与子控件投影形成嵌套 GraphicsEffect，
+    // QPointer 防 widget 在动画结束前被列表重建销毁导致悬垂。
+    QPointer<QWidget> guard(w);
+    QObject::connect(anim, &QPropertyAnimation::finished, w, [guard] {
+        if (guard)
+            guard->setGraphicsEffect(nullptr);
+    });
     anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
