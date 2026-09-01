@@ -186,7 +186,7 @@ bool ServerLauncher::requestFirewallAllow()
     sei.cbSize = sizeof(sei);
     sei.fMask = SEE_MASK_NOCLOSEPROCESS;
     sei.lpVerb = L"runas"; // 提权运行 → 弹 UAC，由用户确认授权
-    sei.lpFile = L"net.exe"; // C:\Windows\System32\netsh.exe
+    sei.lpFile = L"netsh.exe"; // C:\Windows\System32\netsh.exe（Network Shell，添加防火墙规则）
     const std::wstring params = cmd.toStdWString();
     sei.lpParameters = params.c_str();
     sei.nShow = SW_HIDE;
