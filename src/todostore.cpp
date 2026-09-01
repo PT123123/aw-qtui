@@ -145,7 +145,7 @@ void TodoStore::seed()
     addTask(QStringLiteral("跑通 aw-qtui 构建 + 联调 mock"),
             listWork, TodoPriorityHigh, d0, QString(),
             {QStringLiteral("aw-qtui")},
-            QStringLiteral("build.ps1 无服务端构建；mock_inbox_server.py 5620 联调。"));
+            QStringLiteral("make 无服务端构建；mock_inbox_server.py 5620 联调。"));
     addTask(QStringLiteral("复查 ActivityWatch 时间线 mock 随机性"),
             listWork, TodoPriorityLow, d3, QString(),
             {QStringLiteral("aw-qtui"), QStringLiteral("mock")}, QString());
