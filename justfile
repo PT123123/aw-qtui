@@ -19,7 +19,9 @@
 # 设计：本 justfile 只做「任务编排」，真正的编译引擎是 cmake -G Ninja（ninja 调 cl），
 #       服务端是 cargo。VC / Windows SDK 环境由 tools/vcenv.sh 注入（不依赖 Developer Prompt）。
 #       recipe 全部以 Git bash 解释，命令中的中文仅出现在注释；执行语句保持 ASCII。
-#       可覆盖变量（命令行传入，如 just QT="C:/Qt/6.8.3/msvc2022_64" release）：
+#       覆盖「变量」用 just VAR=... recipe（如 just QT="C:/Qt/6.8.3/msvc2022_64" release）。
+#       覆盖「recipe 参数」用位置参数（本版本 just 不解析 name=value 命名参数）：
+#         just build Debug build-dbg / just dist 0.1.1 / just run 8080 / just install C:/path
 #   QT=  VS_DIR=  SDKROOT=  VSWHERE=  VCVER=  SDKVERSION=  SERVER_SRC=  SERVER=  BUILD=  DBG=
 
 # ---------- 变量（export 的会进入 recipe 环境，供 tools/vcenv.sh 读取） ----------
@@ -113,11 +115,14 @@ debug:
     just notify "aw-qtui" "debug build complete"
 
 # ---------- 打包发布 ----------
+# 版本号写位置参数：just dist 0.1.1（just dist version="0.1.1" 会被当成字面量 version=0.1.1）
 dist version="" skip_server="":
     #!C:/Progra~1/Git/bin/bash.exe
     just release
+    ver="{{version}}"
+    ver="${ver#version=}"            # 防御：named 风格调用会收到字面 version=0.1.1
     args=""
-    [ -n "{{version}}" ] && args="$args --version {{version}}"
+    [ -n "$ver" ] && args="$args --version $ver"
     [ -n "{{skip_server}}" ] && args="$args --skip-server"
     python tools/make_zip.py $args
 
