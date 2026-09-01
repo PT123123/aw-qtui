@@ -25,3 +25,6 @@ _shots/
 .vscode/
 *.user
 Thumbs.db
+
+# WorkBuddy 工作记忆目录（非项目源码）
+.workbuddy/
