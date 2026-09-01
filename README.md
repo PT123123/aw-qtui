@@ -45,87 +45,85 @@ python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt
 
 ## 构建 & 运行
 
-### 单独构建客户端（默认）
+### 构建客户端（默认）
 
-```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1
+```bash
+make            # Release 客户端 + 服务端（等价于 make release）
+make build      # 仅 Release 客户端（不带服务端）
+make debug      # Debug 客户端 + 服务端
 ```
 
-自动配置 vcvars、CMake、Ninja、windeployqt。产物：`build\awqtui.exe`（Qt DLL 已部署到同目录）。
-默认 Release；Debug 构建及各入口的 `-Config` 用法见 [Debug / Release 构建](#debug--release-构建)。
+Makefile 自动注入 VC / Windows SDK 环境（**无需先开 Developer Command Prompt**），内部用 `cmake -G Ninja`
+生成构建图、`cmake --build` 驱动 ninja→cl 编译，再用 `windeployqt` 部署 Qt 运行库。
+产物：`build\awqtui.exe`（Qt DLL 已部署到同目录）；Debug 产物在 `build-dbg\`。
+Debug/Release 及各入口用法见 [Debug / Release 构建](#debug--release-构建)。
 
 ### 单独构建服务端（aw-inbox-rust.exe）
 
-```powershell
-powershell -ExecutionPolicy Bypass -File build-server.ps1
+```bash
+make server     # 构建并部署到 build/server/aw-inbox-rust.exe
 ```
 
-自动定位服务端源码（`-ServerSrc` → `AW_SERVER_SRC` → `vendor\aw-inbox` submodule → `vendor\aw-server-rust\aw-inbox-rust` → WSL 默认路径），
-把 `aw-inbox-rust` crate 同步到 `server-src\` 并用 **Windows 原生 MSVC 工具链**（vcvars64 + cargo）构建。
+Makefile 自动定位服务端源码（`SERVER_SRC=` → `$$AW_SERVER_SRC` → `vendor\aw-inbox` submodule → `vendor\aw-server-rust\aw-inbox-rust`），
+把 `aw-inbox-rust` crate 同步到 `server-src\` 并用 **Windows 原生 MSVC 工具链**（cargo + VC 环境）构建。
 产物：`build\server\aw-inbox-rust.exe`。源码来源与缺失行为见
 [服务端依赖（aw-inbox-rust）](#服务端依赖aw-inbox-rust)。
 
 ### 联合构建（客户端 + 服务端）
 
-```powershell
-powershell -ExecutionPolicy Bypass -File build.ps1 -WithServer
+```bash
+make                 # = make release：Release 客户端 + 服务端
+make SERVER=         # 仅客户端（跳过服务端）
 ```
 
 产物：`build\awqtui.exe` + `build\server\aw-inbox-rust.exe`。
-联合构建时服务端构建配置**跟随客户端**（`-Config Debug -WithServer` 两端都是 Debug），见
+服务端构建配置**跟随客户端**（`make debug` 两端都是 Debug），见
 [Debug / Release 构建](#debug--release-构建)。
 
 ### Release 打包
 
-```powershell
-powershell -ExecutionPolicy Bypass -File release.ps1
+```bash
+make dist                       # 版本 +0.01 自动递增并写回 CMakeLists.txt
+make dist VERSION=0.2.0         # 指定版本号（不自动加、不写回）
+make dist SKIP_SERVER=1         # 发布纯客户端包（不含服务端）
 ```
 
 产物：`dist\aw-qtui-<版本>-win64\`（awqtui.exe + Qt DLL/plugins + aw-inbox-rust.exe + README）
 及同名 `.zip`。
 
-**版本号默认自动 +0.01**：不传 `-Version` 时，以 `CMakeLists.txt` 当前版本为基准 patch +1（0.1.0 → 0.1.1），
-打包成功后写回 `CMakeLists.txt`，下次 release 继续递增（版本不重复）；显式 `-Version` 则按给定版本，不自动加、不写回。
-`-SkipBuild` 复用已有 `build\`。
+**版本号默认自动 +0.01**：不传 `VERSION=` 时，以 `CMakeLists.txt` 当前版本为基准 patch +1（0.1.1 → 0.1.2），
+打包成功后写回 `CMakeLists.txt`，下次 release 继续递增（版本不重复）；显式 `VERSION=` 则按给定版本，不自动加、不写回。
 
-**服务端默认必带**：release 默认执行联合构建并校验 `server\aw-inbox-rust.exe`，
-服务端产物缺失（含 `-SkipBuild` 复用场景）会直接报错，绝不静默产出不带服务端的包。
-只有显式声明不带服务端才放行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File release.ps1 -SkipServer   # 发布纯客户端包（build 里的 server\ 也不会被打包）
-```
+**服务端默认必带**：`make dist` 默认执行联合构建并校验 `build\server\aw-inbox-rust.exe`，
+服务端产物缺失会直接报错，绝不静默产出不带服务端的包。只有显式 `SKIP_SERVER=1` 才放行纯客户端包。
 
 ### Debug / Release 构建
 
-所有构建入口**默认都是 Release**。需要 Debug 时统一加 `-Config Debug`，
-`-Config` 只接受 `Debug` / `Release` 两个取值（PS `ValidateSet`，传其它值直接报错）：
+所有构建入口**默认都是 Release**。需要 Debug 时统一用 `make debug`（或 `make build-dbg` 仅客户端），
+Debug/Release 分目录（`build` / `build-dbg`）互不干扰：
 
 | 场景 | Release（默认） | Debug |
 | --- | --- | --- |
-| 仅客户端 | `build.ps1` | `build.ps1 -Config Debug` |
-| 仅服务端 | `build-server.ps1` | `build-server.ps1 -Config Debug` |
-| 客户端 + 服务端 | `build.ps1 -WithServer` | `build.ps1 -Config Debug -WithServer` |
-| Release 打包 | `release.ps1`（固定 Release） | 不提供，见下 |
+| 仅客户端 | `make build` | `make build-dbg` |
+| 客户端 + 服务端 | `make`（或 `make release`） | `make debug` |
+| Release 打包 | `make dist`（固定 Release） | 不提供 |
 
 要点：
 
-- **联合构建的配置是一致的**：`build.ps1 -Config Debug -WithServer` 会把 `CMAKE_BUILD_TYPE=Debug`
-  传给 CMake，CMake 的 `aw-server` 目标据此以 `-Config Debug` 调用 `build-server.ps1`（cargo 不加
-  `--release`），不会出现「客户端 Debug / 服务端 Release」的错配；
-- **产物同名同路径**：客户端都是 `build\awqtui.exe`，服务端都是 `build\server\aw-inbox-rust.exe`。
-  区分看体积与行为——Debug 无优化、体积明显更大（服务端含调试符号），Release 经优化
-  （服务端 `--release`，实测约 6.2MB）；切换 Debug/Release 会触发对应工具链全量重编；
-- **Qt 运行库固定用 release 版**：aqt 默认只装 release 版 Qt 库，`windeployqt --release` 部署的也是
-  release Qt DLL。Debug 构建主要拿到的是 **MSVC Debug CRT + 编译期符号/无优化**（客户端侧可打断点、
-  `-g` 级别调试信息），Qt 自身仍是 release 库；
-- **Release 打包固定走 Release**：`release.ps1` 内部调 `build.ps1 -WithServer`（不带 `-Config`），
+- **联合构建的配置是一致的**：`make debug` 会把 `CMAKE_BUILD_TYPE=Debug` 传给 CMake，服务端
+  cargo 构建也不加 `--release`，不会出现「客户端 Debug / 服务端 Release」的错配；
+- **产物同名同路径**：客户端都是 `build\awqtui.exe`，服务端都是 `build\server\aw-inbox-rust.exe`
+  （Debug 在 `build-dbg\`）。区分看体积与行为——Debug 无优化、体积明显更大（服务端含调试符号），
+  Release 经优化（服务端 `--release`，实测约 6.2MB）；切换 Debug/Release 会触发对应工具链全量重编；
+- **Qt 运行库区分 Debug/Release**：`make debug` 用 `windeployqt --debug` 部署 `Qt6*d.dll`，
+  Release 用 `--release` 部署 `Qt6*.dll`，CRT（`/MDd` vs `/MD`）一致，避免旧版「Debug 链 Release DLL」的坑；
+- **Release 打包固定走 Release**：`make dist` 内部走 Release 联合构建（不带 Debug），
   不提供 Debug 打包；要自打包 Debug 可手动把 `build\` 拷出，但不推荐用于分发。
 
 ### 运行
 
 客户端默认**自动管理本地服务端**：启动时通过相对路径定位 `server\aw-inbox-rust.exe` → 端口探测（未监听才拉起）→
-后台看护（异常退出自动重新拉起）→ 登录自启（HKCU Run）。直接启动客户端即可：
+后台看护（异常退出自动重新拉起）→ 登录自启（HKCU Run）。直接启动客户端即可（也可用 `make run` 从构建目录启动，可带 `PORT=5620` 指定联调端口）：
 
 ```powershell
 .\build\awqtui.exe                        # 默认 http://127.0.0.1:5600
@@ -188,7 +186,7 @@ git submodule update --remote vendor/aw-inbox
 git submodule update --remote vendor/aw-server-rust
 ```
 
-`build-server.ps1` 的源码定位顺序：
+`make server` 的源码定位顺序：
 `-ServerSrc` 参数（独立 crate 根或 workspace 根均可）→ 环境变量 `AW_SERVER_SRC`
 → `vendor\aw-inbox`（构建源）→ `vendor\aw-server-rust\aw-inbox-rust`（需先 init 嵌套 submodule）
 → WSL 默认路径 `/home/user/project/aw-android/aw-server-rust`（旧版兜底，可能有本地未提交修改，
@@ -198,8 +196,8 @@ git submodule update --remote vendor/aw-server-rust
 
 **构建期**
 
-- `build.ps1` 不带 `-WithServer`：纯客户端构建，不接触服务端，永不失败；
-- `build.ps1 -WithServer` / `build-server.ps1`：找不到源码 → **明确报错**并提示定位方式；
+- `make build`：纯客户端构建，不接触服务端，永不失败；
+- `make server` / `make`（带服务端）：找不到源码 → **明确报错**并提示定位方式；
   - submodule 已登记但未 checkout（目录为空）→ 提示先执行 `git submodule update --init --recursive`；
   - cargo 构建失败 → 报错退出，不静默降级。
 
@@ -226,9 +224,7 @@ git submodule update --remote vendor/aw-server-rust
 ```
 aw-qtui/
 ├── CMakeLists.txt
-├── build.ps1                  # 客户端一键构建（-WithServer 联合构建服务端）
-├── build-server.ps1           # 单独构建服务端 aw-inbox-rust.exe（Windows 原生 MSVC）
-├── release.ps1                # 联合构建 + 打包发布（dist\aw-qtui-<ver>-win64.zip）
+├── Makefile                   # 构建入口（GNU Make 编排 cmake+ninja：客户端/服务端/dist/asan）
 ├── server-src/                # 构建时同步的服务端源码暂存（aw-inbox-rust crate + target）
 ├── vendor/                    # git submodule：aw-inbox（构建源）+ aw-server-rust（参考工作区）
 ├── src/

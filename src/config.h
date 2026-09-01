@@ -10,7 +10,10 @@ inline const QString kDefaultServerUrl = QStringLiteral("http://127.0.0.1:5600")
 // mDNS 服务类型（对齐 aw-sync-transport/src/discovery.rs）
 inline const QString kMdnsServiceType = QStringLiteral("_activitywatch._tcp.local.");
 inline const QString kAppName = QStringLiteral("aw-qtui");
-inline const QString kAppVersion = QStringLiteral("0.1.0");
+#ifndef AW_VERSION
+#define AW_VERSION "0.1.0"
+#endif
+inline const QString kAppVersion = QStringLiteral(AW_VERSION);
 
 // 稳定的设备 ID：优先读持久化文件，否则按 MAC 生成并缓存
 QString deviceId();
