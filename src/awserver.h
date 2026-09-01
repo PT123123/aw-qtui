@@ -54,6 +54,10 @@ public:
     static bool firewallRuleExists();
     static bool requestFirewallAllow();
 
+    // 提权实例执行的落地动作：用 netsh 添加 5600/TCP 入站放行规则（当前进程须已提权）。
+    // 返回 netsh 退出码（0=成功）。由 main 的 --firewall-allow 分支调用。
+    static int applyFirewallRule();
+
 signals:
     // server 运行状态变化（看护轮询探测到后发出）
     void serverStateChanged(bool running);

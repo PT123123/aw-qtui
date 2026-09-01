@@ -178,17 +178,19 @@ bool ServerLauncher::firewallRuleExists()
 bool ServerLauncher::requestFirewallAllow()
 {
 #ifdef Q_OS_WIN
-    const QString cmd = QStringLiteral(
-        "advfirewall firewall add rule name=\"%1\" dir=in action=allow protocol=TCP localport=%2 profile=private")
-                            .arg(QLatin1String(kServerFirewallRule))
-                            .arg(kServerPort);
+    const QString appExe = QCoreApplication::applicationFilePath();
+    if (appExe.isEmpty() || !QFileInfo::exists(appExe)) {
+        qWarning() << "[awserver] 无法定位自身程序以请求提权";
+        return false;
+    }
+    // 提权运行自身（--firewall-allow）：UAC 显示的是 aw-qtui，而不是系统工具 net/netsh。
+    // 用户看到的授权对象是自己的程序，授权后由提权实例落地添加防火墙规则。
     SHELLEXECUTEINFOW sei = {};
     sei.cbSize = sizeof(sei);
     sei.fMask = SEE_MASK_NOCLOSEPROCESS;
     sei.lpVerb = L"runas"; // 提权运行 → 弹 UAC，由用户确认授权
-    sei.lpFile = L"netsh.exe"; // C:\Windows\System32\netsh.exe（Network Shell，添加防火墙规则）
-    const std::wstring params = cmd.toStdWString();
-    sei.lpParameters = params.c_str();
+    sei.lpFile = appExe.toStdWString().c_str();
+    sei.lpParameters = L"--firewall-allow";
     sei.nShow = SW_HIDE;
     if (!ShellExecuteExW(&sei)) {
         const DWORD err = GetLastError();
@@ -199,10 +201,26 @@ bool ServerLauncher::requestFirewallAllow()
     DWORD code = 0;
     GetExitCodeProcess(sei.hProcess, &code);
     CloseHandle(sei.hProcess);
-    qInfo() << "[awserver] 防火墙放行命令完成，exit=" << code;
+    qInfo() << "[awserver] 防火墙放行完成（提权实例），exit=" << code;
     return code == 0;
 #else
     return true;
+#endif
+}
+
+int ServerLauncher::applyFirewallRule()
+{
+#ifdef Q_OS_WIN
+    const QStringList args{
+        QStringLiteral("advfirewall"), QStringLiteral("firewall"), QStringLiteral("add"),
+        QStringLiteral("rule"),
+        QStringLiteral("name=") + QLatin1String(kServerFirewallRule),
+        QStringLiteral("dir=in"), QStringLiteral("action=allow"),
+        QStringLiteral("protocol=TCP"), QStringLiteral("localport=%1").arg(kServerPort),
+        QStringLiteral("profile=private")};
+    return QProcess::execute(QStringLiteral("netsh"), args);
+#else
+    return 0;
 #endif
 }
 
