@@ -135,7 +135,38 @@ try {
 $exe = Join-Path $target "$profile\aw-inbox-rust.exe"
 if (-not (Test-Path $exe)) { throw "构建产物缺失: $exe" }
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-Copy-Item $exe $outDir -Force
+
+# Windows 不允许覆盖正在运行的 exe（会报 IOException）。服务端可能被客户端自动拉起/登录自启常驻，
+# 因此部署前先结束占用旧 exe 的 aw-inbox-rust.exe 进程；若客户端 awqtui.exe 也在运行，其看护
+# （15s 轮询）可能把服务端重新拉起，需提示用户（此时拷贝靠下方重试兜底）。
+$runningServer = Get-Process -Name "aw-inbox-rust" -ErrorAction SilentlyContinue
+if ($runningServer) {
+    if (Get-Process -Name "awqtui" -ErrorAction SilentlyContinue) {
+        Write-Host "[build-server] 检测到 awqtui.exe 正在运行：看护进程可能在杀掉服务端后 ~15s 内重新拉起，" `
+            "若下方拷贝仍失败，请先退出客户端再重试。" -ForegroundColor Yellow
+    }
+    Write-Host "[build-server] 结束运行中的 aw-inbox-rust.exe（旧 exe 被占用，无法覆盖）..." -ForegroundColor Cyan
+    $runningServer | Stop-Process -Force
+    Start-Sleep -Milliseconds 300
+}
+
+# 部署 + 重试：兜底「杀进程 → 拷贝」窗口内服务端被客户端看护重新拉起的竞态
+$copied = $false
+for ($try = 1; $try -le 5; $try++) {
+    try {
+        Copy-Item $exe $outDir -Force -ErrorAction Stop
+        $copied = $true
+        break
+    } catch {
+        if ($try -lt 5) {
+            Write-Host "[build-server] 拷贝失败（目标 exe 被占用，第 $try 次），1s 后重试..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 1
+        }
+    }
+}
+if (-not $copied) {
+    throw "拷贝 $exe → $outDir 失败：目标 exe 持续被占用。请先退出 awqtui.exe（其看护会重新拉起服务端）后重试。"
+}
 $size = [math]::Round((Get-Item (Join-Path $outDir "aw-inbox-rust.exe")).Length / 1MB, 1)
 
 Write-Host ""
