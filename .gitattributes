@@ -1,0 +1,4 @@
+# 强制 LF 换行：bash / just 脚本若在 Windows 上被 checkout 成 CRLF 会解析失败
+# （just 的 #! 解释器路径、vcenv.sh 的变量赋值都会因行尾 \r 而损坏）
+justfile text eol=lf
+*.sh text eol=lf
