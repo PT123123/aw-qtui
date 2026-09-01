@@ -129,7 +129,8 @@ dist version="" skip_server="":
 # ---------- 安装（把已部署的 build/ 拷贝到安装目录） ----------
 install install_dir="":
     #!C:/Progra~1/Git/bin/bash.exe
-    target="${install_dir:-$LOCALAPPDATA/Programs/aw-qtui}"
+    target="{{install_dir}}"
+    [ -z "$target" ] && target="$LOCALAPPDATA/Programs/aw-qtui"
     mkdir -p "$target"
     rc=0
     robocopy build "$target" /E /XD CMakeFiles *.obj *.ilk *.pdb .ninja CMakeCache.txt cmake_install.cmake build.ninja CTestTestfile.cmake awqtui_autogen server-src >/dev/null || rc=$?
