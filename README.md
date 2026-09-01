@@ -52,6 +52,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
 自动配置 vcvars、CMake、Ninja、windeployqt。产物：`build\awqtui.exe`（Qt DLL 已部署到同目录）。
+默认 Release；Debug 构建及各入口的 `-Config` 用法见 [Debug / Release 构建](#debug--release-构建)。
 
 ### 单独构建服务端（aw-inbox-rust.exe）
 
@@ -71,6 +72,8 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -WithServer
 ```
 
 产物：`build\awqtui.exe` + `build\server\aw-inbox-rust.exe`。
+联合构建时服务端构建配置**跟随客户端**（`-Config Debug -WithServer` 两端都是 Debug），见
+[Debug / Release 构建](#debug--release-构建)。
 
 ### Release 打包
 
@@ -80,6 +83,32 @@ powershell -ExecutionPolicy Bypass -File release.ps1
 
 产物：`dist\aw-qtui-<版本>-win64\`（awqtui.exe + Qt DLL/plugins + aw-inbox-rust.exe + README）
 及同名 `.zip`。版本号默认读取 `CMakeLists.txt`，可用 `-Version` 覆盖；`-SkipBuild` 复用已有 `build\`。
+
+### Debug / Release 构建
+
+所有构建入口**默认都是 Release**。需要 Debug 时统一加 `-Config Debug`，
+`-Config` 只接受 `Debug` / `Release` 两个取值（PS `ValidateSet`，传其它值直接报错）：
+
+| 场景 | Release（默认） | Debug |
+| --- | --- | --- |
+| 仅客户端 | `build.ps1` | `build.ps1 -Config Debug` |
+| 仅服务端 | `build-server.ps1` | `build-server.ps1 -Config Debug` |
+| 客户端 + 服务端 | `build.ps1 -WithServer` | `build.ps1 -Config Debug -WithServer` |
+| Release 打包 | `release.ps1`（固定 Release） | 不提供，见下 |
+
+要点：
+
+- **联合构建的配置是一致的**：`build.ps1 -Config Debug -WithServer` 会把 `CMAKE_BUILD_TYPE=Debug`
+  传给 CMake，CMake 的 `aw-server` 目标据此以 `-Config Debug` 调用 `build-server.ps1`（cargo 不加
+  `--release`），不会出现「客户端 Debug / 服务端 Release」的错配；
+- **产物同名同路径**：客户端都是 `build\awqtui.exe`，服务端都是 `build\server\aw-inbox-rust.exe`。
+  区分看体积与行为——Debug 无优化、体积明显更大（服务端含调试符号），Release 经优化
+  （服务端 `--release`，实测约 6.2MB）；切换 Debug/Release 会触发对应工具链全量重编；
+- **Qt 运行库固定用 release 版**：aqt 默认只装 release 版 Qt 库，`windeployqt --release` 部署的也是
+  release Qt DLL。Debug 构建主要拿到的是 **MSVC Debug CRT + 编译期符号/无优化**（客户端侧可打断点、
+  `-g` 级别调试信息），Qt 自身仍是 release 库；
+- **Release 打包固定走 Release**：`release.ps1` 内部调 `build.ps1 -WithServer`（不带 `-Config`），
+  不提供 Debug 打包；要自打包 Debug 可手动把 `build\` 拷出，但不推荐用于分发。
 
 ### 运行
 

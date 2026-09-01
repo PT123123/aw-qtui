@@ -8,8 +8,9 @@
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -WithServer -ServerSrc D:\src\aw-server-rust
 #   powershell -ExecutionPolicy Bypass -File build.ps1 -Config Debug
 #
-# 说明：-WithServer 会把产物部署到 build\server\aw-inbox-rust.exe；客户端侧的
-#       「运行时自动 spawn」属后续里程碑（M2），当前仍需自行启动服务端或用 mock 联调。
+# 说明：-WithServer 会在 CMake 配置期开启 AW_ENABLE_SERVER，由 aw-server 目标
+#       在 `cmake --build` 阶段一并构建并部署 build\server\aw-inbox-rust.exe；
+#       客户端侧的「运行时自动 spawn」属后续里程碑（M2），当前仍需自行启动服务端或用 mock 联调。
 param(
     [switch]$WithServer,      # 联合构建：一并构建并部署 aw-inbox-rust.exe
     [string]$ServerSrc,       # 服务端源码根目录（可选，传给 build-server.ps1）
@@ -32,13 +33,21 @@ if (-not (Test-Path $cmake)) { throw "CMake not found: $cmake" }
 $env:Qt6_DIR = "$qt\lib\cmake\Qt6"
 $env:Path    = "$qt\bin;" + $env:Path
 
+# 联合构建：显式向 CMake 传 AW_ENABLE_SERVER=ON/OFF（避免 CMake 缓存残留导致开关失效）
+$serverFlag = " -DAW_ENABLE_SERVER=OFF"
+if ($WithServer) {
+    $serverFlag = " -DAW_ENABLE_SERVER=ON"
+    # -ServerSrc 经环境变量 AW_SERVER_SRC 透传给 build-server.ps1（CMake custom target 继承本进程环境）
+    if ($ServerSrc) { $env:AW_SERVER_SRC = $ServerSrc }
+}
+
 # vcvars64 must run in the same cmd process as cmake; write a temp bat to avoid PS quoting hell
 $bat = Join-Path $env:TEMP "awqtui_build_$([guid]::NewGuid().ToString('N')).bat"
 @"
 @echo off
 call "$vs\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
 if errorlevel 1 exit /b 1
-"$cmake" -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=$cfg -DCMAKE_MAKE_PROGRAM="$ninja" -DQt6_DIR="$env:Qt6_DIR"
+"$cmake" -S "$root" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=$cfg -DCMAKE_MAKE_PROGRAM="$ninja" -DQt6_DIR="$env:Qt6_DIR"$serverFlag
 if errorlevel 1 exit /b 1
 "$cmake" --build "$build" --config $cfg
 if errorlevel 1 exit /b 1
@@ -57,14 +66,14 @@ try {
 Write-Host ""
 Write-Host "Client build OK: $build\awqtui.exe" -ForegroundColor Green
 
-# 联合构建：服务端 sidecar
+# 联合构建：服务端已由 CMake 的 aw-server 目标在 --build 阶段一并构建，这里校验产物
 if ($WithServer) {
-    Write-Host "==> 联合构建：构建 aw-inbox-rust.exe ..." -ForegroundColor Yellow
-    $args2 = @("-Config", $Config)
-    if ($ServerSrc) { $args2 += @("-ServerSrc", $ServerSrc) }
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "build-server.ps1") @args2
-    if ($LASTEXITCODE -ne 0) { throw "Server build failed (see output above)" }
-    Write-Host "Combined build OK: $build\awqtui.exe + $build\server\aw-inbox-rust.exe" -ForegroundColor Green
+    $srvExe = Join-Path $build "server\aw-inbox-rust.exe"
+    if (-not (Test-Path $srvExe)) {
+        throw "服务端产物缺失: $srvExe（请检查上方 build-server.ps1 输出，确认 cargo / VS2022 MSVC 可用）"
+    }
+    $srvSize = [math]::Round((Get-Item $srvExe).Length / 1MB, 1)
+    Write-Host "Combined build OK: $build\awqtui.exe + $srvExe ($srvSize MB)" -ForegroundColor Green
 }
 
 Write-Host ""
