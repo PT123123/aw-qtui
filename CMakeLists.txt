@@ -92,6 +92,38 @@ if(WIN32)
     target_link_libraries(awqtui PRIVATE Dnsapi)
 endif()
 
+# ---- 可选：同时构建并部署 aw-inbox-rust 服务端（sidecar）----
+# 开启后，`cmake --build` 会在构建客户端之外，一并调用 build-server.ps1
+# （cargo + VS2022 MSVC）构建 aw-inbox-rust.exe 并部署到 <build>/server/。
+# release.ps1 的联合构建（-WithServer）默认开启此选项。
+option(AW_ENABLE_SERVER "同时构建并部署 aw-inbox-rust.exe 服务端（需要 cargo + VS2022 C++ 工作负载）" OFF)
+
+if(AW_ENABLE_SERVER)
+    find_program(POWERSHELL_EXE powershell)
+    if(NOT POWERSHELL_EXE)
+        message(FATAL_ERROR "AW_ENABLE_SERVER=ON 但未找到 powershell")
+    endif()
+    find_program(CARGO_EXECUTABLE cargo)
+    if(CARGO_EXECUTABLE)
+        message(STATUS "aw-server: 启用 sidecar 服务端构建（cargo: ${CARGO_EXECUTABLE}）")
+    else()
+        message(WARNING "AW_ENABLE_SERVER=ON 但未找到 cargo，将在构建时由 build-server.ps1 报错")
+    endif()
+    # 服务端构建配置跟随客户端：CMAKE_BUILD_TYPE=Debug 时也编 Debug，其余一律 Release
+    set(_aw_server_config "Release")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(_aw_server_config "Debug")
+    endif()
+    add_custom_target(aw-server ALL
+        COMMAND "${POWERSHELL_EXE}" -NoProfile -ExecutionPolicy Bypass -File
+                "${CMAKE_SOURCE_DIR}/build-server.ps1"
+                -Config "${_aw_server_config}"
+                -OutDir "${CMAKE_BINARY_DIR}/server"
+        COMMENT "构建并部署 aw-inbox-rust.exe (${_aw_server_config}) → ${CMAKE_BINARY_DIR}/server"
+        VERBATIM
+    )
+endif()
+
 # 打包部署：把 Qt DLL 拷到构建目录
 install(TARGETS awqtui BUNDLE DESTINATION .)
 set(QT_DEPLOYMENT_TEST false)

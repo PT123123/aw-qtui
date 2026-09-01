@@ -15,6 +15,7 @@
 #   powershell -ExecutionPolicy Bypass -File build-server.ps1 -ServerSrc D:\src\aw-inbox        # 独立 crate 根
 #   powershell -ExecutionPolicy Bypass -File build-server.ps1 -ServerSrc D:\src\aw-server-rust  # workspace 根
 #   powershell -ExecutionPolicy Bypass -File build-server.ps1 -Config Debug
+#   powershell -ExecutionPolicy Bypass -File build-server.ps1 -OutDir D:\build\server          # 自定义产物目录（CMake 集成时传入）
 #   powershell -ExecutionPolicy Bypass -File build-server.ps1 -SkipSync            # 复用已同步源码
 #
 # 环境变量：
@@ -28,17 +29,18 @@ param(
     [string]$ServerSrc,          # 服务端源码根目录（独立 aw-inbox crate 根，或含 aw-inbox-rust 的 workspace 根）
     [ValidateSet("Debug", "Release")]
     [string]$Config = "Release",
-    [switch]$SkipSync            # 跳过源码同步（使用上次已同步的 server-src）
+    [switch]$SkipSync,           # 跳过源码同步（使用上次已同步的 server-src）
+    [string]$OutDir              # 产物目录（缺省 $root\build\server；CMake 集成时传 ${CMAKE_BINARY_DIR}/server）
 )
 $ErrorActionPreference = "Stop"
 
 $root   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $stage  = Join-Path $root "server-src"
 $target = Join-Path $stage "target"          # CARGO_TARGET_DIR，与源码分离，跨同步增量复用
-$build  = Join-Path $root "build"
-$outDir = Join-Path $build "server"
 $vs     = "C:\Program Files\Microsoft Visual Studio\2022\Community"
 $vcvars = "$vs\VC\Auxiliary\Build\vcvars64.bat"
+# 产物目录：优先 -OutDir（供 CMake 集成传入 ${CMAKE_BINARY_DIR}/server），缺省 $root\build\server
+$outDir = if ($OutDir) { $OutDir } else { Join-Path (Join-Path $root "build") "server" }
 
 if (-not (Test-Path $vcvars)) { throw "vcvars64.bat 未找到: $vcvars（需要 VS2022 的 C++ 桌面工作负载）" }
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { throw "cargo 不在 PATH（先安装 rustup: https://rustup.rs）" }
