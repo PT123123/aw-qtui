@@ -17,6 +17,8 @@ add_executable(awqtui WIN32
     src/config.h
     src/appsettings.cpp
     src/appsettings.h
+    src/awserver.cpp
+    src/awserver.h
     src/globalshortcut.cpp
     src/globalshortcut.h
     src/settingsdialog.cpp

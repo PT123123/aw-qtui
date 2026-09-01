@@ -149,4 +149,30 @@ void saveUiEffects(const UiEffects &e)
     s.sync();
 }
 
+bool loadServerAutoManage()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    return s.value(QStringLiteral("server/autoManage"), true).toBool();
+}
+
+void saveServerAutoManage(bool on)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("server/autoManage"), on);
+    s.sync();
+}
+
+bool loadServerAutostart()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    return s.value(QStringLiteral("server/autostart"), true).toBool();
+}
+
+void saveServerAutostart(bool on)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("server/autostart"), on);
+    s.sync();
+}
+
 } // namespace awqtui

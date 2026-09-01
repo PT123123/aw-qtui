@@ -72,4 +72,11 @@ UiEffects loadUiEffects();
 // 持久化界面效果配置
 void saveUiEffects(const UiEffects &e);
 
+// 本地服务端自动管理（探测->拉起->看护），默认开启
+bool loadServerAutoManage();
+void saveServerAutoManage(bool on);
+// 开机自启（Task Scheduler ONLOGON），默认开启
+bool loadServerAutostart();
+void saveServerAutostart(bool on);
+
 } // namespace awqtui

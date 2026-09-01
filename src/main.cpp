@@ -1,6 +1,7 @@
 // main.cpp —— 入口：python 之外完全独立运行的 C++ Qt 客户端
 #include "apiclient.h"
 #include "appsettings.h"
+#include "awserver.h"
 #include "config.h"
 #include "mainwindow.h"
 #include "settingsdialog.h"
@@ -12,7 +13,10 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QLockFile>
 #include <QMessageBox>
+#include <QStandardPaths>
 #include <QTextStream>
 #include <QTimer>
 #include <QStringList>
@@ -127,6 +131,17 @@ int main(int argc, char *argv[])
     QApplication::setApplicationVersion(kAppVersion);
     QApplication::setOrganizationName(QStringLiteral("aw-qtui"));
 
+    // 单实例互斥：防止双开（QLockFile，崩溃残留锁可被自动接管）
+    const QString lockPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                             + QStringLiteral("/awqtui.lock");
+    QDir().mkpath(QFileInfo(lockPath).absolutePath());
+    QLockFile lock(lockPath);
+    if (!lock.tryLock(0)) {
+        QMessageBox::information(nullptr, QStringLiteral("aw-qtui"),
+                                 QStringLiteral("aw-qtui 已在运行，本实例将退出。"));
+        return 0;
+    }
+
     QCommandLineParser parser;
     parser.setApplicationDescription(
         QStringLiteral("aw-qtui — ActivityWatch 收件箱 / 局域网同步桌面客户端（对齐 aw-inbox / aw-server-rust 协议）"));
@@ -159,7 +174,28 @@ int main(int argc, char *argv[])
     qDebug() << "stylesheet set, theme =" << gTheme->id;
 
     qDebug() << "creating MainWindow...";
-    MainWindow win(parser.value(urlOpt));
+    // 本地服务端自动管理：相对路径定位 exe → 端口探测 → 拉起 → 看护 + 自启
+    ServerLauncher server;
+    const QString url = parser.value(urlOpt);
+    const bool isLocalDefault = url.isEmpty() || url == kDefaultServerUrl;
+    if (isLocalDefault && loadServerAutoManage()) {
+        const QString dataDir = ServerLauncher::defaultServerDataDir();
+        server.ensureServerRunning(kServerProbeHost, kServerPort, dataDir);
+        if (loadServerAutostart()) {
+            const QString exe = ServerLauncher::locateServerExe();
+            // 幂等覆盖：每次启动重写为当前 exe 绝对路径，发布目录变更后自启仍指向正确位置
+            if (!exe.isEmpty())
+                ServerLauncher::installAutostart(exe, dataDir, kServerPort);
+        }
+        server.setWatch(true, kServerProbeHost, kServerPort, dataDir);
+        // 局域网互通：server 监听 0.0.0.0:5600，主窗口显示后若入站规则缺失则主动弹 UAC 请求放行
+        QTimer::singleShot(400, [] {
+            if (!ServerLauncher::firewallRuleExists())
+                ServerLauncher::requestFirewallAllow();
+        });
+        qInfo() << "[main] 本地服务端管理已启用（监听" << kServerListenHost << ":" << kServerPort << "）";
+    }
+    MainWindow win(url);
     qDebug() << "MainWindow created";
     win.show();
     qDebug() << "win.show() done, entering exec";
