@@ -82,7 +82,19 @@ powershell -ExecutionPolicy Bypass -File release.ps1
 ```
 
 产物：`dist\aw-qtui-<版本>-win64\`（awqtui.exe + Qt DLL/plugins + aw-inbox-rust.exe + README）
-及同名 `.zip`。版本号默认读取 `CMakeLists.txt`，可用 `-Version` 覆盖；`-SkipBuild` 复用已有 `build\`。
+及同名 `.zip`。
+
+**版本号默认自动 +0.01**：不传 `-Version` 时，以 `CMakeLists.txt` 当前版本为基准 patch +1（0.1.0 → 0.1.1），
+打包成功后写回 `CMakeLists.txt`，下次 release 继续递增（版本不重复）；显式 `-Version` 则按给定版本，不自动加、不写回。
+`-SkipBuild` 复用已有 `build\`。
+
+**服务端默认必带**：release 默认执行联合构建并校验 `server\aw-inbox-rust.exe`，
+服务端产物缺失（含 `-SkipBuild` 复用场景）会直接报错，绝不静默产出不带服务端的包。
+只有显式声明不带服务端才放行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File release.ps1 -SkipServer   # 发布纯客户端包（build 里的 server\ 也不会被打包）
+```
 
 ### Debug / Release 构建
 
@@ -112,11 +124,18 @@ powershell -ExecutionPolicy Bypass -File release.ps1
 
 ### 运行
 
-先启动真实服务端（spawn 属 M2 规划，当前需手动），再连客户端：
+客户端默认**自动管理本地服务端**：启动时通过相对路径定位 `server\aw-inbox-rust.exe` → 端口探测（未监听才拉起）→
+后台看护（异常退出自动重新拉起）→ 登录自启（HKCU Run）。直接启动客户端即可：
 
 ```powershell
-.\build\server\aw-inbox-rust.exe
 .\build\awqtui.exe                        # 默认 http://127.0.0.1:5600
+```
+
+如需手动管理（调试/自定义地址），可先自行启动服务端：
+
+```powershell
+.\build\server\aw-inbox-rust.exe          # 默认 --host 127.0.0.1 --port 5600
+.\build\awqtui.exe --url http://127.0.0.1:5600
 ```
 
 连其它地址：
@@ -184,16 +203,22 @@ git submodule update --remote vendor/aw-server-rust
   - submodule 已登记但未 checkout（目录为空）→ 提示先执行 `git submodule update --init --recursive`；
   - cargo 构建失败 → 报错退出，不静默降级。
 
-**运行期**（当前为纯客户端模式，服务端需手动启动或用 mock 联调）
+**运行期**（M2 已实现：本地服务端自动管理）
 
-- 服务端未启动：UI 保持可用，收件箱/同步页显示离线徽标「已离线 · 本地已存/待同步」，
-  断线自动重连，本地数据离线优先（写入待同步队列，恢复后自动补推）；
-- 规划（M2 里程碑，尚未实现）：启动时探测 5600 → 已有服务则复用（`owned=false`，退出不带走）→
-  无服务则 spawn `build\server\aw-inbox-rust.exe`（`owned=true`，退出 terminate）→
-  轮询就绪 → 失败降级「未连接」+ 重试；debug 构建可切 mock。
-- ⚠️ spawn 注意：Windows 下服务端数据库是 **CWD 相对路径 `inbox.db`**（非 Android 环境不读 data_dir）。
-  拉起时需指定固定可写工作目录（如 `%APPDATA%\aw-qtui\server`），或设置 `DATABASE_URL` 指向固定位置，
-  否则每次启动目录不同会各建一份库。
+- 本地服务端管理（`src/awserver.{h,cpp}`）：客户端启动时经相对路径定位 `server\aw-inbox-rust.exe` →
+  回环端口探测（`127.0.0.1:5600` 已监听则复用）→ 未监听则拉起（`--host 0.0.0.0` 监听所有网卡，
+  `--data-dir %APPDATA%\aw-qtui\aw-qtui\server`，局域网多机互通）→
+  看护轮询（每 15s 探测，异常退出自动重新拉起）→ 登录自启（HKCU Run，`server/autostart` 配置，默认开）。
+  单实例互斥：`QLockFile` 防双开（重复启动直接退出）。
+- 防火墙放行：server 监听 `0.0.0.0:5600` 后，首次启动检测入站规则缺失则**主动弹 UAC 请求授权**
+  （`ShellExecute runas` 提权执行 `netsh advfirewall`，规则名 `aw-qtui-server`，仅限专用网络 profile），
+  用户确认即放行，无需手动；拒绝/未提权则仅本机可用，下次启动重试。
+- 服务端未启动/外部地址不可达：UI 保持可用，收件箱/同步页显示离线徽标「已离线 · 本地已存/待同步」，
+  断线自动重连，本地数据离线优先（写入待同步队列，恢复后自动补推）。
+- 服务端数据库：已改为 **WAL 模式**（崩溃/强杀不损坏，`integrity_check=ok`）+ 数据目录参数化（`--data-dir`），
+  不再依赖 CWD；日志落盘到 `--data-dir/server.log`。
+- 用 mock 联调（不拉起真实服务端）：`awqtui.exe --url http://127.0.0.1:5620`；
+  如需关闭本地自动管理，可在 `awqtui.ini` 设 `server/autoManage=false`。
 
 ## 工程结构
 
