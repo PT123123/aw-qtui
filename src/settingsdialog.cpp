@@ -124,7 +124,7 @@ SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId
     int cur = 0;
     for (int i = 0; i < (int)std::size(kThemes); ++i) {
         const Theme &t = kThemes[i];
-        m_themeCombo->addItem(makeEmojiIcon(QString::fromUtf8(t.emoji), QColor(t.accent)),
+        m_themeCombo->addItem(makeEmojiIcon(QString::fromUtf8(t.emoji)),
                               QStringLiteral("%1  %2").arg(QString::fromUtf8(t.emoji),
                                                           QString::fromUtf8(t.name)));
         if (QLatin1String(t.id) == themeId)

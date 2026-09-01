@@ -5,10 +5,12 @@
 #include <QStackedWidget>
 #include <QStringList>
 
+class QCloseEvent;
 class QEvent;
 class QKeyEvent;
 class QLabel;
 class QPushButton;
+class QSystemTrayIcon;
 class QWheelEvent;
 
 namespace awqtui {
@@ -55,12 +57,16 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     bool eventFilter(QObject *obj, QEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
 
 private slots:
     void onGlobalHotkey(int id);
 
 private:
     void buildUi();
+    // 系统托盘：emoji 图标（复用主题 emoji + accent，无外部资源文件），
+    // 左键切换显示/隐藏，右键菜单（显示/隐藏、退出），关窗最小化到托盘
+    void setupTray();
     void updateStatus();
     // 读取配置并注册全部全局热键；返回未能注册的快捷键描述列表（空 = 全部成功）
     QStringList applyShortcuts();
@@ -112,6 +118,10 @@ private:
     QPushButton *m_navDay = nullptr;
     QPushButton *m_navStats = nullptr;
     QLabel *m_deviceLabel = nullptr;
+    // 系统托盘
+    QSystemTrayIcon *m_tray = nullptr;
+    bool m_trayExiting = false;   // 托盘菜单「退出」置位：关窗不再拦截
+    bool m_trayHintShown = false; // 首次最小化到托盘的提示只弹一次
 };
 
 } // namespace awqtui
