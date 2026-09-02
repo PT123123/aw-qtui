@@ -25,7 +25,7 @@ class TimelinePage;
 class DayPage;
 class StatsPage;
 class TodoPage;
-class TodoStore;
+class TodoSource;
 class TagStore;
 
 class MainWindow : public QMainWindow
@@ -95,7 +95,7 @@ private:
     MdnsDiscovery *m_mdns = nullptr;
     GlobalHotkey *m_hotkey = nullptr;
     TagStore *m_tagStore = nullptr;
-    TodoStore *m_todoStore = nullptr;
+    TodoSource *m_todoStore = nullptr;
     ActivityPage *m_activity = nullptr;
     TimelinePage *m_timeline = nullptr;
     InboxPage *m_inbox = nullptr;
@@ -121,7 +121,6 @@ private:
     // 系统托盘
     QSystemTrayIcon *m_tray = nullptr;
     bool m_trayExiting = false;   // 托盘菜单「退出」置位：关窗不再拦截
-    bool m_trayHintShown = false; // 首次最小化到托盘的提示只弹一次
 };
 
 } // namespace awqtui

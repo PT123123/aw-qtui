@@ -16,6 +16,8 @@
 
 namespace awqtui {
 
+class ApiClient;
+
 class TodoSource : public QObject
 {
     Q_OBJECT
@@ -89,6 +91,43 @@ private:
     bool m_loaded = false;
 
     static QString filePath();
+};
+
+// ── Rust 服务端实现（/inbox/todos；lists 用 tags 模拟，subtasks/recurrence 暂不支持） ──
+class TodoApiStore : public TodoSource
+{
+    Q_OBJECT
+public:
+    explicit TodoApiStore(ApiClient *api, QObject *parent = nullptr);
+    ~TodoApiStore() override = default;
+
+    void load() override;
+    bool ready() const override { return m_loaded; }
+
+    QList<TodoList> lists() const override { return m_lists; }
+    QList<TodoTask> tasks() const override { return m_tasks; }
+
+    void createList(const QString &name, const QString &color) override;
+    void renameList(qint64 listId, const QString &name) override;
+    void deleteList(qint64 listId) override;
+    void createTask(const QString &title, qint64 listId, const QString &dueDate) override;
+    void updateTask(const TodoTask &task) override;
+    void setTaskCompleted(qint64 taskId, bool completed) override;
+    void deleteTask(qint64 taskId) override;
+    void addSubtask(qint64 taskId, const QString &title) override;
+    void toggleSubtask(qint64 taskId, qint64 subtaskId) override;
+    void removeSubtask(qint64 taskId, qint64 subtaskId) override;
+
+private:
+    void rebuildLists();
+    static TodoTask todoToTask(const QJsonObject &o);
+    static qint64 tagToListId(const QString &tag);
+    QString listIdToTag(qint64 listId);
+
+    ApiClient *m_api = nullptr;
+    QList<TodoList> m_lists;
+    QList<TodoTask> m_tasks;
+    bool m_loaded = false;
 };
 
 } // namespace awqtui

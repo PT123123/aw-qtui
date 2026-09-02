@@ -10,6 +10,10 @@
 #include <QLineEdit>
 #include <QMap>
 #include <QMessageBox>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkReply>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
@@ -21,8 +25,10 @@
 
 #include "addtagdialog.h"
 #include "advancedsearchdialog.h"
+#include "apiclient.h"
 #include "autotagdialog.h"
 #include "autotagengine.h"
+#include "awdatastore.h"
 #include "charts.h"
 #include "mockdata.h"
 #include "tageditordialog.h"
@@ -81,8 +87,8 @@ static QList<QPair<qint64, qint64>> subtractRanges(
     return out;
 }
 
-DayPage::DayPage(TagStore *store, QWidget *parent)
-    : QWidget(parent), m_store(store)
+DayPage::DayPage(ApiClient *api, TagStore *store, QWidget *parent)
+    : QWidget(parent), m_api(api), m_store(store)
 {
     m_date = QDate::currentDate();
     buildUi();
@@ -325,12 +331,96 @@ void DayPage::onSelModeChanged(int idx)
 // ── 刷新 ────────────────────────────────────────────────────
 void DayPage::reload()
 {
+    if (!m_api) {
+        m_lanes = generateTimelineLanes(m_date);
+        m_updating = true;
+        rebuildTagsLane();
+        rebuildDetails();
+        rebuildSummary();
+        m_updating = false;
+        refreshStatus();
+        return;
+    }
+
+    m_loading = true;
+    setStatus(QStringLiteral("加载中…"));
+    QNetworkReply *reply = m_api->getBuckets();
+    connect(reply, &QNetworkReply::finished, this, &DayPage::onBucketsLoaded);
+}
+
+void DayPage::onBucketsLoaded()
+{
+    auto *reply = qobject_cast<QNetworkReply *>(sender());
+    if (!reply)
+        return;
+    QJsonDocument doc;
+    QString err;
+    if (!ApiClient::parseReply(reply, &doc, &err)) {
+        showEmptyState(QStringLiteral("Failed to load buckets: %1").arg(err));
+        reply->deleteLater();
+        return;
+    }
+    reply->deleteLater();
+
+    m_buckets = parseBuckets(doc.object());
+    if (m_buckets.isEmpty()) {
+        showEmptyState(QStringLiteral("No buckets — run aw-watcher to start tracking."));
+        return;
+    }
+    fetchAllEvents();
+}
+
+void DayPage::fetchAllEvents()
+{
+    m_eventsMap.clear();
+    m_pendingEvents = m_buckets.size();
+
+    const qint64 dayStart = QDateTime(m_date, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
+    const qint64 dayEnd = dayStart + 86400000LL;
+
+    for (const BucketInfo &b : m_buckets) {
+        QNetworkReply *reply = m_api->getEvents(b.id, dayStart, dayEnd);
+        reply->setProperty("bucketId", b.id);
+        connect(reply, &QNetworkReply::finished, this, &DayPage::onEventLoaded);
+    }
+}
+
+void DayPage::onEventLoaded()
+{
+    auto *reply = qobject_cast<QNetworkReply *>(sender());
+    if (!reply)
+        return;
+    const QString bucketId = reply->property("bucketId").toString();
+    QJsonDocument doc;
+    QString err;
+    if (ApiClient::parseReply(reply, &doc, &err)) {
+        m_eventsMap[bucketId] = doc.array();
+    }
+    reply->deleteLater();
+
+    if (--m_pendingEvents <= 0) {
+        m_loading = false;
+        m_lanes = buildLanes(m_buckets, m_eventsMap);
+        m_updating = true;
+        rebuildTagsLane();
+        rebuildDetails();
+        rebuildSummary();
+        m_updating = false;
+        refreshStatus();
+    }
+}
+
+void DayPage::showEmptyState(const QString &msg)
+{
+    m_loading = false;
+    m_lanes.clear();
     m_updating = true;
     rebuildTagsLane();
     rebuildDetails();
     rebuildSummary();
     m_updating = false;
-    refreshStatus();
+    setStatus(msg);
+    qWarning() << "[DayPage]" << msg;
 }
 
 void DayPage::rebuildTagsLane()
@@ -372,7 +462,7 @@ void DayPage::rebuildDetails()
     const qint64 dayEnd = m_date.addDays(1).startOfDay().toMSecsSinceEpoch();
 
     // 活动事件
-    const QList<TimelineLane> lanes = generateTimelineLanes(m_date);
+    const QList<TimelineLane> &lanes = m_lanes;
     for (const auto &lane : lanes) {
         const bool isTagLike =
             lane.name.contains(QStringLiteral("window")) || lane.name.contains(QStringLiteral("web"));
@@ -467,7 +557,7 @@ void DayPage::rebuildSummary()
         return;
     // 按 group 聚合 window/web 事件
     QMap<QString, QPair<qint64, int>> agg; // group -> (durationMs, count)
-    const QList<TimelineLane> lanes = generateTimelineLanes(m_date);
+    const QList<TimelineLane> &lanes = m_lanes;
     for (const auto &lane : lanes) {
         if (!lane.name.contains(QStringLiteral("window")) && !lane.name.contains(QStringLiteral("web")))
             continue;
@@ -523,7 +613,7 @@ QList<QPair<qint64, qint64>> DayPage::selectedRanges() const
 QList<QPair<qint64, qint64>> DayPage::activeRanges() const
 {
     QList<QPair<qint64, qint64>> out;
-    const QList<TimelineLane> lanes = generateTimelineLanes(m_date);
+    const QList<TimelineLane> &lanes = m_lanes;
     for (const auto &lane : lanes) {
         if (lane.name.contains(QStringLiteral("window")) || lane.name.contains(QStringLiteral("web")))
             for (const auto &ev : lane.events)
@@ -616,7 +706,7 @@ void DayPage::onSummaryItemChanged(QTableWidgetItem *item)
         if (!chk || chk->checkState() != Qt::Checked)
             continue;
         const QString group = m_summaryTable->item(r, 1)->text();
-        const QList<TimelineLane> lanes = generateTimelineLanes(m_date);
+        const QList<TimelineLane> &lanes = m_lanes;
         for (const auto &lane : lanes) {
             if (!lane.name.contains(QStringLiteral("window")) &&
                 !lane.name.contains(QStringLiteral("web")))
@@ -704,8 +794,7 @@ void DayPage::onCopyAutotags()
         return;
     const qint64 dayStart = m_date.startOfDay().toMSecsSinceEpoch();
     const qint64 dayEnd = m_date.addDays(1).startOfDay().toMSecsSinceEpoch();
-    const auto hits = AutoTagEngine::compute(m_store, dayStart, dayEnd,
-                                             generateTimelineLanes(m_date));
+    const auto hits = AutoTagEngine::compute(m_store, dayStart, dayEnd, m_lanes);
     if (hits.isEmpty()) {
         setStatus(QStringLiteral("今天没有自动标签可复制，请先在「自动标签」里建规则"));
         return;

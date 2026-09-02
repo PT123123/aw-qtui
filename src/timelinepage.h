@@ -2,22 +2,28 @@
 #pragma once
 
 #include <QDate>
+#include <QHash>
+#include <QJsonArray>
+#include <QList>
 #include <QWidget>
+#include "awdatastore.h"
 #include "mockdata.h"
 
 class QLabel;
 class QPushButton;
 class QComboBox;
+class QNetworkReply;
 
 namespace awqtui {
 
+class ApiClient;
 class TimelineWidget;
 
 class TimelinePage : public QWidget
 {
     Q_OBJECT
 public:
-    explicit TimelinePage(QWidget *parent = nullptr);
+    explicit TimelinePage(ApiClient *api, QWidget *parent = nullptr);
 
     void setDate(const QDate &date);
     QDate date() const { return m_date; }
@@ -31,14 +37,23 @@ private slots:
     void onToday();
     void onResetView();
     void onRangeChanged(qint64 startMs, qint64 endMs);
+    void onBucketsLoaded();
+    void onEventLoaded();
 
 private:
     void buildUi();
     void reloadData();
+    void fetchAllEvents();
     void updateStats();
+    void showEmptyState(const QString &msg);
 
+    ApiClient *m_api = nullptr;
     QDate m_date;
     QList<TimelineLane> m_lanes;
+    QList<BucketInfo> m_buckets;
+    QHash<QString, QJsonArray> m_eventsMap;
+    int m_pendingEvents = 0;
+    bool m_loading = false;
 
     QLabel *m_dateLabel = nullptr;
     QPushButton *m_prevBtn = nullptr;

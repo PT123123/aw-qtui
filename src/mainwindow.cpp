@@ -17,6 +17,7 @@
 #include "timelinepage.h"
 #include "todopage.h"
 #include "todostore.h"
+#include "watcher.h"
 
 #include <QApplication>
 #include <QButtonGroup>
@@ -60,10 +61,17 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     m_api = new ApiClient(this);
     if (!serverUrl.isEmpty())
         m_api->setBaseUrl(serverUrl);
+
+    // 启动内置 watcher：当前窗口（1s 心跳）+ AFK 状态（10s 心跳），上报到 aw-server
+    auto *windowWatcher = new WindowWatcher(m_api, this);
+    windowWatcher->start();
+    auto *afkWatcher = new AfkWatcher(m_api, this);
+    afkWatcher->start();
     m_mdns = new MdnsDiscovery(this);
     m_tagStore = new TagStore;
     m_tagStore->load();
-    m_todoStore = new TodoStore(this);
+    m_todoStore = new TodoApiStore(m_api, this);
+    m_todoStore->load();
 
     // 界面效果配置：先于 buildUi 载入，确保页面在创建时就按配置渲染
     const UiEffects fx = loadUiEffects();
@@ -143,12 +151,6 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (m_tray && m_tray->isVisible() && !m_trayExiting) {
         hide();
-        if (!m_trayHintShown) {
-            m_trayHintShown = true;
-            m_tray->showMessage(QStringLiteral("aw-qtui"),
-                                QStringLiteral("已最小化到托盘，点击图标可恢复，右键可退出。"),
-                                QSystemTrayIcon::Information, 3000);
-        }
         event->ignore();
         return;
     }
@@ -276,10 +278,10 @@ void MainWindow::buildUi()
     // ---- 页面堆栈 ----
     m_stack = new QStackedWidget;
     qDebug() << "[MainWindow] creating ActivityPage...";
-    m_activity = new ActivityPage;
+    m_activity = new ActivityPage(m_api);
     qDebug() << "[MainWindow] ActivityPage created";
     qDebug() << "[MainWindow] creating TimelinePage...";
-    m_timeline = new TimelinePage;
+    m_timeline = new TimelinePage(m_api);
     qDebug() << "[MainWindow] TimelinePage created";
     qDebug() << "[MainWindow] creating InboxPage...";
     m_inbox = new InboxPage(m_api);
@@ -292,10 +294,10 @@ void MainWindow::buildUi()
     m_sync = new SyncPage(m_api, m_mdns);
     qDebug() << "[MainWindow] SyncPage created";
     qDebug() << "[MainWindow] creating DayPage...";
-    m_day = new DayPage(m_tagStore);
+    m_day = new DayPage(m_api, m_tagStore);
     qDebug() << "[MainWindow] DayPage created";
     qDebug() << "[MainWindow] creating StatsPage...";
-    m_stats = new StatsPage(m_tagStore);
+    m_stats = new StatsPage(m_api, m_tagStore);
     qDebug() << "[MainWindow] StatsPage created";
     m_stack->addWidget(m_activity);   // 0
     m_stack->addWidget(m_timeline);   // 1
