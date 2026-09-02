@@ -6,6 +6,7 @@
 #include "appsettings.h"
 #include "config.h"
 #include "daypage.h"
+#include "focusstore.h"
 #include "globalshortcut.h"
 #include "inboxpage.h"
 #include "mdnsdiscovery.h"
@@ -56,6 +57,28 @@
 
 namespace awqtui {
 
+// 左侧导航宽度（缩放前基准 px）：窄栏仅图标 / 展开显示图标+文字
+static const int kNavCollapsedPx = 56;
+static const int kNavExpandedPx = 148;
+
+// 缩放吸附档位：仅 gFixSnapZoom 开启时使用，把缩放吸附到"干净"倍率，
+// 避免非整数缩放导致控件落在亚像素位置、1px 边框发虚。关闭时保留自由缩放（1.15 倍步进）。
+static qreal snapZoom(qreal z)
+{
+    static const qreal kSteps[] = {0.50, 0.75, 1.00, 1.25, 1.50, 1.75,
+                                   2.00, 2.25, 2.50, 2.75, 3.00};
+    qreal best = z;
+    qreal bestDist = 1e9;
+    for (const qreal s : kSteps) {
+        const qreal d = qAbs(s - z);
+        if (d < bestDist) {
+            bestDist = d;
+            best = s;
+        }
+    }
+    return best;
+}
+
 MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(parent)
 {
     m_api = new ApiClient(this);
@@ -72,6 +95,9 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     m_tagStore->load();
     m_todoStore = new TodoApiStore(m_api, this);
     m_todoStore->load();
+    // 专注数据：本地优先（focus_local.json）；后续接 Rust /focus 端点时换 FocusApiStore
+    m_focusStore = new FocusStore(this);
+    m_focusStore->load();
 
     // 界面效果配置：先于 buildUi 载入，确保页面在创建时就按配置渲染
     const UiEffects fx = loadUiEffects();
@@ -79,11 +105,27 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     gGlassLevel = fx.glassLevel;
     gFxAnimations = fx.animations;
     gDwmBackdrop = fx.dwmBackdrop;
+    gFixEdgeLowContrast = fx.fixEdgeLowContrast;
+    gFixGlassOpaque = fx.fixGlassOpaque;
+    gFixSnapZoom = fx.fixSnapZoom;
+    gFixShadowAdaptive = fx.fixShadowAdaptive;
 
+    // 左侧导航展开状态：读取上次设置（默认收起 → 窄栏图标模式）
+    m_navExpanded = !loadNavCollapsed();
     buildUi();
+    // 按读取到的状态应用窄栏/展开（buildUi 默认构建窄栏）
+    setNavExpanded(m_navExpanded);
 
     // 页面缩放：应用上次保存的比例（0.3~3.0），并安装全局事件过滤器拦截 Ctrl+滚轮 / +- 键
     m_zoom = loadUiZoom();
+    // 缩放对齐开启时，把历史保存的非整数缩放吸附到干净档位并持久化（避免边缘发虚）
+    if (gFixSnapZoom) {
+        const qreal snapped = snapZoom(m_zoom);
+        if (!qFuzzyCompare(snapped, m_zoom)) {
+            m_zoom = snapped;
+            saveUiZoom(m_zoom);
+        }
+    }
     applyUiScale();
     qApp->installEventFilter(this);
 
@@ -123,6 +165,8 @@ void MainWindow::setupTray()
     auto *menu = new QMenu(this);
     auto *toggleAct = menu->addAction(QStringLiteral("显示 / 隐藏主窗口"));
     menu->addSeparator();
+    auto *settingsAct = menu->addAction(QStringLiteral("设置"));
+    menu->addSeparator();
     auto *quitAct = menu->addAction(QStringLiteral("退出"));
     m_tray->setContextMenu(menu);
 
@@ -133,6 +177,7 @@ void MainWindow::setupTray()
             wakeUpAndShow();
     };
     connect(toggleAct, &QAction::triggered, this, toggleWindow);
+    connect(settingsAct, &QAction::triggered, this, &MainWindow::openSettings);
     connect(quitAct, &QAction::triggered, this, [this] {
         m_trayExiting = true;
         qApp->quit();
@@ -164,22 +209,26 @@ void MainWindow::buildUi()
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    // ---- 左侧导航 ----
+    // ---- 左侧导航：默认窄栏（仅图标），点击 ☰ 展开显示图标+文字 ----
     m_nav = new QWidget;
     m_nav->setObjectName(QStringLiteral("NavSidebar"));
-    m_nav->setFixedWidth(si(148));
+    m_nav->setFixedWidth(si(kNavCollapsedPx));
     auto *nav = m_nav;
     auto *navLay = new QVBoxLayout(nav);
-    navLay->setContentsMargins(0, si(16), 0, si(12));
-    navLay->setSpacing(si(4));
+    navLay->setContentsMargins(0, si(12), 0, si(12));
+    navLay->setSpacing(si(2));
 
-    auto *brand = new QLabel(QStringLiteral("aw · qtui"));
-    brand->setObjectName(QStringLiteral("NavBrand"));
-    brand->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: %2; padding: 0 %3 %4;")
-                             .arg(sp(17), kColorFg, sp(12), sp(10)));
-    navLay->addWidget(brand);
+    // 展开/收起切换按钮：窄栏时显示 ☰，展开后显示 «
+    m_navToggle = new QToolButton;
+    m_navToggle->setObjectName(QStringLiteral("NavToggle"));
+    m_navToggle->setText(QStringLiteral("☰"));
+    m_navToggle->setToolTip(QStringLiteral("展开导航"));
+    m_navToggle->setCursor(Qt::PointingHandCursor);
+    m_navToggle->setProperty("expanded", false);
+    navLay->addWidget(m_navToggle);
+    connect(m_navToggle, &QToolButton::clicked, this, [this] { setNavExpanded(!m_navExpanded); });
 
-    // 可折叠分组：header 点击展开/收起，容器内放导航按钮
+    // 可折叠分组（展开态可用）：header 点击展开/收起，容器内放导航按钮
     struct NavSection {
         QToolButton *header;
         QWidget *box;
@@ -211,43 +260,49 @@ void MainWindow::buildUi()
         return NavSection{header, box, lay};
     };
 
-    // ---- 分组 1：收件箱（默认展开）----
+    // 导航按钮统一工厂：记录 emoji 与 label，窄栏只显示 emoji（居中），展开显示 emoji + 文字
+    auto makeNavBtn = [this](const char *emoji, const char *label) -> QPushButton * {
+        auto *b = new QPushButton;
+        b->setObjectName(QStringLiteral("NavBtn"));
+        b->setCheckable(true);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setProperty("navEmoji", QString::fromUtf8(emoji));
+        b->setProperty("navLabel", QString::fromUtf8(label));
+        b->setProperty("expanded", false); // 初始窄栏：仅图标
+        b->setToolTip(QString::fromUtf8(label));
+        b->setText(QString::fromUtf8(emoji));
+        m_navButtons.append(b);
+        return b;
+    };
+
+    // ---- 分组 1：收件箱 ----
     NavSection inboxSec = makeSection(QStringLiteral("收件箱"), /*expanded*/ true);
 
-    m_navInbox = new QPushButton(QStringLiteral("📥  收件箱"));
-    m_navTodo = new QPushButton(QStringLiteral("☑  任务"));
-    m_navSync = new QPushButton(QStringLiteral("⇄  局域网同步"));
-    m_navInbox->setObjectName(QStringLiteral("NavBtn"));
-    m_navTodo->setObjectName(QStringLiteral("NavBtn"));
-    m_navSync->setObjectName(QStringLiteral("NavBtn"));
-    m_navInbox->setCheckable(true);
-    m_navTodo->setCheckable(true);
-    m_navSync->setCheckable(true);
+    m_navInbox = makeNavBtn("📥", "收件箱");
+    m_navTodo = makeNavBtn("☑", "任务");
+    m_navSync = makeNavBtn("⇄", "局域网同步");
     inboxSec.layout->addWidget(m_navInbox);
     inboxSec.layout->addWidget(m_navTodo);
     inboxSec.layout->addWidget(m_navSync);
 
-    // ---- 分组 2：ACTIVITYWATCH（默认收起）----
+    // ---- 分组 2：ACTIVITYWATCH ----
     NavSection awSec = makeSection(QStringLiteral("ACTIVITYWATCH"), /*expanded*/ false);
 
-    m_navActivity = new QPushButton(QStringLiteral("📊  Activity"));
-    m_navTimeline = new QPushButton(QStringLiteral("⏱  Timeline"));
-    m_navActivity->setObjectName(QStringLiteral("NavBtn"));
-    m_navTimeline->setObjectName(QStringLiteral("NavBtn"));
-    m_navActivity->setCheckable(true);
-    m_navTimeline->setCheckable(true);
+    m_navActivity = makeNavBtn("📊", "Activity");
+    m_navTimeline = makeNavBtn("⏱", "Timeline");
+    m_navDay = makeNavBtn("🏷", "标签 Day");
+    m_navStats = makeNavBtn("📈", "统计");
     awSec.layout->addWidget(m_navActivity);
     awSec.layout->addWidget(m_navTimeline);
-
-    m_navDay = new QPushButton(QStringLiteral("🏷  标签 Day"));
-    m_navDay->setObjectName(QStringLiteral("NavBtn"));
-    m_navDay->setCheckable(true);
     awSec.layout->addWidget(m_navDay);
-
-    m_navStats = new QPushButton(QStringLiteral("📈  统计"));
-    m_navStats->setObjectName(QStringLiteral("NavBtn"));
-    m_navStats->setCheckable(true);
     awSec.layout->addWidget(m_navStats);
+
+    // 窄栏模式下隐藏分组标题、全部图标平铺显示（分组展开状态由 setNavExpanded 统一管理）
+    m_navSectionHeaders = {inboxSec.header, awSec.header};
+    inboxSec.header->setVisible(false);
+    awSec.header->setVisible(false);
+    inboxSec.header->setChecked(true);
+    awSec.header->setChecked(true);
 
     auto *grp = new QButtonGroup(this);
     grp->addButton(m_navActivity);
@@ -268,11 +323,6 @@ void MainWindow::buildUi()
 
     navLay->addStretch(1);
 
-    m_deviceLabel = new QLabel;
-    m_deviceLabel->setWordWrap(true);
-    m_deviceLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 11px; padding: 0 12px;")
-                                     .arg(kColorFgMuted));
-    navLay->addWidget(m_deviceLabel);
     root->addWidget(nav);
 
     // ---- 页面堆栈 ----
@@ -288,7 +338,7 @@ void MainWindow::buildUi()
     qDebug() << "[MainWindow] InboxPage created";
     connect(m_inbox, &InboxPage::settingsRequested, this, &MainWindow::openSettings);
     qDebug() << "[MainWindow] creating TodoPage...";
-    m_todo = new TodoPage(m_todoStore);
+    m_todo = new TodoPage(m_todoStore, m_focusStore);
     qDebug() << "[MainWindow] TodoPage created";
     qDebug() << "[MainWindow] creating SyncPage...";
     m_sync = new SyncPage(m_api, m_mdns);
@@ -324,6 +374,48 @@ void MainWindow::buildUi()
 
     setWindowTitle(QStringLiteral("aw-qtui — ActivityWatch 客户端"));
     resize(1280, 820);
+}
+
+// 左侧导航在「窄栏（仅图标）」与「展开（图标+文字）」之间切换：
+// 默认窄栏，点击顶部 ☰ 展开、点击 « 收起。分组标题窄栏时隐藏、展开时显示；
+// 两种模式下分组都保持展开，保证全部 Tab（含 Activity Watch 组）图标/文字可见。
+void MainWindow::setNavExpanded(bool expanded)
+{
+    m_navExpanded = expanded;
+    saveNavCollapsed(!expanded);
+
+    for (auto *h : m_navSectionHeaders) {
+        h->setVisible(expanded);
+        h->setChecked(true);
+    }
+
+    // 按钮文字：窄栏只显示 emoji（居中），展开显示 emoji + 文字（左对齐）
+    for (auto *b : m_navButtons) {
+        const QString emoji = b->property("navEmoji").toString();
+        const QString label = b->property("navLabel").toString();
+        b->setText(expanded ? emoji + QStringLiteral("  ") + label : emoji);
+        b->setProperty("expanded", expanded);
+        b->style()->unpolish(b);
+        b->style()->polish(b);
+    }
+
+    if (m_navToggle) {
+        m_navToggle->setText(expanded ? QStringLiteral("«") : QStringLiteral("☰"));
+        m_navToggle->setToolTip(expanded ? QStringLiteral("收起导航") : QStringLiteral("展开导航"));
+        m_navToggle->setProperty("expanded", expanded);
+        m_navToggle->style()->unpolish(m_navToggle);
+        m_navToggle->style()->polish(m_navToggle);
+    }
+
+    if (m_nav) {
+        m_nav->setFixedWidth(si(expanded ? kNavExpandedPx : kNavCollapsedPx));
+        if (auto *nl = qobject_cast<QVBoxLayout *>(m_nav->layout())) {
+            nl->setContentsMargins(0, si(expanded ? 16 : 12), 0, si(12));
+            nl->setSpacing(si(expanded ? 4 : 2));
+        }
+        m_nav->layout()->activate();
+        m_nav->update();
+    }
 }
 
 void MainWindow::switchPage(int index)
@@ -363,9 +455,7 @@ void MainWindow::switchPage(int index)
 
 void MainWindow::updateStatus()
 {
-    const QString dev = QStringLiteral("设备 %1\n%2 · %3")
-                            .arg(deviceId(), hostname(), platform());
-    m_deviceLabel->setText(dev);
+    // 设备名称/操作系统已移入设置对话框，此处仅维持同步心跳
     m_sync->heartbeat();
 }
 
@@ -406,7 +496,11 @@ void MainWindow::openSettings()
     const QString newTheme = dlg.themeId();
     const UiEffects newFx = dlg.uiEffects();
     const bool fxChanged = newFx.shadowLevel != gShadowLevel || newFx.glassLevel != gGlassLevel
-                           || newFx.animations != gFxAnimations || newFx.dwmBackdrop != gDwmBackdrop;
+                           || newFx.animations != gFxAnimations || newFx.dwmBackdrop != gDwmBackdrop
+                           || newFx.fixEdgeLowContrast != gFixEdgeLowContrast
+                           || newFx.fixGlassOpaque != gFixGlassOpaque
+                           || newFx.fixSnapZoom != gFixSnapZoom
+                           || newFx.fixShadowAdaptive != gFixShadowAdaptive;
     if (newTheme != curTheme)
         saveThemeId(newTheme);
     if (fxChanged) {
@@ -415,9 +509,15 @@ void MainWindow::openSettings()
         gGlassLevel = newFx.glassLevel;
         gFxAnimations = newFx.animations;
         gDwmBackdrop = newFx.dwmBackdrop;
+        gFixEdgeLowContrast = newFx.fixEdgeLowContrast;
+        gFixGlassOpaque = newFx.fixGlassOpaque;
+        gFixSnapZoom = newFx.fixSnapZoom;
+        gFixShadowAdaptive = newFx.fixShadowAdaptive;
         saveUiEffects(newFx);
         // DWM 背景变化需要立即应用/撤销
         applyDwmBackdrop();
+        // 缩放对齐开关变化：立即把当前缩放重新吸附到干净档位（或恢复原值）
+        setZoom(m_zoom, false);
     }
     if (newTheme != curTheme || fxChanged)
         applyTheme(newTheme); // 重建全局 QSS + 页面内联样式（阴影/玻璃/动画随之生效）
@@ -475,8 +575,8 @@ void MainWindow::onGlobalHotkey(int id)
     qDebug() << "[MainWindow] global hotkey activated id=" << id;
     switch (id) {
     case kHotkeyAddNoteId:
-        // 添加记录：唤醒 → 跳到收件箱 → 打开新建笔记
-        wakeUpAndShow();
+        // 添加记录：只弹出新建笔记对话框，不唤醒/调出主窗口
+        // （主窗口隐藏/最小化时保持后台运行，对话框作为模态顶层窗口独立弹出）
         switchPage(2);
         m_inbox->openNewNote();
         break;
@@ -569,6 +669,9 @@ void MainWindow::zoomBy(qreal factor, bool underMouse)
 void MainWindow::setZoom(qreal zoom, bool underMouse)
 {
     Q_UNUSED(underMouse);
+    // 缩放对齐开启时先吸附到干净档位
+    if (gFixSnapZoom)
+        zoom = snapZoom(zoom);
     zoom = qBound(0.3, zoom, 3.0);
     if (qFuzzyCompare(zoom, m_zoom))
         return;
@@ -591,17 +694,14 @@ void MainWindow::applyUiScale()
     f.setPixelSize(qRound(13 * m_zoom));
     qApp->setFont(f);
 
-    // 左侧导航：宽度、品牌字号、间距随缩放比调整（导航按钮样式来自全局 QSS 已缩放）
+    // 左侧导航：宽度、间距随缩放比与展开状态调整（导航按钮样式来自全局 QSS 已缩放）
     if (m_nav) {
-        m_nav->setFixedWidth(si(148));
+        m_nav->setFixedWidth(si(m_navExpanded ? kNavExpandedPx : kNavCollapsedPx));
         auto *nl = qobject_cast<QVBoxLayout *>(m_nav->layout());
         if (nl) {
-            nl->setContentsMargins(0, si(16), 0, si(12));
-            nl->setSpacing(si(4));
+            nl->setContentsMargins(0, si(m_navExpanded ? 16 : 12), 0, si(12));
+            nl->setSpacing(si(m_navExpanded ? 4 : 2));
         }
-        if (auto *b = m_nav->findChild<QLabel *>(QStringLiteral("NavBrand")))
-            b->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: %2; padding: 0 %3 %4;")
-                                 .arg(sp(17), kColorFg, sp(12), sp(10)));
     }
 
     // 页面级缩放样式（目前重点：Inbox 页）

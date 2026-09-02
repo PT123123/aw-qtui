@@ -56,6 +56,19 @@ void saveUiZoom(double zoom)
     s.sync();
 }
 
+bool loadNavCollapsed()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    return s.value(QStringLiteral("ui/navCollapsed"), true).toBool();
+}
+
+void saveNavCollapsed(bool collapsed)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("ui/navCollapsed"), collapsed);
+    s.sync();
+}
+
 QString loadThemeId()
 {
     QSettings s(settingsFilePath(), QSettings::IniFormat);
@@ -131,6 +144,11 @@ UiEffects loadUiEffects()
     e.glassLevel = s.value(QStringLiteral("ui/glassLevel"), oldMaterial ? 2 : 0).toInt();
     e.animations = s.value(QStringLiteral("ui/animations"), true).toBool();
     e.dwmBackdrop = s.value(QStringLiteral("ui/dwmBackdrop"), false).toBool();
+    // 边缘修复开关：缺省 = 开启（采用修复后的观感；关掉即恢复旧行为，便于 A/B 对比）
+    e.fixEdgeLowContrast = s.value(QStringLiteral("ui/fixEdgeLowContrast"), true).toBool();
+    e.fixGlassOpaque = s.value(QStringLiteral("ui/fixGlassOpaque"), true).toBool();
+    e.fixSnapZoom = s.value(QStringLiteral("ui/fixSnapZoom"), true).toBool();
+    e.fixShadowAdaptive = s.value(QStringLiteral("ui/fixShadowAdaptive"), true).toBool();
     e.shadowLevel = qBound(0, e.shadowLevel, 3);
     e.glassLevel = qBound(0, e.glassLevel, 3);
     return e;
@@ -143,6 +161,10 @@ void saveUiEffects(const UiEffects &e)
     s.setValue(QStringLiteral("ui/glassLevel"), e.glassLevel);
     s.setValue(QStringLiteral("ui/animations"), e.animations);
     s.setValue(QStringLiteral("ui/dwmBackdrop"), e.dwmBackdrop);
+    s.setValue(QStringLiteral("ui/fixEdgeLowContrast"), e.fixEdgeLowContrast);
+    s.setValue(QStringLiteral("ui/fixGlassOpaque"), e.fixGlassOpaque);
+    s.setValue(QStringLiteral("ui/fixSnapZoom"), e.fixSnapZoom);
+    s.setValue(QStringLiteral("ui/fixShadowAdaptive"), e.fixShadowAdaptive);
     // 清理旧版字段
     s.remove(QStringLiteral("ui/shadows"));
     s.remove(QStringLiteral("ui/material"));
@@ -172,6 +194,35 @@ void saveServerAutostart(bool on)
 {
     QSettings s(settingsFilePath(), QSettings::IniFormat);
     s.setValue(QStringLiteral("server/autostart"), on);
+    s.sync();
+}
+
+FocusModules loadFocusModules()
+{
+    FocusModules m;
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    m.timer = s.value(QStringLiteral("todo/mod_timer"), true).toBool();
+    m.overview = s.value(QStringLiteral("todo/mod_overview"), true).toBool();
+    m.detail = s.value(QStringLiteral("todo/mod_detail"), true).toBool();
+    m.week = s.value(QStringLiteral("todo/mod_week"), true).toBool();
+    m.heatmap = s.value(QStringLiteral("todo/mod_heatmap"), true).toBool();
+    m.best = s.value(QStringLiteral("todo/mod_best"), true).toBool();
+    m.calendar = s.value(QStringLiteral("todo/mod_calendar"), true).toBool();
+    m.memorial = s.value(QStringLiteral("todo/mod_memorial"), true).toBool();
+    return m;
+}
+
+void saveFocusModules(const FocusModules &m)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("todo/mod_timer"), m.timer);
+    s.setValue(QStringLiteral("todo/mod_overview"), m.overview);
+    s.setValue(QStringLiteral("todo/mod_detail"), m.detail);
+    s.setValue(QStringLiteral("todo/mod_week"), m.week);
+    s.setValue(QStringLiteral("todo/mod_heatmap"), m.heatmap);
+    s.setValue(QStringLiteral("todo/mod_best"), m.best);
+    s.setValue(QStringLiteral("todo/mod_calendar"), m.calendar);
+    s.setValue(QStringLiteral("todo/mod_memorial"), m.memorial);
     s.sync();
 }
 

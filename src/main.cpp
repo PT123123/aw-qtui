@@ -230,10 +230,13 @@ int main(int argc, char *argv[])
         QDir().mkpath(shotSettingsDir);
         const int shotDelay = qMax(0, parser.value(shotDelayOpt).toInt());
         QTimer::singleShot(shotDelay, &win, [&app, shotSettingsDir] {
-            SettingsDialog dlg(loadShortcuts(), loadThemeId(), loadUiEffects());
-            dlg.show();
-            QTimer::singleShot(600, &dlg, [&dlg, &app, shotSettingsDir] {
-                dlg.grab().save(shotSettingsDir + QStringLiteral("/settings.png"));
+            // 对话框须在堆上存活到截图完成：栈对象会在 lambda 结束时销毁，导致
+            // 内部 QTimer（context=dlg）被取消，截图永不执行、进程挂起。
+            auto *dlg = new SettingsDialog(loadShortcuts(), loadThemeId(), loadUiEffects());
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            dlg->show();
+            QTimer::singleShot(600, dlg, [dlg, &app, shotSettingsDir] {
+                dlg->grab().save(shotSettingsDir + QStringLiteral("/settings.png"));
                 app.quit();
             });
         });

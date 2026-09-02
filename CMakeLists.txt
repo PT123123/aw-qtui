@@ -62,6 +62,13 @@ add_executable(awqtui WIN32
     src/todostore.h
     src/todopage.cpp
     src/todopage.h
+    src/focusmodels.h
+    src/focusstore.cpp
+    src/focusstore.h
+    src/focuswidgets.cpp
+    src/focuswidgets.h
+    src/focuscharts.cpp
+    src/focuscharts.h
     src/filterparser.cpp
     src/filterparser.h
     src/autotagengine.cpp
