@@ -82,10 +82,6 @@ server:
     . "{{VCENV}}"
     WS="vendor/aw-server-rust"
     [ -f "$WS/Cargo.toml" ] || { echo "aw-server-rust workspace not found: run 'git submodule update --init vendor/aw-server-rust'"; exit 1; }
-    # WebUI stub: qtui is native UI, does not use aw-webui; rust-embed needs a folder at compile time
-    mkdir -p build/webui-stub
-    [ -f build/webui-stub/index.html ] || echo "<!DOCTYPE html><html><body>aw-webui stub</body></html>" > build/webui-stub/index.html
-    export AW_WEBUI_DIR="$(cygpath -w "$PWD/build/webui-stub")"
     echo "[server] workspace: $WS"
     cargo build --release -p aw-server --manifest-path "$WS/Cargo.toml"
     SRC="$WS/target/release/aw-server.exe"
