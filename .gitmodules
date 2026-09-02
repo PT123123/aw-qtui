@@ -1,6 +1,3 @@
-[submodule "vendor/aw-inbox"]
-	path = vendor/aw-inbox
-	url = https://github.com/PT123123/aw-inbox.git
 [submodule "vendor/aw-server-rust"]
 	path = vendor/aw-server-rust
 	url = https://github.com/PT123123/aw-server-rust.git
