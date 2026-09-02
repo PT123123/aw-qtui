@@ -4,9 +4,10 @@
 **Activity 统计面板**、**Timeline 可交互时间线**、**收件箱（Inbox）**、**任务（Todo）**、
 **局域网同步（LAN Sync）**、**标签 Day（ManicTime 式时间标签）** 与 **多日统计**。
 
-实现参照 `PT123123/aw-android` fork（含 `aw-inbox-rust` 服务端与 `aw-webui`
-前端）。本工程是**客户端 UI**，后端复用 aw-server-rust 里挂在 **5600 端口**的
-inbox 服务，与 aw-webui 承担同样的角色；不包含 Rust 服务端本体。
+服务端来自 `PT123123/aw-server-rust` fork 的 `feature/inbox` 分支：官方 `aw-server`
+（/api/0 活动数据）内已融合 `aw-inbox-rust`（收件箱 + 任务），单进程监听 **5600 端口**。
+本工程是**客户端 UI**，不包含 Rust 服务端本体（构建时由 justfile 从 `vendor/aw-server-rust`
+编出 `aw-server.exe` 并随包分发）。
 
 标签功能参照 ManicTime Windows Client 特性移植，需求基线见
 [需求文档-ManicTime特性移植.md](需求文档-ManicTime特性移植.md)。
@@ -30,7 +31,7 @@ inbox 服务，与 aw-webui 承担同样的角色；不包含 Rust 服务端本�
 | 📈 统计 | 多日统计：多 Tab + 类型（Top / Day duration / Attendance / Custom）、日期范围（本周/本月）、折线/柱状切换、平均值线、多序列应用对比、数据表联动、导出 CSV |
 
 快捷键：窗口内 `1`/`2`/`3`/`4`/`5`/`6`/`7` 切页（Activity / Timeline / 收件箱 / 任务 / 同步 / 标签 Day / 统计），`F5` 刷新当前页，`Ctrl+F` 聚焦搜索，`Ctrl+Enter` 提交笔记。
-全局快捷键（收件箱 ⚙ 设置里可改，系统级注册，应用失焦/最小化也生效）：默认 `Alt+N` 添加记录（唤醒窗口 + 跳收件箱 + 弹新建），默认 `Alt+M` 唤醒并跳转收件箱。配置存 `%APPDATA%\aw-qtui\aw-qtui\awqtui.ini`。
+全局快捷键（收件箱 ⚙ 设置里可改，系统级注册，应用失焦/最小化也生效）：默认 `Alt+N` 添加记录（直接弹出新建笔记对话框，不调出主窗口），默认 `Alt+M` 唤醒并跳转收件箱。配置存 `%APPDATA%\aw-qtui\aw-qtui\awqtui.ini`。
 
 ## 环境要求
 
@@ -58,16 +59,16 @@ just debug       # Debug 客户端 + 服务端
 产物：`build\awqtui.exe`（Qt DLL 已部署到同目录）；Debug 产物在 `build-dbg\`。
 Debug/Release 及各入口用法见 [Debug / Release 构建](#debug--release-构建)。
 
-### 单独构建服务端（aw-inbox-rust.exe）
+### 单独构建服务端（aw-server.exe）
 
 ```bash
-just server     # 构建并部署到 build/server/aw-inbox-rust.exe
+just server     # 构建并部署到 build/server/aw-server.exe
 ```
 
-`justfile` 自动定位服务端源码（`SERVER_SRC=` → `$$AW_SERVER_SRC` → `vendor\aw-inbox` submodule → `vendor\aw-server-rust\aw-inbox-rust`），
-把 `aw-inbox-rust` crate 同步到 `server-src\` 并用 **Windows 原生 MSVC 工具链**（cargo + VC 环境）构建。
-产物：`build\server\aw-inbox-rust.exe`。源码来源与缺失行为见
-[服务端依赖（aw-inbox-rust）](#服务端依赖aw-inbox-rust)。
+`justfile` 直接从 `vendor/aw-server-rust` workspace 构建 `aw-server` 二进制（完整 /api/0 + /inbox + /todo），
+用 **Windows 原生 MSVC 工具链**（cargo + VC 环境）构建。
+产物：`build\server\aw-server.exe`。源码来源与缺失行为见
+[服务端依赖](#服务端依赖aw-server-rust-融合工作区)。
 
 ### 联合构建（客户端 + 服务端）
 
@@ -76,7 +77,7 @@ just release         # = Release 客户端 + 服务端
 just SERVER= release # 仅客户端（跳过服务端）
 ```
 
-产物：`build\awqtui.exe` + `build\server\aw-inbox-rust.exe`。
+产物：`build\awqtui.exe` + `build\server\aw-server.exe`。
 服务端构建配置**跟随客户端**（`just debug` 两端都是 Debug），见
 [Debug / Release 构建](#debug--release-构建)。
 
@@ -88,13 +89,13 @@ just dist VERSION=0.2.0         # 指定版本号（不自动加、不写回）
 just dist SKIP_SERVER=1         # 发布纯客户端包（不含服务端）
 ```
 
-产物：`dist\aw-qtui-<版本>-win64\`（awqtui.exe + Qt DLL/plugins + aw-inbox-rust.exe + README）
+产物：`dist\aw-qtui-<版本>-win64\`（awqtui.exe + Qt DLL/plugins + aw-server.exe + README）
 及同名 `.zip`。
 
 **版本号默认自动 +0.01**：不传 `VERSION=` 时，以 `CMakeLists.txt` 当前版本为基准 patch +1（0.1.1 → 0.1.2），
 打包成功后写回 `CMakeLists.txt`，下次 release 继续递增（版本不重复）；显式 `VERSION=` 则按给定版本，不自动加、不写回。
 
-**服务端默认必带**：`just dist` 默认执行联合构建并校验 `build\server\aw-inbox-rust.exe`，
+**服务端默认必带**：`just dist` 默认执行联合构建并校验 `build\server\aw-server.exe`，
 服务端产物缺失会直接报错，绝不静默产出不带服务端的包。只有显式 `SKIP_SERVER=1` 才放行纯客户端包。
 
 ### Debug / Release 构建
@@ -112,7 +113,7 @@ Debug/Release 分目录（`build` / `build-dbg`）互不干扰：
 
 - **联合构建的配置是一致的**：`just debug` 会把 `CMAKE_BUILD_TYPE=Debug` 传给 CMake，服务端
   cargo 构建也不加 `--release`，不会出现「客户端 Debug / 服务端 Release」的错配；
-- **产物同名同路径**：客户端都是 `build\awqtui.exe`，服务端都是 `build\server\aw-inbox-rust.exe`
+- **产物同名同路径**：客户端都是 `build\awqtui.exe`，服务端都是 `build\server\aw-server.exe`
   （Debug 在 `build-dbg\`）。区分看体积与行为——Debug 无优化、体积明显更大（服务端含调试符号），
   Release 经优化（服务端 `--release`，实测约 6.2MB）；切换 Debug/Release 会触发对应工具链全量重编；
 - **Qt 运行库区分 Debug/Release**：`just debug` 用 `windeployqt --debug` 部署 `Qt6*d.dll`，
@@ -122,7 +123,7 @@ Debug/Release 分目录（`build` / `build-dbg`）互不干扰：
 
 ### 运行
 
-客户端默认**自动管理本地服务端**：启动时通过相对路径定位 `server\aw-inbox-rust.exe` → 端口探测（未监听才拉起）→
+客户端默认**自动管理本地服务端**：启动时通过相对路径定位 `server\aw-server.exe` → 端口探测（未监听才拉起）→
 后台看护（异常退出自动重新拉起）→ 登录自启（HKCU Run）。直接启动客户端即可（也可用 `just run` 从构建目录启动，可带 `PORT=5620` 指定联调端口）：
 
 ```powershell
@@ -132,7 +133,7 @@ Debug/Release 分目录（`build` / `build-dbg`）互不干扰：
 如需手动管理（调试/自定义地址），可先自行启动服务端：
 
 ```powershell
-.\build\server\aw-inbox-rust.exe          # 默认 --host 127.0.0.1 --port 5600
+.\build\server\aw-server.exe               # 默认 --host 127.0.0.1 --port 5600
 .\build\awqtui.exe --url http://127.0.0.1:5600
 ```
 
@@ -149,75 +150,132 @@ python tools\mock_inbox_server.py 5620
 .\build\awqtui.exe --url http://127.0.0.1:5620
 ```
 
-## 服务端依赖（aw-inbox-rust）
+## 服务端依赖（aw-server-rust 融合工作区）
 
 ### 依赖本质
 
-aw-qtui 对 aw-inbox-rust 是**运行期进程 + REST 契约依赖**，不是编译期链接依赖：
+aw-qtui 对服务端是**运行期进程 + REST 契约依赖**，不是编译期链接依赖：
 
-- 客户端经 `QNetworkAccessManager` 访问 `http://127.0.0.1:5600`，服务端是**独立进程**；
-- 两者只约定 REST 接口（`/inbox/...`）与 mDNS 服务类型 `_activitywatch._tcp.local.`；
+- 客户端经 `QNetworkAccessManager` 访问 `http://127.0.0.1:5600`，服务端是**独立进程** `aw-server.exe`；
+- 服务端**单进程**内同时提供 `/api/0`（活动数据）、`/inbox/*`（收件箱/同步）、`/inbox/todos`（任务）；
+- 两者只约定 REST 接口与 mDNS 服务类型 `_activitywatch._tcp.local.`；
 - 构建**客户端**不需要任何 Rust 工具链；只有构建/打包服务端才需要。
+
+### 架构决策：aw-inbox 与 aw-server-rust 融合
+
+`aw-inbox`（独立仓库，含 `aw-inbox-rust` crate）已**归档只读**，其全部代码（含 Todo CRUD）
+以 workspace 成员形式并入 `aw-server-rust` fork 的 `feature/inbox` 分支。融合后的服务端
+只有 **`aw-server.exe` 一个二进制**：官方 aw-server（Rocket HTTP + clap CLI + logging）内
+通过 `aw_inbox_rust::mount_rocket` 挂载 inbox 路由，数据库按域拆三个独立文件：
+`aw-server.db`（活动数据）、`inbox.db`（收件箱）、`todo.db`（任务）。
+完整决策与备选方案见[融合决策](#融合决策aw-inbox-与-aw-server-rust)。
 
 ### 源码来源（git submodule）
 
-服务端源码以 **git submodule** 形式挂载在 `vendor/` 下，共两个远端（都是底层 Rust 依赖）：
+服务端源码以 **git submodule** 形式挂载在 `vendor/` 下（融合后仅一个）：
 
 | submodule | 远端 | 分支 / 提交 | 角色 |
 | --- | --- | --- | --- |
-| `vendor/aw-inbox` | `PT123123/aw-inbox` | master（`38bcf3b`） | **构建源**：独立 crate（`aw-inbox-rust`），Cargo.toml 在仓库根，可单 crate 构建 |
-| `vendor/aw-server-rust` | `PT123123/aw-server-rust` | `feature/inbox`（`2f11667`） | 参考工作区：官方集成环境；其 `aw-inbox-rust` 成员即指向 `PT123123/aw-inbox` 的嵌套 submodule |
+| `vendor/aw-server-rust` | `PT123123/aw-server-rust` | `feature/inbox` | **唯一构建源**：官方 aw-server workspace；`aw-inbox-rust` 已是普通成员（非子模块），含 todo.db 独立存储 |
 
-> `aw-server-rust` 工作区把 `aw-inbox-rust` 作为 **submodule 指向 `PT123123/aw-inbox`（同一提交）**，
-> 所以两处代码是同一份，不存在分叉；`aw-server-rust` 还含 `aw-webui`（约 675MB）等嵌套 submodule，
-> **构建不需要它们**，无需 `--recursive`。
+> `aw-inbox-rust` 不再是子模块，而是 `aw-server-rust` workspace 的**提交源码成员**；
+> 构建仅需 `vendor/aw-server-rust`，无需 `--recursive`（`aw-webui` 未初始化也能编译）。
 
 **初始化 / 拉取 submodule：**
 
 ```powershell
-# 在本仓库内补齐子模块：
-git submodule update --init --recursive
+git submodule update --init vendor/aw-server-rust
 
 # 全新克隆时直接带上：
 git clone --recurse-submodules git@github.com:PT123123/aw-qtui.git
-
-# 更新到上游最新（feature/inbox 会跟随远端分支）：
-git submodule update --remote vendor/aw-inbox
-git submodule update --remote vendor/aw-server-rust
 ```
 
-`just server` 的源码定位顺序：
-`-ServerSrc` 参数（独立 crate 根或 workspace 根均可）→ 环境变量 `AW_SERVER_SRC`
-→ `vendor\aw-inbox`（构建源）→ `vendor\aw-server-rust\aw-inbox-rust`（需先 init 嵌套 submodule）
-→ WSL 默认路径 `/home/user/project/aw-android/aw-server-rust`（旧版兜底，可能有本地未提交修改，
-可用 `AW_SERVER_SRC_WSL` 覆盖 Linux 路径）。
+`just server` 直接从 `vendor\aw-server-rust` workspace 构建 `aw-server` 二进制
+（`cargo build --release -p aw-server`），不再使用 `server-src\` 暂存目录，也不再做 robocopy 覆盖。
 
 ### 缺失行为
 
 **构建期**
 
 - `just build`：纯客户端构建，不接触服务端，永不失败；
-- `just server` / `just`（带服务端）：找不到源码 → **明确报错**并提示定位方式；
-  - submodule 已登记但未 checkout（目录为空）→ 提示先执行 `git submodule update --init --recursive`；
-  - cargo 构建失败 → 报错退出，不静默降级。
+- `just server` / `just release`（带服务端）：找不到 `vendor\aw-server-rust`（子模块未 checkout）→
+  **明确报错**并提示先执行 `git submodule update --init vendor/aw-server-rust`；
+  cargo 构建失败 → 报错退出，不静默降级。
 
-**运行期**（M2 已实现：本地服务端自动管理）
+**运行期**（本地服务端自动管理）
 
-- 本地服务端管理（`src/awserver.{h,cpp}`）：客户端启动时经相对路径定位 `server\aw-inbox-rust.exe` →
+- 本地服务端管理（`src/awserver.{h,cpp}`）：客户端启动时经相对路径定位 `server\aw-server.exe` →
   回环端口探测（`127.0.0.1:5600` 已监听则复用）→ 未监听则拉起（`--host 0.0.0.0` 监听所有网卡，
-  `--data-dir %APPDATA%\aw-qtui\aw-qtui\server`，局域网多机互通）→
+  `--dbpath %APPDATA%\aw-qtui\aw-qtui\aw-server.db`，局域网多机互通）→
   看护轮询（每 15s 探测，异常退出自动重新拉起）→ 登录自启（HKCU Run，`server/autostart` 配置，默认开）。
   单实例互斥：`QLockFile` 防双开（重复启动直接退出）。
+- 数据库三文件分离：`aw-server.db`（活动）/ `inbox.db`（笔记）/ `todo.db`（任务），均 WAL 模式；
+  客户端经 `--dbpath` 指定活动数据位置，inbox/todo 落在服务端工作目录（与 aw-server.db 同目录）。
 - 防火墙放行：server 监听 `0.0.0.0:5600` 后，首次启动检测入站规则缺失则**主动弹 UAC 请求授权**——
   **提权运行 aw-qtui 自身**（`runas` + `--firewall-allow`，UAC 授权对象是 aw-qtui，而非系统工具 net/netsh），
   提权实例执行 `netsh advfirewall` 添加规则（规则名 `aw-qtui-server`，仅限专用网络 profile）后静默退出；
   用户确认即放行，无需手动；拒绝/未提权则仅本机可用，下次启动重试。
 - 服务端未启动/外部地址不可达：UI 保持可用，收件箱/同步页显示离线徽标「已离线 · 本地已存/待同步」，
   断线自动重连，本地数据离线优先（写入待同步队列，恢复后自动补推）。
-- 服务端数据库：已改为 **WAL 模式**（崩溃/强杀不损坏，`integrity_check=ok`）+ 数据目录参数化（`--data-dir`），
-  不再依赖 CWD；日志落盘到 `--data-dir/server.log`。
 - 用 mock 联调（不拉起真实服务端）：`awqtui.exe --url http://127.0.0.1:5620`；
   如需关闭本地自动管理，可在 `awqtui.ini` 设 `server/autoManage=false`。
+
+
+## 融合决策：aw-inbox 与 aw-server-rust
+
+### 结论
+
+`PT123123/aw-inbox`（含 `aw-inbox-rust` crate）**归档只读**；其代码（含 Todo CRUD）已作为
+`aw-server-rust` workspace 的普通成员并入 `feature/inbox` 分支。融合后的服务端只有
+`aw-server.exe` 一个二进制，单进程监听 5600，按域拆三个 DB 文件。
+
+### 决策原因
+
+1. **持续跟上游更新**：`aw-server-rust` 是上游 `activitywatch/aw-server-rust` 的 fork，
+   天然支持 `git merge upstream/master`；`aw-inbox` 不是上游 fork，若以其为主，融合
+   datastore/models/HTTP 层后将无法在 git 层面跟上游，只能手动搬代码。
+2. **aw-server 是超集（二进制 crate）**：HTTP 层 + clap CLI + 日志都长在 `aw-server` 这个
+   **二进制** crate 里，Rust 无法把二进制 crate 当库依赖进 aw-inbox-rust；以 aw-inbox-rust
+   为主意味着重造一个 aw-server，以 aw-server-rust 为主则是把子集并进超集。
+3. **融合本就是既定现状**：workspace member、path 依赖、`plugins.rs` 挂载早已在
+   aw-server-rust 里就位，反着来等于拆掉重做。
+4. **产品级诉求**：Todo 独立 `todo.db`（不与 notes 共用 `inbox.db`），由融合后主服务的
+   独立连接池承担。
+
+### 曾经考虑过的其它方案
+
+| 方案 | 内容 | 弃用原因 |
+| --- | --- | --- |
+| A. aw-inbox 保持独立，与 aw-server-rust 解耦 | 客户端直接连独立 aw-inbox 服务 | 客户端同时依赖 `/api/0`（活动数据）与 `/inbox/*`，需要两个进程/端口；且 aw-inbox 本质是插件模块，无独立存在的必要 |
+| B. 薄 fork（功能代码留在 aw-inbox） | 三层仓库分工：功能→aw-inbox，集成→aw-server-rust，编排→aw-qtui | 两份源码两条构建路径（standalone exe + 融合 exe）长期重复维护，robocopy 构建期覆盖 + 嵌套子模块 pin 陈旧是必须清理的技术债；aw-inbox crate 除本服务外无第二消费者 |
+| C. 以 aw-inbox-rust 为主反向融合 | 把 datastore/models/HTTP/CLI 并进 aw-inbox | 与决策原因 1/2 冲突：放弃上游跟踪 + 二进制 crate 无法被依赖 |
+| D. 融合（最终） | aw-inbox 归档，代码并入 aw-server-rust workspace，统一 `aw-server.exe` | **采纳**：单一服务端、单一构建链、上游可同步、DB 按域分离 |
+
+### 融合后的仓库拓扑
+
+```
+activitywatch/aw-server-rust (上游) ──fetch/merge──▶ PT123123/aw-server-rust (fork, feature/inbox)
+                                                        ├── aw-server (Rocket HTTP + clap CLI + logging)
+                                                        ├── aw-datastore / aw-models / aw-query
+                                                        ├── aw-inbox-rust  ★ 并入成员（/inbox + /inbox/todos + 同步）
+                                                        │     └── inbox.db + todo.db（独立文件）
+                                                        ├── aw-sync-rust（局域网同步）
+                                                        └── 产物：aw-server.exe
+PT123123/aw-inbox (已归档只读，历史保留)
+PT123123/aw-qtui ── submodule ──▶ vendor/aw-server-rust（唯一服务端源码）
+```
+
+### 本次落地变更
+
+- `aw-inbox-rust` 从 gitlink 子模块改为 workspace 提交源码；退役独立二进制 `main.rs`
+  （CLI/日志统一走 aw-server 的 clap + logging）；
+- 新增独立 `todo.db`：`init_todo_pool` / `migrate_todo`，Todo 用独立连接池与独立 `sync_versions`；
+- `mount_rocket(rocket, db, todo_db)` 双状态注入（`SharedTodoDb` 为 newtype，避免 Rocket
+  状态类型冲突）；
+- aw-qtui 移除 `vendor/aw-inbox` 子模块；`just server` 改为构建 `aw-server.exe`
+  （删除 robocopy / server-src 暂存 hack）；
+- aw-server-rust 配置 `upstream` remote（`activitywatch/aw-server-rust`），可周期
+  `git fetch upstream && git merge upstream/master`。
 
 ## 工程结构
 
@@ -228,8 +286,7 @@ aw-qtui/
 ├── tools/
 │   ├── vcenv.sh              # VC / Windows SDK 环境注入（被 justfile recipe source，无需 Developer Prompt）
 │   └── make_zip.py           # 标准库打包脚本
-├── server-src/                # 构建时同步的服务端源码暂存（aw-inbox-rust crate + target）
-├── vendor/                    # git submodule：aw-inbox（构建源）+ aw-server-rust（参考工作区）
+├── vendor/                    # git submodule：aw-server-rust（唯一服务端源码，融合工作区）
 ├── src/
 │   ├── main.cpp               # 入口（--url / --screenshot 测试钩子）
 │   ├── config.h/.cpp          # 服务端地址、设备身份（MAC 生成并持久化）
@@ -267,42 +324,43 @@ aw-qtui/
 
 ## 对接的服务端端点（API 契约核对）
 
-均来自 `aw-inbox`（Rocket，挂载在 `/inbox`）。客户端 apiclient.cpp 调用的 12 个端点
-与服务端路由的**方法 / 路径 / 请求体 / 响应字段全部对上**，并已用 submodule 构建出的
-`aw-inbox-rust.exe` 实测全链路（create / get / put / delete / comment / heartbeat /
-sync / devices / tags 均 200 / 204）：
+来自 `aw-server-rust` workspace 内的 `aw-inbox-rust` 成员（Rocket，挂载在 `/inbox`），
+活动数据另走 `/api/0`。客户端 apiclient.cpp 调用的端点与服务端路由的
+**方法 / 路径 / 请求体 / 响应字段全部对上**，并已用融合后的 `aw-server.exe` 实测全链路
+（create / get / put / delete / comment / heartbeat / sync / devices / tags / todos 均 200 / 204）：
 
 - 笔记：`GET/POST /inbox/notes`、`PUT/DELETE /inbox/notes/<id>`
 - 标签：`GET /inbox/tags`、`GET /inbox/tags/detailed`
 - 评论：`GET/POST /inbox/notes/<id>/comments`
 - 同步：`POST /inbox/sync`、`GET /inbox/sync/devices`、`POST /inbox/sync/devices/heartbeat`
+- 任务：`GET/POST /inbox/todos`、`PUT/DELETE /inbox/todos/<id>`
 
 所有写请求带 `X-Device-ID` 头，与服务端 `DeviceIdGuard` 对齐。
 
 **已知契约缺口（服务端侧，不影响当前单页可用性，列为待办）：**
 
-- `GET /inbox/notes` 的 `offset`、`sort_by` 参数服务端**解析但忽略**（SQL 无 `OFFSET`、
-  排序固定 `created_at DESC`，编译警告 `fields offset and sort_by are never read`）。
-  已实测：`limit=1&offset=0` 与 `limit=1&offset=1` 返回同一笔记；客户端 infinite scroll
-  依赖 offset 分页，笔记数超过单页 limit 时“加载更多”会重复返回同一页；
 - `SyncRequest.device_versions` / `last_full_sync_at` 服务端**解析但未使用**（简化版冲突模型）；
 - 服务端另有 `POST /inbox/notes/<source_id>/relations/<target_id>`、
   `GET /inbox/notes/<note_id>/relations`、`POST /inbox/route-debug`（调试）——客户端当前未用；
 - 无 `/healthz`、无 `/version` 端点（M3 规划补 `/inbox/version`）。
 
+> 注：旧版「GET /inbox/notes 的 offset/sort_by 解析但忽略」问题已在融合时随 Todo CRUD
+> 提交一并修复（`get_notes_db` 现支持 `OFFSET` 与排序白名单）。
+
 ## 任务（Todo）数据层与 Rust 对接点
 
-Todo 页只依赖 `TodoSource` 抽象（`src/todostore.h`），当前实现 `TodoStore` 是**本地 mock**：
+Todo 页只依赖 `TodoSource` 抽象（`src/todostore.h`），有两个实现：
 
-- 内存态 + `%APPDATA%\aw-qtui\aw-qtui\todo_local.json` 原子持久化，首次运行写入种子数据；
-- 全部写操作「改内存 → 保存 → 异步广播 `dataChanged`」（`QTimer` 后投递），模拟未来
-  Rust 服务端 `QNetworkAccessManager` 的异步回包，页面按信号驱动渲染，不假设同步可见；
-- 重复任务完成时自动生成下一实例（daily / weekdays / weekly / monthly）。
+- `TodoStore`（本地 mock）：内存态 + `%APPDATA%\aw-qtui\aw-qtui\todo_local.json` 原子持久化，
+  首次运行写入种子数据；全部写操作「改内存 → 保存 → 异步广播 `dataChanged`」
+  （`QTimer` 后投递），页面按信号驱动渲染；重复任务完成时自动生成下一实例
+  （daily / weekdays / weekly / monthly）。
+- `TodoApiStore`（Rust 对接）：用 `ApiClient` 走 `/inbox/todos` REST 实现同一套 CRUD，
+  页面零改动（`mainwindow.cpp` 已默认使用）。
 
-**接入 Rust**：新增 `class TodoApiStore : public TodoSource`，用 HTTP 实现同一套
-方法（lists/tasks 快照 + create/update/delete/completed/subtask）并把服务端响应转为
-`dataChanged` 信号，`TodoPage` 代码零改动。`TodoStore` 的字段（`todomodels.h`）即后续
-Rust 契约的字段基线。
+Rust 侧：融合后的服务端在**独立 `todo.db`** 中提供 `/inbox/todos` CRUD
+（create/update/delete/list/get，字段与 `todomodels.h` 对齐）；
+`TodoStore` 的字段（`todomodels.h`）即 Rust 契约的字段基线。
 
 自测：`tools/todostore_selftest.cpp`（覆盖重复任务/CRUD/子任务/删清单迁移/持久化重载，
 编译方式见文件头注释，用独立应用名运行不碰真实数据）。

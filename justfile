@@ -6,7 +6,7 @@
 #   just debug          构建 Debug 客户端 + 服务端
 #   just build          仅构建 Release 客户端（不带服务端）
 #   just build-dbg      仅构建 Debug 客户端
-#   just server         仅构建并部署 Rust 服务端到 build/server/
+#   just server         构建并部署 aw-server.exe（完整 /api/0 + /inbox + /todo）到 build/server/
 #   just dist           打包 dist/aw-qtui-<ver>-win64.zip（版本 +0.01，写回 CMakeLists）
 #   just install        把已部署的 build/ 拷贝到安装目录（默认 %LOCALAPPDATA%/Programs/aw-qtui）
 #   just asan           AddressSanitizer 诊断构建
@@ -22,7 +22,7 @@
 #       覆盖「变量」用 just VAR=... recipe（如 just QT="C:/Qt/6.8.3/msvc2022_64" release）。
 #       覆盖「recipe 参数」用位置参数（本版本 just 不解析 name=value 命名参数）：
 #         just build Debug build-dbg / just dist 0.1.1 / just run 8080 / just install C:/path
-#   QT=  VS_DIR=  SDKROOT=  VSWHERE=  VCVER=  SDKVERSION=  SERVER_SRC=  SERVER=  BUILD=  DBG=
+#   QT=  VS_DIR=  SDKROOT=  VSWHERE=  VCVER=  SDKVERSION=  SERVER=  BUILD=  DBG=
 
 # ---------- 变量（export 的会进入 recipe 环境，供 tools/vcenv.sh 读取） ----------
 export QT        := "C:/Qt/6.8.3/msvc2022_64"
@@ -31,7 +31,6 @@ export SDKROOT   := "C:/Program Files (x86)/Windows Kits/10"
 export VSWHERE   := "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
 export VCVER     := ""
 export SDKVERSION := ""
-export SERVER_SRC := "vendor/aw-inbox"
 
 BUILD := "build"
 DBG   := "build-dbg"
@@ -48,8 +47,8 @@ help:
     @echo "  just debug         Debug client + server"
     @echo "  just build         Release client only"
     @echo "  just build-dbg     Debug client only"
-    @echo "  just server        build & deploy Rust server to build/server/"
-    @echo "  just server-aw-server  build & deploy aw-server workspace (full /api/0 + /inbox)"
+    @echo "  just server        build & deploy aw-server.exe (full /api/0 + /inbox + /todo) to build/server/"
+    @echo "  just server-aw-server  alias of server (backward compat)"
     @echo "  just deploy        deploy Qt runtimes (windeployqt)"
     @echo "  just dist          package dist/aw-qtui-<ver>-win64.zip (bump +0.01)"
     @echo "  just install       copy deployed build/ into install dir"
@@ -59,7 +58,7 @@ help:
     @echo "  just notify        send Windows Toast notification"
     @echo "  just clean         clean build / build-dbg / build-asan / server-src"
     @echo "  just clean-all     also clean dist/"
-    @echo "overrides: QT= VS_DIR= SDKROOT= VSWHERE= VCVER= SDKVERSION= SERVER_SRC= SERVER= BUILD= DBG="
+    @echo "overrides: QT= VS_DIR= SDKROOT= VSWHERE= VCVER= SDKVERSION= SERVER= BUILD= DBG="
 
 # ---------- 客户端：cmake -G Ninja + cmake --build ----------
 build cfg="Release" builddir="build":
@@ -77,47 +76,17 @@ deploy:
 deploy-dbg:
     "{{QT}}/bin/windeployqt.exe" --debug --no-translations --no-system-d3d-compiler --no-opengl-sw {{DBG}}/awqtui.exe
 
-# ---------- 服务端：cargo 编 aw-inbox-rust.exe 并部署 ----------
+# ---------- 服务端：cargo 编 aw-server workspace（aw-server.exe：/api/0 + /inbox + /todo）并部署 ----------
 server:
-    #!C:/Progra~1/Git/bin/bash.exe
-    . "{{VCENV}}"
-    CRATE="{{SERVER_SRC}}"
-    [ -z "$CRATE" ] && [ -n "$AW_SERVER_SRC" ] && CRATE="$AW_SERVER_SRC"
-    [ -z "$CRATE" ] && [ -f vendor/aw-inbox/Cargo.toml ] && CRATE=vendor/aw-inbox
-    [ -z "$CRATE" ] && [ -f vendor/aw-server-rust/aw-inbox-rust/Cargo.toml ] && CRATE=vendor/aw-server-rust/aw-inbox-rust
-    [ -z "$CRATE" ] && { echo "aw-inbox-rust source not found: run 'git submodule update --init --recursive' or set SERVER_SRC="; exit 1; }
-    echo "[server] crate root: $CRATE"
-    mkdir -p server-src
-    rc=0
-    robocopy "$CRATE" server-src/aw-inbox-rust /E /XD target .git node_modules >/dev/null || rc=$?
-    if [ "$rc" -ge 8 ]; then echo "robocopy sync failed rc=$rc"; exit 1; fi
-    export CARGO_TARGET_DIR="$PWD/server-src/target"
-    cargo build --release --manifest-path server-src/aw-inbox-rust/Cargo.toml
-    SRC="server-src/target/release/aw-inbox-rust.exe"
-    [ -f "$SRC" ] || { echo "build artifact missing: $SRC"; exit 1; }
-    DST="{{BUILD}}/server/aw-inbox-rust.exe"
-    mkdir -p "{{BUILD}}/server"
-    mv -f "$DST" "$DST.bak" 2>/dev/null || true
-    cp -f "$SRC" "$DST"
-    rm -f "$DST.bak" 2>/dev/null || true
-    echo "[server] deployed $DST"
-
-# ---------- 服务端（完整）：aw-server workspace（/api/0 + /inbox + 局域网同步） ----------
-server-aw-server:
     #!C:/Progra~1/Git/bin/bash.exe
     . "{{VCENV}}"
     WS="vendor/aw-server-rust"
     [ -f "$WS/Cargo.toml" ] || { echo "aw-server-rust workspace not found: run 'git submodule update --init vendor/aw-server-rust'"; exit 1; }
-    # Sync latest aw-inbox into workspace (overrides the older nested submodule pin)
-    mkdir -p "$WS/aw-inbox-rust"
-    rc=0
-    robocopy "vendor/aw-inbox" "$WS/aw-inbox-rust" /MIR /XD target .git node_modules >/dev/null || rc=$?
-    if [ "$rc" -ge 8 ]; then echo "robocopy aw-inbox sync failed rc=$rc"; exit 1; fi
     # WebUI stub: qtui is native UI, does not use aw-webui; rust-embed needs a folder at compile time
     mkdir -p build/webui-stub
     [ -f build/webui-stub/index.html ] || echo "<!DOCTYPE html><html><body>aw-webui stub</body></html>" > build/webui-stub/index.html
     export AW_WEBUI_DIR="$(cygpath -w "$PWD/build/webui-stub")"
-    echo "[server-aw-server] workspace: $WS"
+    echo "[server] workspace: $WS"
     cargo build --release -p aw-server --manifest-path "$WS/Cargo.toml"
     SRC="$WS/target/release/aw-server.exe"
     [ -f "$SRC" ] || { echo "build artifact missing: $SRC"; exit 1; }
@@ -126,7 +95,10 @@ server-aw-server:
     mv -f "$DST" "$DST.bak" 2>/dev/null || true
     cp -f "$SRC" "$DST"
     rm -f "$DST.bak" 2>/dev/null || true
-    echo "[server-aw-server] deployed $DST"
+    echo "[server] deployed $DST"
+
+# ---------- 服务端（完整）：与 server 等价（backward compat 别名） ----------
+server-aw-server: server
 
 # ---------- 聚合：release / debug ----------
 release:
