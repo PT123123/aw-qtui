@@ -733,6 +733,10 @@ void InboxPage::appendNotes(const QList<Note> &notes, bool clear)
         m_list->clear();
     for (Note n : notes) {
         n.pinned = m_store.isPinned(n.id);
+        // 服务端笔记 JSON 不携带 comment_parent_id（applyServerNotes 仅在本地镜像保留）：
+        // 从本地镜像补回，否则评论笔记在收件箱里不会显示「被评论笔记」的引用预览
+        if (const Note *local = m_store.find(n.id))
+            n.commentParentId = local->commentParentId;
         m_notes << n;
     }
     // 多标签客户端 OR 过滤后重新渲染

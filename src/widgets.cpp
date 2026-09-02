@@ -15,6 +15,7 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QRegularExpression>
+#include <QShowEvent>
 #include <QStyle>
 #include <QTimer>
 #include <QToolButton>
@@ -161,6 +162,8 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
     time->setStyleSheet(scaleQss(QStringLiteral(
         "color: %1; font-size: 11px; background: transparent; border: none;")
         .arg(kColorFgMuted)));
+    // 窄卡（主导航展开等）时允许时间标签被压缩，避免把右上角 ⋯ 按钮挤出可视范围
+    time->setMinimumWidth(0);
     header->addWidget(time);
 
     if (m_pinned) {
@@ -195,10 +198,10 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
     // "⋯" 重叠，且 InstantPopup 弹窗在 QGraphicsProxyWidget 内会卡鼠标抓取导致界面假死。
     auto *menuBtn = new QPushButton(QStringLiteral("⋯"));
     menuBtn->setCursor(Qt::PointingHandCursor);
-    menuBtn->setFixedSize(si(30), si(26));
+    menuBtn->setFixedSize(si(38), si(26));
     menuBtn->setStyleSheet(scaleQss(QStringLiteral(
         "QPushButton { background: transparent; border: none; border-radius: 5px;"
-        " color: %1; font-size: 16px; font-weight: 700; }"
+        " color: %1; font-size: 16px; font-weight: 700; padding: 0; }"
         "QPushButton:hover { background: %2; color: %3; }")
         .arg(kColorFgMuted, kColorBgElev2, kColorFg)));
     connect(menuBtn, &QPushButton::clicked, this, [this, menuBtn] {
@@ -536,6 +539,16 @@ CommentsDialog::CommentsDialog(qint64 noteId, QWidget *parent)
     connect(btn, &QPushButton::clicked, this, &QDialog::accept);
     row->addWidget(btn);
     lay->addLayout(row);
+
+    // 打开对话框时焦点直接落在输入框，避免用户额外点击
+    m_input->setFocus();
+}
+
+void CommentsDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    // show 时窗口可能重置焦点，再次确保输入框获得焦点
+    m_input->setFocus(Qt::OtherFocusReason);
 }
 
 void CommentsDialog::setComments(const QList<Comment> &comments)
