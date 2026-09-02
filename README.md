@@ -179,7 +179,9 @@ aw-qtui 对服务端是**运行期进程 + REST 契约依赖**，不是编译期
 | `vendor/aw-server-rust` | `PT123123/aw-server-rust` | `feature/inbox` | **唯一构建源**：官方 aw-server workspace；`aw-inbox-rust` 已是普通成员（非子模块），含 todo.db 独立存储 |
 
 > `aw-inbox-rust` 不再是子模块，而是 `aw-server-rust` workspace 的**提交源码成员**；
-> 构建仅需 `vendor/aw-server-rust`，无需 `--recursive`（`aw-webui` 未初始化也能编译）。
+> 构建仅需 `vendor/aw-server-rust`，无需 `--recursive`（该 workspace 已无嵌套 submodule）。
+> 已清理移除：`aw-webui`（空壳 submodule，Qt 原生 UI 用不到，构建走 webui-stub）、
+> `aw-query`（`/api/0/query` 端点客户端不打，查询在 Qt UI 自实现）、`aw-sync`（官方遗留死成员，无 crate 依赖）。
 
 **初始化 / 拉取 submodule：**
 
@@ -256,7 +258,7 @@ git clone --recurse-submodules git@github.com:PT123123/aw-qtui.git
 ```
 activitywatch/aw-server-rust (上游) ──fetch/merge──▶ PT123123/aw-server-rust (fork, feature/inbox)
                                                         ├── aw-server (Rocket HTTP + clap CLI + logging)
-                                                        ├── aw-datastore / aw-models / aw-query
+                                                        ├── aw-datastore / aw-models / aw-transform / aw-client-rust
                                                         ├── aw-inbox-rust  ★ 并入成员（/inbox + /inbox/todos + 同步）
                                                         │     └── inbox.db + todo.db（独立文件）
                                                         ├── aw-sync-rust（局域网同步）
