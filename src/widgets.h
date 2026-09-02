@@ -108,6 +108,9 @@ public:
     void setComments(const QList<Comment> &comments);
     QString commentText() const;
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 private:
     QListWidget *m_list;
     QPlainTextEdit *m_input;
