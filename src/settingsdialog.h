@@ -1,4 +1,4 @@
-// settingsdialog.h —— 设置界面：全局快捷键配置
+// settingsdialog.h —— 设置界面：Tab 分页（外观 / 边缘修复 / 快捷键 / 关于）+ 全局快捷键配置
 #pragma once
 
 #include <QDialog>
@@ -38,7 +38,7 @@ private:
     QKeySequence m_seq;
 };
 
-// 设置对话框：主题选择 + 界面效果开关（阴影/材质/动画）+ 两个全局快捷键
+// 设置对话框：Tab 分页 —— 外观（主题+界面效果）/ 边缘修复（实验开关）/ 快捷键 / 关于（设备信息）
 class SettingsDialog : public QDialog
 {
     Q_OBJECT
@@ -64,6 +64,11 @@ private:
     QComboBox *m_glassCombo;      // 玻璃强度
     QCheckBox *m_cbAnimations;    // 动画
     QCheckBox *m_cbDwm;           // DWM 系统背景（实验性）
+    // 边缘/阴影修复开关（A/B 实验）：默认勾选 = 采用修复后的观感
+    QCheckBox *m_cbFixEdge;       // 低对比描边
+    QCheckBox *m_cbFixGlass;      // 玻璃防叠影
+    QCheckBox *m_cbFixZoom;       // 缩放对齐
+    QCheckBox *m_cbFixShadow;     // 投影随主题
     bool m_updatingPreset = false;
 };
 

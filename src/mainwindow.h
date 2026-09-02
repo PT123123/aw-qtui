@@ -11,6 +11,7 @@ class QKeyEvent;
 class QLabel;
 class QPushButton;
 class QSystemTrayIcon;
+class QToolButton;
 class QWheelEvent;
 
 namespace awqtui {
@@ -26,6 +27,7 @@ class DayPage;
 class StatsPage;
 class TodoPage;
 class TodoSource;
+class FocusSource;
 class TagStore;
 
 class MainWindow : public QMainWindow
@@ -64,6 +66,8 @@ private slots:
 
 private:
     void buildUi();
+    // 左侧导航在「窄栏（仅图标）」与「展开（图标+文字）」之间切换，并持久化状态
+    void setNavExpanded(bool expanded);
     // 系统托盘：emoji 图标（复用主题 emoji + accent，无外部资源文件），
     // 左键切换显示/隐藏，右键菜单（显示/隐藏、退出），关窗最小化到托盘
     void setupTray();
@@ -96,6 +100,7 @@ private:
     GlobalHotkey *m_hotkey = nullptr;
     TagStore *m_tagStore = nullptr;
     TodoSource *m_todoStore = nullptr;
+    FocusSource *m_focusStore = nullptr;
     ActivityPage *m_activity = nullptr;
     TimelinePage *m_timeline = nullptr;
     InboxPage *m_inbox = nullptr;
@@ -106,6 +111,11 @@ private:
     QStackedWidget *m_stack = nullptr;
     // 左侧导航栏（缩放时按比例调整宽度）
     QWidget *m_nav = nullptr;
+    // 左侧导航：展开/收起切换按钮；全部导航按钮与分组标题（用于窄栏/展开两种状态切换）
+    QToolButton *m_navToggle = nullptr;
+    QList<QPushButton *> m_navButtons;
+    QList<QToolButton *> m_navSectionHeaders;
+    bool m_navExpanded = false; // 默认收起（窄栏图标模式）
     // 页面缩放：当前缩放比（1.0 = 100%）与右下角百分比提示
     qreal m_zoom = 1.0;
     QLabel *m_zoomBadge = nullptr;
@@ -117,7 +127,6 @@ private:
     QPushButton *m_navSync = nullptr;
     QPushButton *m_navDay = nullptr;
     QPushButton *m_navStats = nullptr;
-    QLabel *m_deviceLabel = nullptr;
     // 系统托盘
     QSystemTrayIcon *m_tray = nullptr;
     bool m_trayExiting = false;   // 托盘菜单「退出」置位：关窗不再拦截

@@ -157,6 +157,12 @@ inline int gGlassLevel = 2;       // 玻璃材质强度：0关(纯色) 1弱 2中
 inline bool gFxAnimations = true; // 动画：切页淡入 / 卡片入场 / 高亮过渡
 inline bool gDwmBackdrop = false; // Windows DWM 系统背景（Mica/Acrylic）
 
+// ---- 边缘/阴影修复开关（默认全开 = 修复后的观感；关掉恢复旧行为，便于 A/B 对比）----
+inline bool gFixEdgeLowContrast = true; // 低对比描边：玻璃/卡片描边用低对比主题色，替代高亮白边
+inline bool gFixGlassOpaque = true;     // 玻璃防叠影：底色更实，避免半透明叠影色带
+inline bool gFixSnapZoom = true;        // 缩放对齐：缩放吸附到干净档位，避免非整数缩放边缘发虚
+inline bool gFixShadowAdaptive = true;  // 投影随主题：投影颜色/偏移随主题自适应，避免纯黑硬边
+
 // ---------------------------------------------------------------- //
 // 颜色工具
 // ---------------------------------------------------------------- //
@@ -223,13 +229,17 @@ inline bool glassEnabled() { return gGlassLevel > 0; }
 // 玻璃面板背景：半透明底色 + 顶部高光渐变，模拟毛玻璃质感。
 // level 0 返回纯色；level 越高透明度越低（越透）、高光越强。
 // 深色主题顶部微亮、底部微暗；浅色主题相反。
+// fixGlassOpaque 开启时整体提高不透明度（更实），避免相邻半透明控件叠影成色带。
 inline QString glassBg(const char *hex, int level = -1)
 {
     if (level < 0)
         level = gGlassLevel;
     if (level <= 0)
         return QString::fromLatin1(hex);
-    const qreal alpha = level == 1 ? 0.86 : level == 2 ? 0.74 : 0.60;
+    // 修复开启：底色更实（高不透明度）；关闭：恢复旧的低不透明度（更透、更易叠影）
+    const qreal alpha = gFixGlassOpaque
+        ? (level == 1 ? 0.96 : level == 2 ? 0.93 : 0.90)
+        : (level == 1 ? 0.86 : level == 2 ? 0.74 : 0.60);
     const qreal d = (gTheme && gTheme->light) ? -1.0 : 1.0;
     const QString base = withAlpha(hex, alpha);
     // 顶部高光：比底色更亮的半透明层，模拟玻璃上沿反光
@@ -241,14 +251,21 @@ inline QString glassBg(const char *hex, int level = -1)
         .arg(hi, base, lo);
 }
 
-// 玻璃边框颜色：半透明亮色描边，模拟玻璃边缘反光。
+// 玻璃边框颜色：半透明描边，模拟玻璃边缘反光。
 // level 0 返回普通边框色。
+// fixEdgeLowContrast 开启时返回低对比的主题边框色（替代发白发亮的高亮描边）。
 inline QString glassBorder(int level = -1)
 {
     if (level < 0)
         level = gGlassLevel;
     if (level <= 0)
         return QString::fromLatin1(kColorBorder);
+    if (gFixEdgeLowContrast) {
+        // 低对比描边：以主题边框色为基底微调，透明度较高但绝不发白刺眼
+        const qreal a = level == 1 ? 0.5 : level == 2 ? 0.7 : 0.85;
+        const qreal d = (gTheme && gTheme->light) ? -1.0 : 1.0;
+        return withAlpha(shade(kColorBorder, 0.08 * d).toUtf8().constData(), a);
+    }
     const qreal a = level == 1 ? 0.14 : level == 2 ? 0.22 : 0.32;
     const qreal d = (gTheme && gTheme->light) ? -1.0 : 1.0;
     // 深色主题用白色半透明高光边；浅色主题用深色半透明边
@@ -264,6 +281,7 @@ inline QString materialBg(const char *hex, qreal /*tint*/ = 0.0)
 
 // 创建并附加投影阴影（受全局阴影强度控制；关闭时返回 nullptr 且不附加）。
 // level < 0 时使用全局 gShadowLevel。
+// fixShadowAdaptive 开启时：深色主题阴影更淡、偏移更收敛；浅色主题用深灰而非纯黑。
 inline QGraphicsDropShadowEffect *makeDropShadow(QWidget *w, int level = -1, int dx = 0)
 {
     if (level < 0)
@@ -273,8 +291,21 @@ inline QGraphicsDropShadowEffect *makeDropShadow(QWidget *w, int level = -1, int
     const ShadowSpec s = shadowSpec(level);
     auto *e = new QGraphicsDropShadowEffect(w);
     e->setBlurRadius(si(s.blur));
-    e->setOffset(si(dx), si(s.dy));
-    e->setColor(QColor(0, 0, 0, s.alpha));
+    if (gFixShadowAdaptive && gTheme) {
+        if (gTheme->light) {
+            // 浅色主题：深灰阴影（非纯黑），保持旧偏移
+            e->setOffset(si(dx), si(s.dy));
+            e->setColor(QColor(60, 64, 72, s.alpha));
+        } else {
+            // 深色主题：阴影更淡、垂直偏移更收敛，避免在深色背景上形成黑硬边
+            e->setOffset(si(dx), si(qMax(1, s.dy - 1)));
+            e->setColor(QColor(0, 0, 0, qMax(30, s.alpha - 40)));
+        }
+    } else {
+        // 旧行为：固定纯黑阴影 + 原偏移
+        e->setOffset(si(dx), si(s.dy));
+        e->setColor(QColor(0, 0, 0, s.alpha));
+    }
     w->setGraphicsEffect(e);
     return e;
 }
@@ -396,6 +427,19 @@ inline QString themeQss(const Theme &t)
         }
         QToolButton#NavSection:hover { color: @FGSOFT@; }
         QToolButton#NavSection:checked { background: transparent; }
+        QToolButton#NavToggle {
+            border: none; border-radius: 0; background: transparent;
+            color: @MUTED@; font-size: 14px; text-align: left; padding: 8px 12px;
+        }
+        QToolButton#NavToggle:hover { background: @BGL2@; color: @FG@; }
+        QToolButton#NavToggle:pressed { background: @PRESSED@; }
+        QToolButton#NavToggle[expanded="false"] {
+            text-align: center; font-size: 16px; padding: 9px 0;
+        }
+        QPushButton#NavBtn[expanded="false"] {
+            text-align: center; font-size: 16px; padding: 9px 0;
+        }
+        QPushButton#NavBtn[expanded="false"]:checked { border-left: none; }
         QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox {
             background: @BGEL@; border: 1px solid @BORDER@; border-radius: 6px;
             padding: 6px 10px; selection-background-color: @ACCENT@; selection-color: white;
