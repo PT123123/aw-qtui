@@ -41,6 +41,10 @@ add_executable(awqtui WIN32
     src/mdnsdiscovery.h
     src/mockdata.cpp
     src/mockdata.h
+    src/awdatastore.cpp
+    src/awdatastore.h
+    src/watcher.cpp
+    src/watcher.h
     src/charts.cpp
     src/charts.h
     src/timelinewidget.cpp
@@ -98,5 +102,5 @@ endif()
 # 与 project(VERSION) 保持单一真相，避免 src/config.h 的 kAppVersion 与 CMake 版本不同步。
 target_compile_definitions(awqtui PRIVATE AW_VERSION="${PROJECT_VERSION}")
 
-# 服务端 aw-inbox-rust.exe 的构建与 Qt 运行库部署，改由仓库根 Makefile 编排
-# （server 目标调 cargo + MSVC；deploy 目标调 windeployqt），本 CMakeLists 只负责客户端编译。
+# 服务端 aw-server.exe 的构建与 Qt 运行库部署，改由仓库根 justfile 编排
+# （server-aw-server 目标调 cargo workspace + MSVC；deploy 目标调 windeployqt），本 CMakeLists 只负责客户端编译。

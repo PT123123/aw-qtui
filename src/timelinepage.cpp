@@ -1,6 +1,8 @@
 // timelinepage.cpp —— ActivityWatch Timeline / Tockler 风格可交互时间线页
 #include "timelinepage.h"
 
+#include "apiclient.h"
+#include "awdatastore.h"
 #include "charts.h"
 #include "mockdata.h"
 #include "theme.h"
@@ -11,6 +13,10 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkReply>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -23,7 +29,8 @@ static QFrame *createStatCard(QWidget *parent = nullptr)
     return card;
 }
 
-TimelinePage::TimelinePage(QWidget *parent) : QWidget(parent), m_date(QDate::currentDate())
+TimelinePage::TimelinePage(ApiClient *api, QWidget *parent)
+    : QWidget(parent), m_api(api), m_date(QDate::currentDate())
 {
     qDebug() << "[TimelinePage] ctor start";
     applyTheme();
@@ -248,18 +255,98 @@ void TimelinePage::reloadData()
     const QString weekday = m_date.toString(QStringLiteral("ddd"));
     m_dateLabel->setText(m_date.toString(QStringLiteral("yyyy-MM-dd ")) + weekday);
 
-    m_lanes = generateTimelineLanes(m_date);
-    m_timeline->setLanes(m_lanes);
-
     const qint64 base = QDateTime(m_date, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
     m_timeline->setTimeRange(base, base + 86400000LL);
 
-    // 事件计数
-    int totalEvents = 0;
-    for (const auto &lane : m_lanes) totalEvents += lane.events.size();
-    m_eventsLabel->setText(QStringLiteral("Events shown: %1").arg(totalEvents));
+    if (!m_api) {
+        m_lanes = generateTimelineLanes(m_date);
+        m_timeline->setLanes(m_lanes);
+        int totalEvents = 0;
+        for (const auto &lane : m_lanes) totalEvents += lane.events.size();
+        m_eventsLabel->setText(QStringLiteral("Events shown: %1").arg(totalEvents));
+        updateStats();
+        return;
+    }
 
-    updateStats();
+    m_loading = true;
+    m_eventsLabel->setText(QStringLiteral("Events shown: loading…"));
+    QNetworkReply *reply = m_api->getBuckets();
+    connect(reply, &QNetworkReply::finished, this, &TimelinePage::onBucketsLoaded);
+}
+
+void TimelinePage::onBucketsLoaded()
+{
+    auto *reply = qobject_cast<QNetworkReply *>(sender());
+    if (!reply)
+        return;
+    QJsonDocument doc;
+    QString err;
+    if (!ApiClient::parseReply(reply, &doc, &err)) {
+        showEmptyState(QStringLiteral("Failed to load buckets: %1").arg(err));
+        reply->deleteLater();
+        return;
+    }
+    reply->deleteLater();
+
+    m_buckets = parseBuckets(doc.object());
+    if (m_buckets.isEmpty()) {
+        showEmptyState(QStringLiteral("No buckets — run aw-watcher to start tracking."));
+        return;
+    }
+    fetchAllEvents();
+}
+
+void TimelinePage::fetchAllEvents()
+{
+    m_eventsMap.clear();
+    m_pendingEvents = m_buckets.size();
+
+    const qint64 dayStart = QDateTime(m_date, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
+    const qint64 dayEnd = dayStart + 86400000LL;
+
+    for (const BucketInfo &b : m_buckets) {
+        QNetworkReply *reply = m_api->getEvents(b.id, dayStart, dayEnd);
+        reply->setProperty("bucketId", b.id);
+        connect(reply, &QNetworkReply::finished, this, &TimelinePage::onEventLoaded);
+    }
+}
+
+void TimelinePage::onEventLoaded()
+{
+    auto *reply = qobject_cast<QNetworkReply *>(sender());
+    if (!reply)
+        return;
+    const QString bucketId = reply->property("bucketId").toString();
+    QJsonDocument doc;
+    QString err;
+    if (ApiClient::parseReply(reply, &doc, &err)) {
+        m_eventsMap[bucketId] = doc.array();
+    }
+    reply->deleteLater();
+
+    if (--m_pendingEvents <= 0) {
+        m_loading = false;
+        m_lanes = buildLanes(m_buckets, m_eventsMap);
+        m_timeline->setLanes(m_lanes);
+        int totalEvents = 0;
+        for (const auto &lane : m_lanes)
+            totalEvents += lane.events.size();
+        m_eventsLabel->setText(QStringLiteral("Events shown: %1").arg(totalEvents));
+        updateStats();
+    }
+}
+
+void TimelinePage::showEmptyState(const QString &msg)
+{
+    m_loading = false;
+    m_lanes.clear();
+    m_timeline->setLanes({});
+    m_eventsLabel->setText(QStringLiteral("Events shown: 0"));
+    m_totalTracked->setText(QStringLiteral("—"));
+    m_afkTime->setText(QStringLiteral("—"));
+    m_firstActivity->setText(QStringLiteral("—"));
+    m_lastActivity->setText(QStringLiteral("—"));
+    qWarning() << "[TimelinePage]" << msg;
 }
 
 void TimelinePage::updateStats()

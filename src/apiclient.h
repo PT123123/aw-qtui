@@ -44,6 +44,20 @@ public:
     QNetworkReply *deviceHeartbeat(const QString &name, const QString &platform, qint64 pending,
                                    qint64 localVersion);
 
+    // ActivityWatch /api/0
+    QNetworkReply *getBuckets();
+    QNetworkReply *getEvents(const QString &bucketId, qint64 startMs, qint64 endMs);
+    QNetworkReply *createBucket(const QString &bucketId, const QString &client, const QString &type);
+    QNetworkReply *heartbeat(const QString &bucketId, const QJsonObject &data, double durationSec,
+                              const QDateTime &timestamp);
+
+    // Inbox Todo (/inbox/todos)
+    QNetworkReply *getTodos(bool includeCompleted = false);
+    QNetworkReply *createTodo(const QString &title, const QString &content = QString(),
+                              const QStringList &tags = {});
+    QNetworkReply *updateTodo(qint64 id, const QJsonObject &patch);
+    QNetworkReply *deleteTodo(qint64 id);
+
     // 解析回复：ok=true 且 doc 有效 -> 成功；否则 err 为错误描述
     static bool parseReply(QNetworkReply *reply, QJsonDocument *doc, QString *err);
 

@@ -168,4 +168,83 @@ bool ApiClient::parseReply(QNetworkReply *reply, QJsonDocument *doc, QString *er
     return false;
 }
 
+// ------------------------------------------------------------------ //
+// ActivityWatch /api/0
+
+QNetworkReply *ApiClient::getBuckets()
+{
+    return get(QStringLiteral("/api/0/buckets"));
+}
+
+QNetworkReply *ApiClient::getEvents(const QString &bucketId, qint64 startMs, qint64 endMs)
+{
+    QUrlQuery q;
+    const QDateTime start = QDateTime::fromMSecsSinceEpoch(startMs, Qt::UTC);
+    const QDateTime end = QDateTime::fromMSecsSinceEpoch(endMs, Qt::UTC);
+    q.addQueryItem(QStringLiteral("start"), start.toString(Qt::ISODate));
+    q.addQueryItem(QStringLiteral("end"), end.toString(Qt::ISODate));
+    const QString query = q.toString(QUrl::FullyEncoded);
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(bucketId));
+    QString path = QStringLiteral("/api/0/buckets/%1/events").arg(encodedId);
+    if (!query.isEmpty())
+        path += QLatin1Char('?') + query;
+    return get(path);
+}
+
+QNetworkReply *ApiClient::createBucket(const QString &bucketId, const QString &client, const QString &type)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("client"), client);
+    body.insert(QStringLiteral("type"), type);
+    body.insert(QStringLiteral("hostname"), QString());
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(bucketId));
+    return sendJson("POST", QStringLiteral("/api/0/buckets/%1").arg(encodedId), body);
+}
+
+QNetworkReply *ApiClient::heartbeat(const QString &bucketId, const QJsonObject &data, double durationSec,
+                                     const QDateTime &timestamp)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("data"), data);
+    body.insert(QStringLiteral("duration"), durationSec);
+    body.insert(QStringLiteral("timestamp"), timestamp.toUTC().toString(Qt::ISODate));
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(bucketId));
+    return sendJson("POST", QStringLiteral("/api/0/buckets/%1/heartbeat").arg(encodedId), body);
+}
+
+// ── Inbox Todo ─────────────────────────────────────────────────
+
+QNetworkReply *ApiClient::getTodos(bool includeCompleted)
+{
+    QString path = QStringLiteral("/inbox/todos");
+    if (!includeCompleted)
+        path += QStringLiteral("?completed=false");
+    return get(path);
+}
+
+QNetworkReply *ApiClient::createTodo(const QString &title, const QString &content, const QStringList &tags)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("title"), title);
+    if (!content.isEmpty())
+        body.insert(QStringLiteral("content"), content);
+    if (!tags.isEmpty()) {
+        QJsonArray arr;
+        for (const QString &t : tags)
+            arr.append(t);
+        body.insert(QStringLiteral("tags"), arr);
+    }
+    return sendJson("POST", QStringLiteral("/inbox/todos"), body);
+}
+
+QNetworkReply *ApiClient::updateTodo(qint64 id, const QJsonObject &patch)
+{
+    return sendJson("PUT", QStringLiteral("/inbox/todos/%1").arg(id), patch);
+}
+
+QNetworkReply *ApiClient::deleteTodo(qint64 id)
+{
+    return sendJson("DELETE", QStringLiteral("/inbox/todos/%1").arg(id), QJsonObject());
+}
+
 } // namespace awqtui

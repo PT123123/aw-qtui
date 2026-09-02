@@ -49,6 +49,7 @@ help:
     @echo "  just build         Release client only"
     @echo "  just build-dbg     Debug client only"
     @echo "  just server        build & deploy Rust server to build/server/"
+    @echo "  just server-aw-server  build & deploy aw-server workspace (full /api/0 + /inbox)"
     @echo "  just deploy        deploy Qt runtimes (windeployqt)"
     @echo "  just dist          package dist/aw-qtui-<ver>-win64.zip (bump +0.01)"
     @echo "  just install       copy deployed build/ into install dir"
@@ -100,6 +101,32 @@ server:
     cp -f "$SRC" "$DST"
     rm -f "$DST.bak" 2>/dev/null || true
     echo "[server] deployed $DST"
+
+# ---------- 服务端（完整）：aw-server workspace（/api/0 + /inbox + 局域网同步） ----------
+server-aw-server:
+    #!C:/Progra~1/Git/bin/bash.exe
+    . "{{VCENV}}"
+    WS="vendor/aw-server-rust"
+    [ -f "$WS/Cargo.toml" ] || { echo "aw-server-rust workspace not found: run 'git submodule update --init vendor/aw-server-rust'"; exit 1; }
+    # Sync latest aw-inbox into workspace (overrides the older nested submodule pin)
+    mkdir -p "$WS/aw-inbox-rust"
+    rc=0
+    robocopy "vendor/aw-inbox" "$WS/aw-inbox-rust" /MIR /XD target .git node_modules >/dev/null || rc=$?
+    if [ "$rc" -ge 8 ]; then echo "robocopy aw-inbox sync failed rc=$rc"; exit 1; fi
+    # WebUI stub: qtui is native UI, does not use aw-webui; rust-embed needs a folder at compile time
+    mkdir -p build/webui-stub
+    [ -f build/webui-stub/index.html ] || echo "<!DOCTYPE html><html><body>aw-webui stub</body></html>" > build/webui-stub/index.html
+    export AW_WEBUI_DIR="$(cygpath -w "$PWD/build/webui-stub")"
+    echo "[server-aw-server] workspace: $WS"
+    cargo build --release -p aw-server --manifest-path "$WS/Cargo.toml"
+    SRC="$WS/target/release/aw-server.exe"
+    [ -f "$SRC" ] || { echo "build artifact missing: $SRC"; exit 1; }
+    DST="{{BUILD}}/server/aw-server.exe"
+    mkdir -p "{{BUILD}}/server"
+    mv -f "$DST" "$DST.bak" 2>/dev/null || true
+    cp -f "$SRC" "$DST"
+    rm -f "$DST.bak" 2>/dev/null || true
+    echo "[server-aw-server] deployed $DST"
 
 # ---------- 聚合：release / debug ----------
 release:
@@ -157,9 +184,9 @@ selftest:
 run port="":
     #!C:/Progra~1/Git/bin/bash.exe
     if [ -n "{{port}}" ]; then
-    cmd /c start "" "{{BUILD}}/awqtui.exe" --url http://127.0.0.1:{{port}}
+    cmd //c start "" "{{BUILD}}/awqtui.exe" --url http://127.0.0.1:{{port}}
     else
-    cmd /c start "" "{{BUILD}}/awqtui.exe"
+    cmd //c start "" "{{BUILD}}/awqtui.exe"
     fi
 
 # ---------- 通知（Windows Toast；未装 BurntToast 时降级为控制台输出） ----------

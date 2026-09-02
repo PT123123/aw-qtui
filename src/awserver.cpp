@@ -20,7 +20,7 @@
 namespace awqtui {
 
 namespace {
-constexpr const char *kServerExeName = "aw-inbox-rust.exe";
+constexpr const char *kServerExeName = "aw-server.exe";
 }
 
 ServerLauncher::ServerLauncher(QObject *parent)
@@ -75,7 +75,8 @@ bool ServerLauncher::ensureServerRunning(const QString &host, quint16 port, cons
     QStringList args;
     args << QStringLiteral("--host") << QLatin1String(kServerListenHost)
          << QStringLiteral("--port") << QString::number(port)
-         << QStringLiteral("--data-dir") << dataDir;
+         << QStringLiteral("--dbpath") << dataDir + QStringLiteral("/aw-server.db")
+         << QStringLiteral("--no-legacy-import");
 
     QDir().mkpath(dataDir);
 
@@ -132,7 +133,7 @@ bool ServerLauncher::installAutostart(const QString &serverExe, const QString &d
     if (serverExe.isEmpty() || !QFileInfo::exists(serverExe))
         return false;
 
-    const QString cmd = QStringLiteral("\"%1\" --host %2 --port %3 --data-dir \"%4\"")
+    const QString cmd = QStringLiteral("\"%1\" --host %2 --port %3 --dbpath \"%4/aw-server.db\" --no-legacy-import")
                             .arg(serverExe)
                             .arg(QLatin1String(kServerListenHost))
                             .arg(port)

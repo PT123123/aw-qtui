@@ -7,10 +7,12 @@
 
 #include "filterparser.h"
 #include "tagstore.h"
+#include "timelinewidget.h"
 
 class QComboBox;
 class QLabel;
 class QLineEdit;
+class QNetworkReply;
 class QPushButton;
 class QScrollArea;
 class QStackedWidget;
@@ -20,14 +22,16 @@ class QTableWidgetItem;
 
 namespace awqtui {
 
-class TimelineWidget;
+class ApiClient;
+struct BucketInfo;
+
 class UntaggedView;
 
 class DayPage : public QWidget
 {
     Q_OBJECT
 public:
-    explicit DayPage(TagStore *store, QWidget *parent = nullptr);
+    explicit DayPage(ApiClient *api, TagStore *store, QWidget *parent = nullptr);
 
     void setDate(const QDate &date);
     QDate currentDate() const { return m_date; }
@@ -61,6 +65,8 @@ private slots:
     void onDetailsItemChanged(QTableWidgetItem *item);
     void onSummaryItemChanged(QTableWidgetItem *item);
     void onDetailsDoubleClicked(int row, int col);
+    void onBucketsLoaded();
+    void onEventLoaded();
 
 private:
     struct ActivityInfo {
@@ -81,6 +87,8 @@ private:
     void rebuildSummary();
     void refreshStatus();
     void syncCheckboxes();
+    void fetchAllEvents();
+    void showEmptyState(const QString &msg);
     QList<QPair<qint64, qint64>> selectedRanges() const;
     QList<QPair<qint64, qint64>> activeRanges() const;
     QList<QPair<qint64, qint64>> untaggedRanges() const;
@@ -89,8 +97,14 @@ private:
     void setStatus(const QString &msg);
     bool rowInSelection(const ActivityInfo &info) const;
 
+    ApiClient *m_api = nullptr;
     TagStore *m_store = nullptr;
     QDate m_date;
+    QList<BucketInfo> m_buckets;
+    QHash<QString, QJsonArray> m_eventsMap;
+    int m_pendingEvents = 0;
+    bool m_loading = false;
+    QList<TimelineLane> m_lanes;
 
     QLabel *m_dateLabel = nullptr;
     QLabel *m_statusLabel = nullptr;

@@ -1,6 +1,8 @@
 // activitypage.cpp
 #include "activitypage.h"
 
+#include "apiclient.h"
+#include "awdatastore.h"
 #include "charts.h"
 #include "mockdata.h"
 #include "theme.h"
@@ -9,6 +11,10 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkReply>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTabWidget>
@@ -30,7 +36,8 @@ static QLabel *createCardTitle(const QString &text, QWidget *parent = nullptr)
     return lbl;
 }
 
-ActivityPage::ActivityPage(QWidget *parent) : QWidget(parent), m_date(QDate::currentDate())
+ActivityPage::ActivityPage(ApiClient *api, QWidget *parent)
+    : QWidget(parent), m_api(api), m_date(QDate::currentDate())
 {
     qDebug() << "[ActivityPage] ctor start";
     applyTheme();
@@ -319,40 +326,130 @@ void ActivityPage::onToday()
 
 void ActivityPage::reloadData()
 {
-    // 日期标签
     const QString weekday = m_date.toString(QStringLiteral("ddd"));
     m_dateLabel->setText(m_date.toString(QStringLiteral("yyyy-MM-dd ")) + weekday);
 
-    m_hostLabel->setText(QStringLiteral("Host: DESKTOP-QTUI"));
+    if (!m_api) {
+        m_lanes = generateTimelineLanes(m_date);
+        updateUiFromLanes();
+        return;
+    }
 
-    // 生成数据
-    m_lanes = generateTimelineLanes(m_date);
-    const QList<qint64> hourly = generateHourlyActivity(m_date);
+    m_loading = true;
+    m_hostLabel->setText(QStringLiteral("Host: loading…"));
+    m_activeLabel->setText(QStringLiteral("time active: —"));
+
+    QNetworkReply *reply = m_api->getBuckets();
+    connect(reply, &QNetworkReply::finished, this, &ActivityPage::onBucketsLoaded);
+}
+
+void ActivityPage::onBucketsLoaded()
+{
+    auto *reply = qobject_cast<QNetworkReply *>(sender());
+    if (!reply)
+        return;
+    QJsonDocument doc;
+    QString err;
+    if (!ApiClient::parseReply(reply, &doc, &err)) {
+        showEmptyState(QStringLiteral("Failed to load buckets: %1").arg(err));
+        reply->deleteLater();
+        return;
+    }
+    reply->deleteLater();
+
+    m_buckets = parseBuckets(doc.object());
+    if (m_buckets.isEmpty()) {
+        showEmptyState(QStringLiteral("No buckets — run aw-watcher to start tracking."));
+        return;
+    }
+    m_hostLabel->setText(QStringLiteral("Host: %1").arg(m_buckets.first().hostname));
+    fetchAllEvents();
+}
+
+void ActivityPage::fetchAllEvents()
+{
+    m_eventsMap.clear();
+    m_pendingEvents = m_buckets.size();
+
+    const qint64 dayStart = QDateTime(m_date, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
+    const qint64 dayEnd = dayStart + 86400000LL;
+
+    for (const BucketInfo &b : m_buckets) {
+        QNetworkReply *reply = m_api->getEvents(b.id, dayStart, dayEnd);
+        reply->setProperty("bucketId", b.id);
+        connect(reply, &QNetworkReply::finished, this, &ActivityPage::onEventLoaded);
+    }
+}
+
+void ActivityPage::onEventLoaded()
+{
+    auto *reply = qobject_cast<QNetworkReply *>(sender());
+    if (!reply)
+        return;
+    const QString bucketId = reply->property("bucketId").toString();
+    QJsonDocument doc;
+    QString err;
+    if (ApiClient::parseReply(reply, &doc, &err)) {
+        m_eventsMap[bucketId] = doc.array();
+    } else {
+        qWarning() << "[ActivityPage] events failed for" << bucketId << ":" << err;
+    }
+    reply->deleteLater();
+
+    if (--m_pendingEvents <= 0) {
+        m_loading = false;
+        updateUiFromLanes();
+    }
+}
+
+void ActivityPage::updateUiFromLanes()
+{
+    m_lanes = buildLanes(m_buckets, m_eventsMap);
+
+    const QList<qint64> hourly = hourlyFromLanes(m_lanes);
     qint64 totalActive = 0;
-    for (qint64 s : hourly) totalActive += s;
+    for (qint64 s : hourly)
+        totalActive += s;
     m_activeLabel->setText(QStringLiteral("time active: %1").arg(formatDuration(totalActive)));
 
     m_hourlyBars->setData(hourly);
 
-    // Summary
-    m_topApps->setItems(generateTopApps(m_date, 7));
-    m_topTitles->setItems(generateTopTitles(m_date, 7));
-    const QList<BarItem> cats = generateTopCategories(m_date, 6);
+    m_topApps->setItems(topAppsFromLanes(m_lanes, 7));
+    m_topTitles->setItems(topTitlesFromLanes(m_lanes, 7));
+    const QList<BarItem> cats = topCategoriesFromLanes(m_lanes, 6);
     m_topCats->setItems(cats);
     m_catBars->setData(hourly, computeHourlyCategories());
-    m_catTree->setItems(generateCategoryTree(m_date));
+    m_catTree->setItems(categoryTreeFromLanes(m_lanes));
     m_donut->setItems(cats);
 
-    // Window
-    m_winApps->setItems(generateTopApps(m_date, 10));
-    m_winTitles->setItems(generateTopTitles(m_date, 10));
+    m_winApps->setItems(topAppsFromLanes(m_lanes, 10));
+    m_winTitles->setItems(topTitlesFromLanes(m_lanes, 10));
 
-    // Browser
-    m_topDomains->setItems(computeTopDomains(8));
-    m_topUrls->setItems(computeTopUrls(8));
+    m_topDomains->setItems(topDomainsFromLanes(m_lanes, 8));
+    m_topUrls->setItems(topUrlsFromLanes(m_lanes, 8));
 
-    // Editor
     m_editorFiles->setItems(mockEditorFiles(10));
+}
+
+void ActivityPage::showEmptyState(const QString &msg)
+{
+    m_loading = false;
+    m_lanes.clear();
+    m_hostLabel->setText(QStringLiteral("Host: —"));
+    m_activeLabel->setText(QStringLiteral("time active: —"));
+    m_hourlyBars->setData(QList<qint64>(24, 0));
+    m_topApps->setItems({});
+    m_topTitles->setItems({});
+    m_topCats->setItems({});
+    m_catBars->setData(QList<qint64>(24, 0), QStringList(24, QStringLiteral("Uncategorized")));
+    m_catTree->setItems({});
+    m_donut->setItems({});
+    m_winApps->setItems({});
+    m_winTitles->setItems({});
+    m_topDomains->setItems({});
+    m_topUrls->setItems({});
+    m_editorFiles->setItems({});
+    qWarning() << "[ActivityPage]" << msg;
 }
 
 QStringList ActivityPage::computeHourlyCategories() const
@@ -381,49 +478,6 @@ QStringList ActivityPage::computeHourlyCategories() const
         for (int h = 0; h < 24; ++h) {
             if (!hourCat[h].isEmpty()) result[h] = hourCat[h];
         }
-    }
-    return result;
-}
-
-QList<BarItem> ActivityPage::computeTopDomains(int limit) const
-{
-    QHash<QString, qint64> dur;
-    for (const auto &lane : m_lanes) {
-        if (!lane.name.startsWith(QStringLiteral("aw-watcher-web"))) continue;
-        for (const auto &ev : lane.events) {
-            dur[ev.label] += (ev.endMs - ev.startMs) / 1000;
-        }
-    }
-    QList<BarItem> items;
-    for (auto it = dur.constBegin(); it != dur.constEnd(); ++it) {
-        BarItem b;
-        b.label = it.key();
-        b.valueSeconds = it.value();
-        b.color = colorForString(it.key());
-        items.append(b);
-    }
-    std::sort(items.begin(), items.end(), [](const BarItem &a, const BarItem &b) {
-        return a.valueSeconds > b.valueSeconds;
-    });
-    if (items.size() > limit) items = items.mid(0, limit);
-    return items;
-}
-
-QList<BarItem> ActivityPage::computeTopUrls(int limit) const
-{
-    // mock：在域名后加路径
-    QList<BarItem> domains = computeTopDomains(limit * 2);
-    static const QStringList paths = {
-        QStringLiteral("/"), QStringLiteral("/search?q=qt"), QStringLiteral("/activitywatch/activitywatch"),
-        QStringLiteral("/watch"), QStringLiteral("/questions/12345"), QStringLiteral("/trending"),
-        QStringLiteral("/feed"), QStringLiteral("/user/profile"), QStringLiteral("/docs/api"),
-    };
-    QList<BarItem> result;
-    for (int i = 0; i < domains.size() && result.size() < limit; ++i) {
-        BarItem b = domains[i];
-        b.label = domains[i].label + paths[i % paths.size()];
-        b.valueSeconds = qMax<qint64>(60, domains[i].valueSeconds * (0.4 + 0.3 * (i % 3)));
-        result.append(b);
     }
     return result;
 }

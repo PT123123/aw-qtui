@@ -2,15 +2,21 @@
 #pragma once
 
 #include <QDate>
+#include <QHash>
+#include <QJsonArray>
+#include <QList>
 #include <QWidget>
+#include "awdatastore.h"
 #include "mockdata.h"
 
 class QLabel;
 class QPushButton;
 class QTabWidget;
+class QNetworkReply;
 
 namespace awqtui {
 
+class ApiClient;
 class HourlyActivityBars;
 class HorizontalBarChart;
 class CategoryBars;
@@ -20,7 +26,7 @@ class ActivityPage : public QWidget
 {
     Q_OBJECT
 public:
-    explicit ActivityPage(QWidget *parent = nullptr);
+    explicit ActivityPage(ApiClient *api, QWidget *parent = nullptr);
 
     void setDate(const QDate &date);
     QDate date() const { return m_date; }
@@ -32,17 +38,25 @@ private slots:
     void onPrevDay();
     void onNextDay();
     void onToday();
+    void onBucketsLoaded();
+    void onEventLoaded();
 
 private:
     void buildUi();
     void reloadData();
+    void fetchAllEvents();
+    void updateUiFromLanes();
+    void showEmptyState(const QString &msg);
     QStringList computeHourlyCategories() const;
-    QList<BarItem> computeTopDomains(int limit) const;
-    QList<BarItem> computeTopUrls(int limit) const;
     QList<BarItem> mockEditorFiles(int limit) const;
 
+    ApiClient *m_api = nullptr;
     QDate m_date;
     QList<TimelineLane> m_lanes;
+    QList<BucketInfo> m_buckets;
+    QHash<QString, QJsonArray> m_eventsMap;
+    int m_pendingEvents = 0;
+    bool m_loading = false;
 
     QLabel *m_dateLabel = nullptr;
     QLabel *m_hostLabel = nullptr;

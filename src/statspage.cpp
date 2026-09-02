@@ -12,6 +12,10 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QMessageBox>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkReply>
 #include <QPushButton>
 #include <QSet>
 #include <QStackedWidget>
@@ -21,6 +25,8 @@
 
 #include <algorithm>
 
+#include "apiclient.h"
+#include "awdatastore.h"
 #include "charts.h"
 #include "mockdata.h"
 #include "statschart.h"
@@ -30,8 +36,8 @@ namespace awqtui {
 
 static const char *kStatTypeNames[] = {"Top 统计", "Day duration", "Attendance", "Custom"};
 
-StatsPage::StatsPage(TagStore *store, QWidget *parent)
-    : QWidget(parent), m_store(store)
+StatsPage::StatsPage(ApiClient *api, TagStore *store, QWidget *parent)
+    : QWidget(parent), m_api(api), m_store(store)
 {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(14, 12, 14, 12);
@@ -209,7 +215,7 @@ QMap<QDate, QMap<QString, qint64>> StatsPage::collectDaily() const
     for (int i = 0; i < days; ++i) {
         const QDate date = from.addDays(i);
         auto &day = out[date];
-        const QList<TimelineLane> lanes = generateTimelineLanes(date);
+        const QList<TimelineLane> &lanes = m_dailyLanes.value(date);
         for (const auto &lane : lanes) {
             if (!lane.name.contains(QStringLiteral("window")) &&
                 !lane.name.contains(QStringLiteral("web")))
@@ -385,13 +391,111 @@ void StatsPage::rebuildTab(TabData &tab)
 
 void StatsPage::refresh()
 {
+    const QDate from = m_fromEdit->date();
+    const QDate to = m_toEdit->date();
+    const int days = from.daysTo(to) + 1;
+    m_status->setText(QStringLiteral("范围 %1 — %2 · 共 %3 天")
+                          .arg(from.toString(QStringLiteral("yyyy-MM-dd")),
+                               to.toString(QStringLiteral("yyyy-MM-dd")))
+                          .arg(days));
+
+    if (!m_api) {
+        // 回退 mock
+        m_dailyLanes.clear();
+        for (int i = 0; i < days; ++i) {
+            const QDate date = from.addDays(i);
+            m_dailyLanes[date] = generateTimelineLanes(date);
+        }
+        for (auto &tab : m_tabsData)
+            rebuildTab(tab);
+        return;
+    }
+
+    if (days > 31) {
+        showEmptyState(QStringLiteral("统计范围最多 31 天，请缩小日期范围"));
+        return;
+    }
+
+    m_loading = true;
+    m_status->setText(m_status->text() + QStringLiteral(" · 加载中…"));
+    QNetworkReply *reply = m_api->getBuckets();
+    connect(reply, &QNetworkReply::finished, this, &StatsPage::onBucketsLoaded);
+}
+
+void StatsPage::onBucketsLoaded()
+{
+    auto *reply = qobject_cast<QNetworkReply *>(sender());
+    if (!reply)
+        return;
+    QJsonDocument doc;
+    QString err;
+    if (!ApiClient::parseReply(reply, &doc, &err)) {
+        showEmptyState(QStringLiteral("Failed to load buckets: %1").arg(err));
+        reply->deleteLater();
+        return;
+    }
+    reply->deleteLater();
+
+    m_buckets = parseBuckets(doc.object());
+    if (m_buckets.isEmpty()) {
+        showEmptyState(QStringLiteral("No buckets — run aw-watcher to start tracking."));
+        return;
+    }
+    fetchAllDays();
+}
+
+void StatsPage::fetchAllDays()
+{
+    m_dailyLanes.clear();
+    const QDate from = m_fromEdit->date();
+    const QDate to = m_toEdit->date();
+    const int days = from.daysTo(to) + 1;
+    m_pendingDays = days;
+
+    for (int i = 0; i < days; ++i) {
+        const QDate date = from.addDays(i);
+        const qint64 dayStart = QDateTime(date, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
+        const qint64 dayEnd = dayStart + 86400000LL;
+
+        // 对每个 bucket 并发获取 events，收集完后 buildLanes
+        auto *dayEvents = new QHash<QString, QJsonArray>();
+        auto *pending = new int(m_buckets.size());
+
+        for (const BucketInfo &b : m_buckets) {
+            QNetworkReply *reply = m_api->getEvents(b.id, dayStart, dayEnd);
+            reply->setProperty("bucketId", b.id);
+            reply->setProperty("date", date);
+            connect(reply, &QNetworkReply::finished, this, [this, dayEvents, pending, date, reply]() {
+                const QString bid = reply->property("bucketId").toString();
+                QJsonDocument doc;
+                QString err;
+                if (ApiClient::parseReply(reply, &doc, &err)) {
+                    (*dayEvents)[bid] = doc.array();
+                }
+                reply->deleteLater();
+                if (--(*pending) <= 0) {
+                    m_dailyLanes[date] = buildLanes(m_buckets, *dayEvents);
+                    delete dayEvents;
+                    delete pending;
+                    if (--m_pendingDays <= 0) {
+                        m_loading = false;
+                        for (auto &tab : m_tabsData)
+                            rebuildTab(tab);
+                    }
+                }
+            });
+        }
+    }
+}
+
+void StatsPage::showEmptyState(const QString &msg)
+{
+    m_loading = false;
+    m_dailyLanes.clear();
     for (auto &tab : m_tabsData)
         rebuildTab(tab);
-    const int days = m_fromEdit->date().daysTo(m_toEdit->date()) + 1;
-    m_status->setText(QStringLiteral("范围 %1 — %2 · 共 %3 天")
-                          .arg(m_fromEdit->date().toString(QStringLiteral("yyyy-MM-dd")),
-                               m_toEdit->date().toString(QStringLiteral("yyyy-MM-dd")))
-                          .arg(days));
+    m_status->setText(msg);
+    qWarning() << "[StatsPage]" << msg;
 }
 
 void StatsPage::applyTheme()
