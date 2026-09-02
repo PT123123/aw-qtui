@@ -3,6 +3,7 @@ build/
 build-dbg/
 build-asan/
 build-diag/
+build-verify/
 dist/
 server-src/
 
@@ -14,6 +15,8 @@ dumps/
 *.ilk
 *.pdb
 *.log
+tools/moc_todostore.cpp
+tools/todostore_selftest.exe
 
 # 早期原型 / 截图
 _prototype_python/

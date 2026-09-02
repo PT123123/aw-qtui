@@ -88,10 +88,10 @@ def assemble(dist_dir: str, skip_server: bool) -> None:
     if not os.path.isfile(os.path.join(BUILD_DIR, "awqtui.exe")):
         raise SystemExit("build/awqtui.exe 缺失，请先执行 make release")
     # 服务端默认必带；缺则明确报错，绝不静默产出不带服务端的包
-    server_exe = os.path.join(BUILD_DIR, "server", "aw-inbox-rust.exe")
+    server_exe = os.path.join(BUILD_DIR, "server", "aw-server.exe")
     if not skip_server and not os.path.isfile(server_exe):
         raise SystemExit(
-            "默认 release 必须包含服务端（build/server/aw-inbox-rust.exe 缺失）。\n"
+            "默认 release 必须包含服务端（build/server/aw-server.exe 缺失）。\n"
             "请先执行 make release（默认带服务端），或显式传 --skip-server 发布纯客户端包。"
         )
 

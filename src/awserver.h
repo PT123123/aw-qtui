@@ -1,4 +1,4 @@
-// awserver.h —— 本地 aw-inbox-rust 服务端管理：定位/探测/拉起/看护/自启
+// awserver.h —— 本地 aw-server 服务端管理：定位/探测/拉起/看护/自启
 #pragma once
 
 #include <QObject>
@@ -15,7 +15,7 @@ constexpr const char *kServerProbeHost = "127.0.0.1";  // 探测始终用回环�
 constexpr const char *kServerFirewallRule = "aw-qtui-server"; // 防火墙规则名
 
 // 本地服务端管理（sidecar）。
-// 客户端通过相对路径定位打包的 aw-inbox-rust.exe，端口探测确认未运行则拉起，
+// 客户端通过相对路径定位打包的 aw-server.exe，端口探测确认未运行则拉起，
 // 并周期性看护：若探测失败则重新拉起，保证采集/读写连续性。
 class ServerLauncher : public QObject
 {
@@ -24,7 +24,7 @@ public:
     explicit ServerLauncher(QObject *parent = nullptr);
     ~ServerLauncher() override;
 
-    // 定位打包的服务端 exe（优先 <appDir>/server/aw-inbox-rust.exe，其次 <appDir>/aw-inbox-rust.exe）。
+    // 定位打包的服务端 exe（优先 <appDir>/server/aw-server.exe，其次 <appDir>/aw-server.exe）。
     // 未找到返回空串。
     static QString locateServerExe();
 
