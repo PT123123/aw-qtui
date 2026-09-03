@@ -9,6 +9,7 @@
 
 #include <QCheckBox>
 #include <QColor>
+#include <QComboBox>
 #include <QDateTime>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -22,6 +23,7 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSettings>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTabWidget>
@@ -291,6 +293,102 @@ void SyncPage::buildUi()
     tl->addLayout(trashRow);
     trashLay->addWidget(trashBox);
     tabs->addTab(trashTab, QStringLiteral("回收站"));
+
+    // ── 云存储（实验性）页 ──
+    auto *cloudTab = new QWidget;
+    auto *cloudLay = new QVBoxLayout(cloudTab);
+    auto *cloudBox = new QGroupBox(QStringLiteral("云存储同步（实验性）"));
+    auto *cloudForm = new QFormLayout(cloudBox);
+
+    m_cloudKind = new QComboBox;
+    m_cloudKind->addItem(QStringLiteral("未启用"), static_cast<int>(CloudNone));
+    m_cloudKind->addItem(QStringLiteral("WebDAV"), static_cast<int>(CloudWebDAV));
+    m_cloudKind->addItem(QStringLiteral("S3 / MinIO"), static_cast<int>(CloudS3));
+    cloudForm->addRow(QStringLiteral("协议"), m_cloudKind);
+
+    // WebDAV 字段
+    m_webdavUrl = new QLineEdit;
+    m_webdavUrl->setPlaceholderText(QStringLiteral("https://dav.example.com/"));
+    m_webdavUser = new QLineEdit;
+    m_webdavPass = new QLineEdit;
+    m_webdavPass->setEchoMode(QLineEdit::Password);
+    m_webdavPath = new QLineEdit(QStringLiteral("/aw-qtui/"));
+    cloudForm->addRow(QStringLiteral("WebDAV URL"), m_webdavUrl);
+    cloudForm->addRow(QStringLiteral("用户名"), m_webdavUser);
+    cloudForm->addRow(QStringLiteral("密码"), m_webdavPass);
+    cloudForm->addRow(QStringLiteral("远程路径"), m_webdavPath);
+
+    // S3 字段
+    m_s3Endpoint = new QLineEdit;
+    m_s3Endpoint->setPlaceholderText(QStringLiteral("https://s3.amazonaws.com 或 https://minio.local:9000"));
+    m_s3AccessKey = new QLineEdit;
+    m_s3SecretKey = new QLineEdit;
+    m_s3SecretKey->setEchoMode(QLineEdit::Password);
+    m_s3Bucket = new QLineEdit;
+    m_s3Region = new QLineEdit(QStringLiteral("us-east-1"));
+    m_s3Path = new QLineEdit(QStringLiteral("aw-qtui/"));
+    m_s3PathStyle = new QCheckBox(QStringLiteral("使用路径风格（MinIO / 私有云）"));
+    m_s3PathStyle->setChecked(true);
+    m_s3Tls = new QCheckBox(QStringLiteral("使用 TLS"));
+    m_s3Tls->setChecked(true);
+    cloudForm->addRow(QStringLiteral("S3 Endpoint"), m_s3Endpoint);
+    cloudForm->addRow(QStringLiteral("Access Key"), m_s3AccessKey);
+    cloudForm->addRow(QStringLiteral("Secret Key"), m_s3SecretKey);
+    cloudForm->addRow(QStringLiteral("Bucket"), m_s3Bucket);
+    cloudForm->addRow(QStringLiteral("Region"), m_s3Region);
+    cloudForm->addRow(QStringLiteral("对象前缀"), m_s3Path);
+    cloudForm->addRow(m_s3PathStyle);
+    cloudForm->addRow(m_s3Tls);
+
+    // 操作行
+    auto *cloudBtnRow = new QHBoxLayout;
+    m_btnCloudTest = new QPushButton(QStringLiteral("测试连接"));
+    m_btnCloudTest->setObjectName(QStringLiteral("PrimaryBtn"));
+    m_btnCloudSave = new QPushButton(QStringLiteral("保存配置"));
+    m_btnCloudSync = new QPushButton(QStringLiteral("立即同步"));
+    cloudBtnRow->addWidget(m_btnCloudTest);
+    cloudBtnRow->addWidget(m_btnCloudSave);
+    cloudBtnRow->addWidget(m_btnCloudSync);
+    cloudBtnRow->addStretch(1);
+    cloudForm->addRow(cloudBtnRow);
+
+    m_lblCloudStatus = new QLabel(QStringLiteral("未配置"));
+    m_lblCloudStatus->setWordWrap(true);
+    cloudForm->addRow(m_lblCloudStatus);
+
+    cloudLay->addWidget(cloudBox);
+    cloudLay->addStretch(1);
+    tabs->addTab(cloudTab, QStringLiteral("☁ 云存储（实验）"));
+
+    // 云存储信号
+    connect(m_cloudKind, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SyncPage::onCloudKindChanged);
+    connect(m_btnCloudTest, &QPushButton::clicked, this, &SyncPage::onCloudTest);
+    connect(m_btnCloudSave, &QPushButton::clicked, this, &SyncPage::onCloudSave);
+    connect(m_btnCloudSync, &QPushButton::clicked, this, &SyncPage::onCloudSyncNow);
+
+    // 载入已保存的云存储配置（不含密码）
+    QSettings s;
+    s.beginGroup("cloud");
+    if (s.contains("config")) {
+        m_cloudCfg = CloudStorageConfig::fromJson(
+            QJsonDocument::fromJson(s.value("config").toByteArray()).object());
+    }
+    s.endGroup();
+    m_cloudKind->setCurrentIndex(m_cloudKind->findData(static_cast<int>(m_cloudCfg.kind)));
+    m_webdavUrl->setText(m_cloudCfg.webdavUrl);
+    m_webdavUser->setText(m_cloudCfg.webdavUser);
+    m_webdavPass->setText(m_cloudCfg.webdavPass);
+    m_webdavPath->setText(m_cloudCfg.webdavPath);
+    m_s3Endpoint->setText(m_cloudCfg.s3Endpoint);
+    m_s3AccessKey->setText(m_cloudCfg.s3AccessKey);
+    m_s3SecretKey->setText(m_cloudCfg.s3SecretKey);
+    m_s3Bucket->setText(m_cloudCfg.s3Bucket);
+    m_s3Region->setText(m_cloudCfg.s3Region);
+    m_s3Path->setText(m_cloudCfg.s3Path);
+    m_s3PathStyle->setChecked(m_cloudCfg.s3UsePathStyle);
+    m_s3Tls->setChecked(m_cloudCfg.s3Tls);
+    onCloudKindChanged(m_cloudKind->currentIndex());
 
     root->addWidget(tabs, 1);
 
@@ -760,6 +858,132 @@ void SyncPage::refreshDeviceStats(const QString &deviceId)
             .arg(formatLocal(s.lastFullSyncAt))
             .arg(s.lastError.isEmpty() ? QStringLiteral("无") : s.lastError));
     });
+}
+
+// ------------------------------------------------------------------ //
+// 云存储（实验性）
+
+void SyncPage::onCloudKindChanged(int idx)
+{
+    Q_UNUSED(idx);
+    const int kind = m_cloudKind->currentData().toInt();
+    const bool isWebDAV = (kind == CloudWebDAV);
+    const bool isS3 = (kind == CloudS3);
+
+    // 切换时只显示对应协议的字段
+    // 通过 setVisible 控制每一行
+    const QList<QPair<QWidget*, bool>> webdavRows = {
+        { m_webdavUrl, isWebDAV }, { m_webdavUser, isWebDAV },
+        { m_webdavPass, isWebDAV }, { m_webdavPath, isWebDAV },
+    };
+    const QList<QPair<QWidget*, bool>> s3Rows = {
+        { m_s3Endpoint, isS3 }, { m_s3AccessKey, isS3 }, { m_s3SecretKey, isS3 },
+        { m_s3Bucket, isS3 }, { m_s3Region, isS3 }, { m_s3Path, isS3 },
+        { m_s3PathStyle, isS3 }, { m_s3Tls, isS3 },
+    };
+    for (auto &p : webdavRows) p.first->setVisible(p.second);
+    for (auto &p : s3Rows) p.first->setVisible(p.second);
+}
+
+void SyncPage::onCloudTest()
+{
+    const int kind = m_cloudKind->currentData().toInt();
+    if (kind == CloudNone) {
+        m_lblCloudStatus->setText(QStringLiteral("请先选择协议"));
+        return;
+    }
+    if (kind == CloudWebDAV) {
+        if (m_webdavUrl->text().trimmed().isEmpty()) {
+            m_lblCloudStatus->setText(QStringLiteral("请填写 WebDAV URL"));
+            return;
+        }
+        // 简单连通性测试：发送 PROPFIND 请求
+        QNetworkRequest req(QUrl(m_webdavUrl->text().trimmed()));
+        req.setRawHeader("Depth", "0");
+        req.setRawHeader("User-Agent", "aw-qtui/0.1");
+        if (!m_webdavUser->text().isEmpty()) {
+            const QString auth = m_webdavUser->text() + ":" + m_webdavPass->text();
+            req.setRawHeader("Authorization", "Basic " + auth.toUtf8().toBase64());
+        }
+        QNetworkReply *r = m_api->networkAccessManager()->sendCustomRequest(req, "PROPFIND");
+        connect(r, &QNetworkReply::finished, this, [this, r] {
+            const int status = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (status >= 200 && status < 400) {
+                m_lblCloudStatus->setText(QStringLiteral("✓ WebDAV 连接成功（%1）").arg(status));
+                log(QStringLiteral("WebDAV 测试连接成功：%1").arg(status));
+            } else {
+                m_lblCloudStatus->setText(QStringLiteral("✗ 连接失败：%1 %2").arg(status).arg(r->errorString()));
+                log(QStringLiteral("WebDAV 测试连接失败：%1 %2").arg(status).arg(r->errorString()));
+            }
+            r->deleteLater();
+        });
+    } else if (kind == CloudS3) {
+        if (m_s3Endpoint->text().trimmed().isEmpty() || m_s3Bucket->text().trimmed().isEmpty()) {
+            m_lblCloudStatus->setText(QStringLiteral("请填写 Endpoint 和 Bucket"));
+            return;
+        }
+        // 简单测试：HEAD bucket
+        const QString ep = m_s3Endpoint->text().trimmed();
+        QUrl bucketUrl(ep);
+        if (m_s3PathStyle->isChecked()) {
+            bucketUrl.setPath("/" + m_s3Bucket->text());
+        } else {
+            bucketUrl.setHost(m_s3Bucket->text() + "." + bucketUrl.host());
+        }
+        QNetworkRequest req(bucketUrl);
+        req.setRawHeader("User-Agent", "aw-qtui/0.1");
+        // 简化：不做完整 AWS 签名，仅测试连通性
+        QNetworkReply *r = m_api->networkAccessManager()->head(req);
+        connect(r, &QNetworkReply::finished, this, [this, r] {
+            const int status = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (status == 200 || status == 403) {
+                m_lblCloudStatus->setText(QStringLiteral("✓ S3 连接成功（%1）").arg(status));
+                log(QStringLiteral("S3 测试连接成功：%1").arg(status));
+            } else {
+                m_lblCloudStatus->setText(QStringLiteral("✗ 连接失败：%1 %2").arg(status).arg(r->errorString()));
+                log(QStringLiteral("S3 测试连接失败：%1 %2").arg(status).arg(r->errorString()));
+            }
+            r->deleteLater();
+        });
+    }
+}
+
+void SyncPage::onCloudSave()
+{
+    m_cloudCfg.kind = static_cast<CloudStorageKind>(m_cloudKind->currentData().toInt());
+    m_cloudCfg.webdavUrl = m_webdavUrl->text().trimmed();
+    m_cloudCfg.webdavUser = m_webdavUser->text().trimmed();
+    m_cloudCfg.webdavPass = m_webdavPass->text();
+    m_cloudCfg.webdavPath = m_webdavPath->text().trimmed();
+    m_cloudCfg.s3Endpoint = m_s3Endpoint->text().trimmed();
+    m_cloudCfg.s3AccessKey = m_s3AccessKey->text().trimmed();
+    m_cloudCfg.s3SecretKey = m_s3SecretKey->text();
+    m_cloudCfg.s3Bucket = m_s3Bucket->text().trimmed();
+    m_cloudCfg.s3Region = m_s3Region->text().trimmed();
+    m_cloudCfg.s3Path = m_s3Path->text().trimmed();
+    m_cloudCfg.s3UsePathStyle = m_s3PathStyle->isChecked();
+    m_cloudCfg.s3Tls = m_s3Tls->isChecked();
+
+    // 保存到 QSettings（不含密码）
+    QSettings s;
+    s.beginGroup("cloud");
+    s.setValue("config", m_cloudCfg.toJson());
+    s.endGroup();
+
+    m_lblCloudStatus->setText(QStringLiteral("✓ 配置已保存"));
+    log(QStringLiteral("云存储配置已保存"));
+}
+
+void SyncPage::onCloudSyncNow()
+{
+    const int kind = m_cloudKind->currentData().toInt();
+    if (kind == CloudNone) {
+        m_lblCloudStatus->setText(QStringLiteral("请先选择协议"));
+        return;
+    }
+    m_lblCloudStatus->setText(QStringLiteral("同步中…（功能开发中）"));
+    log(QStringLiteral("云存储同步：功能开发中"));
+    // TODO: 实现本地数据打包上传 / 下载合并
 }
 
 // ------------------------------------------------------------------ //

@@ -4,10 +4,6 @@
 #include "theme.h"
 #include "mockdata.h"
 #include "todostore.h"
-#include "appsettings.h"
-#include "focusstore.h"
-#include "focuswidgets.h"
-#include "focuscharts.h"
 
 #include <QAction>
 #include <QCheckBox>
@@ -194,8 +190,8 @@ void TodoTaskRow::mousePressEvent(QMouseEvent *event)
 // ══════════════════════════════════════════════════════════
 // TodoPage
 // ══════════════════════════════════════════════════════════
-TodoPage::TodoPage(TodoSource *source, FocusSource *focus, QWidget *parent)
-    : QWidget(parent), m_source(source), m_focus(focus), m_focusModules(loadFocusModules())
+TodoPage::TodoPage(TodoSource *source, QWidget *parent)
+    : QWidget(parent), m_source(source)
 {
     buildUi();
     connect(m_source, &TodoSource::dataChanged, this, &TodoPage::onDataChanged);
@@ -205,7 +201,6 @@ TodoPage::TodoPage(TodoSource *source, FocusSource *focus, QWidget *parent)
 void TodoPage::refresh()
 {
     onDataChanged();
-    refreshModulePages();
 }
 
 void TodoPage::applyUiScale()
@@ -217,7 +212,6 @@ void TodoPage::applyUiScale()
     applyPageStyles();
     rebuildSidebar();
     rebuildList();
-    scaleModulePages();
 }
 
 void TodoPage::buildUi()
@@ -263,33 +257,6 @@ void TodoPage::buildUi()
     m_listsLay->setSpacing(si(2));
     sl->addWidget(m_listsBox);
 
-    // ── 专注模块（侧边栏开关由 Todo 设置 → 功能模块 控制）──
-    m_moduleSection = new QLabel(QStringLiteral("专注"));
-    m_moduleSection->setObjectName(QStringLiteral("TodoModuleSection"));
-    sl->addWidget(m_moduleSection);
-
-    m_moduleBox = new QWidget;
-    m_moduleLay = new QVBoxLayout(m_moduleBox);
-    m_moduleLay->setContentsMargins(0, 0, 0, 0);
-    m_moduleLay->setSpacing(si(2));
-    sl->addWidget(m_moduleBox);
-
-    const QStringList moduleLabels = {
-        QStringLiteral("🍅 计时"), QStringLiteral("📊 专注记录"), QStringLiteral("🕓 专注记录详情"),
-        QStringLiteral("📈 专注时间线"), QStringLiteral("🔥 热力图"), QStringLiteral("⏰ 最佳专注时间"),
-        QStringLiteral("📅 日历"), QStringLiteral("🎂 倒数纪念日")
-    };
-    for (int i = 0; i < moduleLabels.size(); ++i) {
-        auto *b = new QToolButton;
-        b->setText(moduleLabels[i]);
-        b->setCheckable(true);
-        b->setObjectName(QStringLiteral("TodoSideBtn"));
-        b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        connect(b, &QToolButton::clicked, this, [this, i] { showModule(ModuleKind(i)); });
-        m_moduleLay->addWidget(b);
-        m_moduleBtns.append(b);
-    }
-
     sl->addStretch(1);
 
     m_newListBtn = new QPushButton(QStringLiteral("＋ 新建清单"));
@@ -297,13 +264,6 @@ void TodoPage::buildUi()
     m_newListBtn->setCursor(Qt::PointingHandCursor);
     connect(m_newListBtn, &QPushButton::clicked, this, &TodoPage::onNewList);
     sl->addWidget(m_newListBtn);
-
-    m_settingsBtn = new QPushButton(QStringLiteral("⚙ 设置"));
-    m_settingsBtn->setObjectName(QStringLiteral("TodoNewList"));
-    m_settingsBtn->setCursor(Qt::PointingHandCursor);
-    m_settingsBtn->setToolTip(QStringLiteral("专注模块 · 侧边栏显示开关"));
-    connect(m_settingsBtn, &QPushButton::clicked, this, &TodoPage::openFocusSettings);
-    sl->addWidget(m_settingsBtn);
 
     root->addWidget(m_sidebar);
 
@@ -496,34 +456,15 @@ void TodoPage::buildUi()
     dl->addWidget(m_detailBody, 1);
     m_detailBody->hide();
 
-    // ── 主区堆栈：第 0 页 = 任务视图（列表 + 详情），1..8 = 专注模块 ──
-    m_mainStack = new QStackedWidget;
+    // ── 主区：任务视图（列表 + 详情面板）──
     auto *taskView = new QWidget;
     auto *tvLay = new QHBoxLayout(taskView);
     tvLay->setContentsMargins(0, 0, 0, 0);
     tvLay->setSpacing(0);
     tvLay->addWidget(centerHost, 1);
     tvLay->addWidget(m_detailPanel);
-    m_mainStack->addWidget(taskView); // 0
 
-    m_timerPage = new FocusTimerPage(m_focus, m_source);
-    m_overviewPage = new FocusOverviewPage(m_focus);
-    m_detailPage = new FocusDetailPage(m_focus);
-    m_weekPage = new FocusWeekPage(m_focus);
-    m_heatmapPage = new FocusHeatmapPage(m_focus);
-    m_bestPage = new FocusBestPage(m_focus);
-    m_calendarPage = new FocusCalendarPage(m_focus, m_source);
-    m_memorialPage = new FocusMemorialPage(m_focus);
-    m_mainStack->addWidget(m_timerPage);    // 1
-    m_mainStack->addWidget(m_overviewPage); // 2
-    m_mainStack->addWidget(m_detailPage);   // 3
-    m_mainStack->addWidget(m_weekPage);     // 4
-    m_mainStack->addWidget(m_heatmapPage);  // 5
-    m_mainStack->addWidget(m_bestPage);     // 6
-    m_mainStack->addWidget(m_calendarPage); // 7
-    m_mainStack->addWidget(m_memorialPage); // 8
-
-    root->addWidget(m_mainStack, 1);
+    root->addWidget(taskView, 1);
 
     m_commitTimer = new QTimer(this);
     m_commitTimer->setSingleShot(true);
@@ -563,19 +504,6 @@ void TodoPage::applyPageStyles()
             .arg(sp(8), sp(10), kColorFgMuted, sp(13), kColorBgElev2, kColorFg);
     for (auto *b : m_viewBtns)
         b->setStyleSheet(viewStyle);
-    for (auto *b : m_moduleBtns)
-        b->setStyleSheet(viewStyle);
-
-    if (m_moduleSection)
-        m_moduleSection->setStyleSheet(
-            QStringLiteral("color:%1;font-size:%2;font-weight:700;padding:%3 %4 2px;")
-                .arg(kColorMuted2, sp(10), sp(6), sp(8)));
-    if (m_settingsBtn)
-        m_settingsBtn->setStyleSheet(
-            QStringLiteral("QPushButton#TodoNewList{text-align:left;padding:%1 %2;border:none;"
-                           "border-radius:6px;color:%3;background:transparent;font-size:%4;}"
-                           "QPushButton#TodoNewList:hover{background:%5;color:%6;}")
-                .arg(sp(8), sp(10), kColorFgMuted, sp(13), kColorBgElev2, kColorFg));
 
     if (m_newListBtn)
         m_newListBtn->setStyleSheet(
@@ -676,30 +604,7 @@ void TodoPage::rebuildSidebar()
         m_listBtns.append(b);
     }
     m_listsBox->setVisible(!m_lists.isEmpty());
-    applyModuleVis();
     setViewButtonsChecked();
-}
-
-// 按功能模块开关控制「专注」分组与各模块按钮的侧边栏显隐
-void TodoPage::applyModuleVis()
-{
-    if (m_moduleBox)
-        m_moduleBox->setVisible(m_focusModules.timer || m_focusModules.overview
-                                || m_focusModules.detail || m_focusModules.week
-                                || m_focusModules.heatmap || m_focusModules.best
-                                || m_focusModules.calendar || m_focusModules.memorial);
-    if (m_moduleSection)
-        m_moduleSection->setVisible(m_moduleBox ? m_moduleBox->isVisible() : false);
-    const bool flags[] = {
-        m_focusModules.timer, m_focusModules.overview, m_focusModules.detail,
-        m_focusModules.week, m_focusModules.heatmap, m_focusModules.best,
-        m_focusModules.calendar, m_focusModules.memorial
-    };
-    for (int i = 0; i < m_moduleBtns.size(); ++i)
-        m_moduleBtns[i]->setVisible(i < 8 && flags[i]);
-    // 当前展示的模块被关闭：退回任务视图
-    if (m_moduleActive && (int(m_module) < 0 || int(m_module) >= 8 || !flags[int(m_module)]))
-        selectView(ViewInbox);
 }
 
 void TodoPage::setViewButtonsChecked()
@@ -708,14 +613,6 @@ void TodoPage::setViewButtonsChecked()
         b->setChecked(false);
     for (auto *b : m_listBtns)
         b->setChecked(false);
-    for (auto *b : m_moduleBtns)
-        b->setChecked(false);
-
-    if (m_moduleActive) {
-        if (int(m_module) >= 0 && int(m_module) < m_moduleBtns.size())
-            m_moduleBtns[int(m_module)]->setChecked(true);
-        return;
-    }
 
     switch (m_view) {
     case ViewInbox: if (m_viewBtns.size() > 0) m_viewBtns[0]->setChecked(true); break;
@@ -733,66 +630,16 @@ void TodoPage::setViewButtonsChecked()
     }
 }
 
-// 切到专注模块：主区堆栈切页 + 侧边栏高亮
-void TodoPage::showModule(ModuleKind kind)
-{
-    m_moduleActive = true;
-    m_module = kind;
-    if (m_mainStack) {
-        const int idx = 1 + int(kind);
-        if (idx < m_mainStack->count())
-            m_mainStack->setCurrentIndex(idx);
-    }
-    setViewButtonsChecked();
-}
-
-void TodoPage::openFocusSettings()
-{
-    FocusSettingsDialog dlg(this);
-    if (dlg.exec() != QDialog::Accepted)
-        return;
-    m_focusModules = dlg.modules();
-    saveFocusModules(m_focusModules);
-    applyModuleVis();
-}
-
-void TodoPage::scaleModulePages()
-{
-    if (m_timerPage) m_timerPage->applyUiScale();
-    if (m_overviewPage) m_overviewPage->applyUiScale();
-    if (m_detailPage) m_detailPage->applyUiScale();
-    if (m_weekPage) m_weekPage->applyUiScale();
-    if (m_heatmapPage) m_heatmapPage->applyUiScale();
-    if (m_bestPage) m_bestPage->applyUiScale();
-    if (m_calendarPage) m_calendarPage->applyUiScale();
-    if (m_memorialPage) m_memorialPage->applyUiScale();
-}
-
-void TodoPage::refreshModulePages()
-{
-    if (m_timerPage) m_timerPage->refresh();
-    if (m_overviewPage) m_overviewPage->refresh();
-    if (m_detailPage) m_detailPage->refresh();
-    if (m_weekPage) m_weekPage->refresh();
-    if (m_heatmapPage) m_heatmapPage->refresh();
-    if (m_bestPage) m_bestPage->refresh();
-    if (m_calendarPage) m_calendarPage->refresh();
-    if (m_memorialPage) m_memorialPage->refresh();
-}
-
 void TodoPage::selectView(ViewKind kind, qint64 listId)
 {
-    if (m_view == kind && m_viewList == listId && !m_moduleActive) {
+    if (m_view == kind && m_viewList == listId) {
         setViewButtonsChecked();
         return;
     }
     m_view = kind;
     m_viewList = listId;
-    m_moduleActive = false;
     m_showCompleted = false;
-    m_animateNext = true; // 视图切换：给本次重建的任务行加入场淡入
-    if (m_mainStack && m_mainStack->count() > 0)
-        m_mainStack->setCurrentIndex(0);
+    m_animateNext = true;
     clearDetail();
     setViewButtonsChecked();
     rebuildList();

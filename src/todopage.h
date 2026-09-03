@@ -2,13 +2,15 @@
 //
 // 布局：左侧「收集箱/今天/最近 7 天/全部 + 清单」导航，中间任务列表（快速添加 +
 // 已完成折叠区），右侧详情面板（标题/完成/清单/优先级/截止/重复/标签/备注/子任务）。
+//
+// 注意：专注模块（计时、热力图、日历等）现在在主侧边栏中直接导航，
+// 由 MainWindow 的主堆栈统一管理。TodoPage 不再内嵌专注模块页面。
 #pragma once
 
 #include <QHash>
 #include <QList>
 #include <QWidget>
 
-#include "appsettings.h"
 #include "todomodels.h"
 
 class QCheckBox;
@@ -20,7 +22,6 @@ class QLineEdit;
 class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
-class QStackedWidget;
 class QTimer;
 class QToolButton;
 class QVBoxLayout;
@@ -29,14 +30,6 @@ namespace awqtui {
 
 class FocusSource;
 class TodoSource;
-class FocusTimerPage;
-class FocusOverviewPage;
-class FocusDetailPage;
-class FocusWeekPage;
-class FocusHeatmapPage;
-class FocusBestPage;
-class FocusCalendarPage;
-class FocusMemorialPage;
 
 // 任务行控件（复选框 + 标题 + 优先级/期限/标签元信息），点击整行选中
 class TodoTaskRow : public QWidget
@@ -63,8 +56,8 @@ class TodoPage : public QWidget
 {
     Q_OBJECT
 public:
-    explicit TodoPage(TodoSource *source, FocusSource *focus, QWidget *parent = nullptr);
-    void refresh();            // 重读数据源快照并重渲染（F5 / 切页）
+    explicit TodoPage(TodoSource *source, QWidget *parent = nullptr);
+    void refresh();
     void applyUiScale();
 
 private slots:
@@ -76,39 +69,30 @@ private slots:
     void onToggleRequested(qint64 id, bool completed);
     void onTaskDelete();
     void onSubtaskAdd();
-    void openFocusSettings();
 
 private:
     enum ViewKind { ViewInbox, ViewToday, ViewNext7, ViewAll, ViewList };
-    // 侧边栏专注模块（顺序与 m_moduleBtns / m_mainStack 页索引对应）
-    enum ModuleKind { ModTimer, ModOverview, ModDetail, ModWeek, ModHeatmap, ModBest, ModCalendar, ModMemorial };
 
     void buildUi();
-    void applyPageStyles();    // 重应用本页内联 QSS（缩放后由 applyUiScale 调用）
-    void rebuildSidebar();     // 侧栏：视图按钮 + 清单按钮（含右键菜单）
-    void rebuildList();        // 任务列表 + 已完成折叠
+    void applyPageStyles();
+    void rebuildSidebar();
+    void rebuildList();
     void selectView(ViewKind kind, qint64 listId = 0);
-    void showModule(ModuleKind kind);   // 切换主区到专注模块页
-    void applyModuleVis();             // 按功能模块开关控制侧边栏显隐
-    void scaleModulePages();           // applyUiScale 传播到各模块页
-    void refreshModulePages();         // F5 / 切页时刷新各模块页
-    void reloadListCombo();    // 详情面板「清单」下拉，按当前 lists 重建
-    void reloadSubtaskList();  // 按当前选中任务重建详情面板子任务列表
+    void reloadListCombo();
+    void reloadSubtaskList();
     void loadDetail(qint64 id);
     void clearDetail();
-    void commitDetail();       // 读取面板控件 → 写回 store
+    void commitDetail();
     void setRowHighlight(qint64 id);
     void setViewButtonsChecked();
     QString viewTitle() const;
 
-    // 当前视图下的全部任务（未完成在前按优先级/期限排序，已完成按完成时间倒序）
     QList<TodoTask> visibleTasks() const;
     static bool taskLessThan(const TodoTask &a, const TodoTask &b);
     QWidget *makeRow(const TodoTask &task);
     QWidget *makeSubtaskRow(const TodoSubtask &s);
 
     TodoSource *m_source;
-    FocusSource *m_focus;
     QList<TodoList> m_lists;
     QList<TodoTask> m_tasks;
     QHash<qint64, QString> m_listColors;
@@ -124,27 +108,8 @@ private:
     QList<QToolButton *> m_viewBtns;
     QList<QToolButton *> m_listBtns;
     QPushButton *m_newListBtn;
-    QLabel *m_moduleSection = nullptr;   // 侧栏「专注」分组标题
-    QWidget *m_moduleBox = nullptr;      // 专注模块按钮容器
-    QVBoxLayout *m_moduleLay = nullptr;
-    QList<QToolButton *> m_moduleBtns;
-    QPushButton *m_settingsBtn = nullptr;
 
-    // 主区堆栈：0 = 任务视图；1..8 = 专注模块
-    QStackedWidget *m_mainStack = nullptr;
-    bool m_moduleActive = false;
-    ModuleKind m_module = ModTimer;
-    FocusModules m_focusModules;
-    FocusTimerPage *m_timerPage = nullptr;
-    FocusOverviewPage *m_overviewPage = nullptr;
-    FocusDetailPage *m_detailPage = nullptr;
-    FocusWeekPage *m_weekPage = nullptr;
-    FocusHeatmapPage *m_heatmapPage = nullptr;
-    FocusBestPage *m_bestPage = nullptr;
-    FocusCalendarPage *m_calendarPage = nullptr;
-    FocusMemorialPage *m_memorialPage = nullptr;
-
-    // 中间任务列表的浮动表面（材质/阴影/入场动画作用面）
+    // 中间任务列表的浮动表面
     QWidget *m_surface = nullptr;
     QGraphicsDropShadowEffect *m_surfaceShadow = nullptr;
 
@@ -174,7 +139,6 @@ private:
     QPushButton *m_dDelete;
     QTimer *m_commitTimer;
     bool m_loadingDetail = false;
-    // 视图切换/初次构建时给任务行加入场淡入（数据变化重建时不触发）
     bool m_animateNext = true;
 };
 
