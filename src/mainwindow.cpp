@@ -7,8 +7,12 @@
 #include "config.h"
 #include "daypage.h"
 #include "focusstore.h"
+#include "focuswidgets.h"
+#include "focuscharts.h"
 #include "globalshortcut.h"
 #include "inboxpage.h"
+#include "inboxsettingspage.h"
+#include "localstore.h"
 #include "mdnsdiscovery.h"
 #include "settingsdialog.h"
 #include "statspage.h"
@@ -18,6 +22,7 @@
 #include "timelinepage.h"
 #include "todopage.h"
 #include "todostore.h"
+#include "trashpage.h"
 #include "watcher.h"
 
 #include <QApplication>
@@ -98,6 +103,9 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     // 专注数据：本地优先（focus_local.json）；后续接 Rust /focus 端点时换 FocusApiStore
     m_focusStore = new FocusStore(this);
     m_focusStore->load();
+    // 收件箱本地存储（离线优先）
+    m_localStore = new LocalStore;
+    m_localStore->load();
 
     // 界面效果配置：先于 buildUi 载入，确保页面在创建时就按配置渲染
     const UiEffects fx = loadUiEffects();
@@ -150,6 +158,7 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
 MainWindow::~MainWindow()
 {
     delete m_tagStore;
+    delete m_localStore;
 }
 
 // 系统托盘：图标用固定 kAppEmoji(🌿) + 白色圆形背景（makeEmojiIcon 默认 WhiteCircle，已含 16/32px 托盘尺寸），零外部资源。
@@ -209,7 +218,7 @@ void MainWindow::buildUi()
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    // ---- 左侧导航：默认窄栏（仅图标），点击 ☰ 展开显示图标+文字 ----
+    // ---- 左侧导航：四分组 ----
     m_nav = new QWidget;
     m_nav->setObjectName(QStringLiteral("NavSidebar"));
     m_nav->setFixedWidth(si(kNavCollapsedPx));
@@ -218,7 +227,7 @@ void MainWindow::buildUi()
     navLay->setContentsMargins(0, si(12), 0, si(12));
     navLay->setSpacing(si(2));
 
-    // 展开/收起切换按钮：窄栏时显示 ☰，展开后显示 «
+    // 展开/收起切换按钮
     m_navToggle = new QToolButton;
     m_navToggle->setObjectName(QStringLiteral("NavToggle"));
     m_navToggle->setText(QStringLiteral("☰"));
@@ -228,7 +237,7 @@ void MainWindow::buildUi()
     navLay->addWidget(m_navToggle);
     connect(m_navToggle, &QToolButton::clicked, this, [this] { setNavExpanded(!m_navExpanded); });
 
-    // 可折叠分组（展开态可用）：header 点击展开/收起，容器内放导航按钮
+    // 可折叠分组
     struct NavSection {
         QToolButton *header;
         QWidget *box;
@@ -260,7 +269,7 @@ void MainWindow::buildUi()
         return NavSection{header, box, lay};
     };
 
-    // 导航按钮统一工厂：记录 emoji 与 label，窄栏只显示 emoji（居中），展开显示 emoji + 文字
+    // 导航按钮工厂
     auto makeNavBtn = [this](const char *emoji, const char *label) -> QPushButton * {
         auto *b = new QPushButton;
         b->setObjectName(QStringLiteral("NavBtn"));
@@ -268,26 +277,45 @@ void MainWindow::buildUi()
         b->setCursor(Qt::PointingHandCursor);
         b->setProperty("navEmoji", QString::fromUtf8(emoji));
         b->setProperty("navLabel", QString::fromUtf8(label));
-        b->setProperty("expanded", false); // 初始窄栏：仅图标
+        b->setProperty("expanded", false);
         b->setToolTip(QString::fromUtf8(label));
         b->setText(QString::fromUtf8(emoji));
         m_navButtons.append(b);
         return b;
     };
 
-    // ---- 分组 1：收件箱 ----
-    NavSection inboxSec = makeSection(QStringLiteral("收件箱"), /*expanded*/ true);
-
+    // ---- 分组 1：Inbox ----
+    NavSection inboxSec = makeSection(QStringLiteral("收件箱"), true);
     m_navInbox = makeNavBtn("📥", "收件箱");
-    m_navTodo = makeNavBtn("☑", "任务");
-    m_navSync = makeNavBtn("⇄", "局域网同步");
+    m_navInboxSettings = makeNavBtn("⚙", "收件箱设置");
+    m_navTrash = makeNavBtn("🗑", "回收站");
     inboxSec.layout->addWidget(m_navInbox);
-    inboxSec.layout->addWidget(m_navTodo);
-    inboxSec.layout->addWidget(m_navSync);
+    inboxSec.layout->addWidget(m_navInboxSettings);
+    inboxSec.layout->addWidget(m_navTrash);
 
-    // ---- 分组 2：ACTIVITYWATCH ----
-    NavSection awSec = makeSection(QStringLiteral("ACTIVITYWATCH"), /*expanded*/ false);
+    // ---- 分组 2：任务 ----
+    NavSection todoSec = makeSection(QStringLiteral("任务"), true);
+    m_navTodo = makeNavBtn("☑", "收集箱");
+    m_navTimer = makeNavBtn("🍅", "计时专注");
+    m_navOverview = makeNavBtn("📊", "记录专注");
+    m_navDetail = makeNavBtn("🕓", "记录详情");
+    m_navWeek = makeNavBtn("📈", "时间线");
+    m_navHeatmap = makeNavBtn("🔥", "日历图");
+    m_navBest = makeNavBtn("⏰", "最佳专注时间");
+    m_navCalendar = makeNavBtn("📅", "日历");
+    m_navMemorial = makeNavBtn("🎂", "倒数纪念日");
+    todoSec.layout->addWidget(m_navTodo);
+    todoSec.layout->addWidget(m_navTimer);
+    todoSec.layout->addWidget(m_navOverview);
+    todoSec.layout->addWidget(m_navDetail);
+    todoSec.layout->addWidget(m_navWeek);
+    todoSec.layout->addWidget(m_navHeatmap);
+    todoSec.layout->addWidget(m_navBest);
+    todoSec.layout->addWidget(m_navCalendar);
+    todoSec.layout->addWidget(m_navMemorial);
 
+    // ---- 分组 3：Activity Watch ----
+    NavSection awSec = makeSection(QStringLiteral("ACTIVITYWATCH"), false);
     m_navActivity = makeNavBtn("📊", "Activity");
     m_navTimeline = makeNavBtn("⏱", "Timeline");
     m_navDay = makeNavBtn("🏷", "标签 Day");
@@ -297,70 +325,93 @@ void MainWindow::buildUi()
     awSec.layout->addWidget(m_navDay);
     awSec.layout->addWidget(m_navStats);
 
-    // 窄栏模式下隐藏分组标题、全部图标平铺显示（分组展开状态由 setNavExpanded 统一管理）
-    m_navSectionHeaders = {inboxSec.header, awSec.header};
-    inboxSec.header->setVisible(false);
-    awSec.header->setVisible(false);
-    inboxSec.header->setChecked(true);
-    awSec.header->setChecked(true);
+    // ---- 分组 4：同步 ----
+    NavSection syncSec = makeSection(QStringLiteral("同步"), false);
+    m_navSync = makeNavBtn("⇄", "局域网同步");
+    syncSec.layout->addWidget(m_navSync);
 
+    // 窄栏模式：隐藏分组标题，图标平铺
+    m_navSectionHeaders = {inboxSec.header, todoSec.header, awSec.header, syncSec.header};
+    for (auto *h : m_navSectionHeaders) {
+        h->setVisible(false);
+        h->setChecked(true);
+    }
+
+    // 按钮组（单选）
     auto *grp = new QButtonGroup(this);
-    grp->addButton(m_navActivity);
-    grp->addButton(m_navTimeline);
-    grp->addButton(m_navInbox);
-    grp->addButton(m_navTodo);
-    grp->addButton(m_navSync);
-    grp->addButton(m_navDay);
-    grp->addButton(m_navStats);
+    grp->setExclusive(true);
+    for (auto *b : m_navButtons)
+        grp->addButton(b);
 
-    connect(m_navActivity, &QPushButton::clicked, this, [this] { switchPage(0); });
-    connect(m_navTimeline, &QPushButton::clicked, this, [this] { switchPage(1); });
-    connect(m_navInbox, &QPushButton::clicked, this, [this] { switchPage(2); });
-    connect(m_navTodo, &QPushButton::clicked, this, [this] { switchPage(3); });
-    connect(m_navSync, &QPushButton::clicked, this, [this] { switchPage(4); });
-    connect(m_navDay, &QPushButton::clicked, this, [this] { switchPage(5); });
-    connect(m_navStats, &QPushButton::clicked, this, [this] { switchPage(6); });
+    // 连接信号
+    connect(m_navInbox, &QPushButton::clicked, this, [this] { switchPage(PAGE_INBOX); });
+    connect(m_navInboxSettings, &QPushButton::clicked, this, [this] { switchPage(PAGE_INBOX_SETTINGS); });
+    connect(m_navTrash, &QPushButton::clicked, this, [this] { switchPage(PAGE_TRASH); });
+    connect(m_navTodo, &QPushButton::clicked, this, [this] { switchPage(PAGE_TODO); });
+    connect(m_navTimer, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_TIMER); });
+    connect(m_navOverview, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_OVERVIEW); });
+    connect(m_navDetail, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_DETAIL); });
+    connect(m_navWeek, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_WEEK); });
+    connect(m_navHeatmap, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_HEATMAP); });
+    connect(m_navBest, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_BEST); });
+    connect(m_navCalendar, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_CALENDAR); });
+    connect(m_navMemorial, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_MEMORIAL); });
+    connect(m_navActivity, &QPushButton::clicked, this, [this] { switchPage(PAGE_ACTIVITY); });
+    connect(m_navTimeline, &QPushButton::clicked, this, [this] { switchPage(PAGE_TIMELINE); });
+    connect(m_navDay, &QPushButton::clicked, this, [this] { switchPage(PAGE_DAY); });
+    connect(m_navStats, &QPushButton::clicked, this, [this] { switchPage(PAGE_STATS); });
+    connect(m_navSync, &QPushButton::clicked, this, [this] { switchPage(PAGE_SYNC); });
 
     navLay->addStretch(1);
-
     root->addWidget(nav);
 
     // ---- 页面堆栈 ----
     m_stack = new QStackedWidget;
-    qDebug() << "[MainWindow] creating ActivityPage...";
-    m_activity = new ActivityPage(m_api);
-    qDebug() << "[MainWindow] ActivityPage created";
-    qDebug() << "[MainWindow] creating TimelinePage...";
-    m_timeline = new TimelinePage(m_api);
-    qDebug() << "[MainWindow] TimelinePage created";
-    qDebug() << "[MainWindow] creating InboxPage...";
+
+    // 创建页面
     m_inbox = new InboxPage(m_api);
-    qDebug() << "[MainWindow] InboxPage created";
-    connect(m_inbox, &InboxPage::settingsRequested, this, &MainWindow::openSettings);
-    qDebug() << "[MainWindow] creating TodoPage...";
-    m_todo = new TodoPage(m_todoStore, m_focusStore);
-    qDebug() << "[MainWindow] TodoPage created";
-    qDebug() << "[MainWindow] creating SyncPage...";
-    m_sync = new SyncPage(m_api, m_mdns);
-    qDebug() << "[MainWindow] SyncPage created";
-    qDebug() << "[MainWindow] creating DayPage...";
+    m_inboxSettings = new InboxSettingsPage;
+    m_trash = new TrashPage(m_localStore);
+    m_todo = new TodoPage(m_todoStore);
+    m_timerPage = new FocusTimerPage(m_focusStore, m_todoStore);
+    m_overviewPage = new FocusOverviewPage(m_focusStore);
+    m_detailPage = new FocusDetailPage(m_focusStore);
+    m_weekPage = new FocusWeekPage(m_focusStore);
+    m_heatmapPage = new FocusHeatmapPage(m_focusStore);
+    m_bestPage = new FocusBestPage(m_focusStore);
+    m_calendarPage = new FocusCalendarPage(m_focusStore, m_todoStore);
+    m_memorialPage = new FocusMemorialPage(m_focusStore);
+    m_activity = new ActivityPage(m_api);
+    m_timeline = new TimelinePage(m_api);
     m_day = new DayPage(m_api, m_tagStore);
-    qDebug() << "[MainWindow] DayPage created";
-    qDebug() << "[MainWindow] creating StatsPage...";
     m_stats = new StatsPage(m_api, m_tagStore);
-    qDebug() << "[MainWindow] StatsPage created";
-    m_stack->addWidget(m_activity);   // 0
-    m_stack->addWidget(m_timeline);   // 1
-    m_stack->addWidget(m_inbox);      // 2
-    m_stack->addWidget(m_todo);       // 3
-    m_stack->addWidget(m_sync);       // 4
-    m_stack->addWidget(m_day);        // 5
-    m_stack->addWidget(m_stats);      // 6
-    qDebug() << "[MainWindow] all pages added to stack";
+    m_sync = new SyncPage(m_api, m_mdns);
+
+    // 添加到堆栈（顺序必须与 switchPage 的索引一致）
+    m_stack->addWidget(m_inbox);             // PAGE_INBOX = 0
+    m_stack->addWidget(m_inboxSettings);     // PAGE_INBOX_SETTINGS = 1
+    m_stack->addWidget(m_trash);             // PAGE_TRASH = 2
+    m_stack->addWidget(m_todo);              // PAGE_TODO = 3
+    m_stack->addWidget(m_timerPage);         // PAGE_FOCUS_TIMER = 4
+    m_stack->addWidget(m_overviewPage);      // PAGE_FOCUS_OVERVIEW = 5
+    m_stack->addWidget(m_detailPage);        // PAGE_FOCUS_DETAIL = 6
+    m_stack->addWidget(m_weekPage);          // PAGE_FOCUS_WEEK = 7
+    m_stack->addWidget(m_heatmapPage);       // PAGE_FOCUS_HEATMAP = 8
+    m_stack->addWidget(m_bestPage);          // PAGE_FOCUS_BEST = 9
+    m_stack->addWidget(m_calendarPage);      // PAGE_FOCUS_CALENDAR = 10
+    m_stack->addWidget(m_memorialPage);      // PAGE_FOCUS_MEMORIAL = 11
+    m_stack->addWidget(m_activity);          // PAGE_ACTIVITY = 12
+    m_stack->addWidget(m_timeline);          // PAGE_TIMELINE = 13
+    m_stack->addWidget(m_day);               // PAGE_DAY = 14
+    m_stack->addWidget(m_stats);             // PAGE_STATS = 15
+    m_stack->addWidget(m_sync);              // PAGE_SYNC = 16
+
     root->addWidget(m_stack, 1);
 
-    // 默认落在收件箱：activitywatch 分组默认收起，启动时导航保持可见/高亮一致
-    switchPage(2);
+    connect(m_inbox, &InboxPage::settingsRequested, this, &MainWindow::openSettings);
+
+    // 默认显示收件箱
+    switchPage(PAGE_INBOX);
 
     setCentralWidget(central);
 
@@ -420,20 +471,38 @@ void MainWindow::setNavExpanded(bool expanded)
 
 void MainWindow::switchPage(int index)
 {
+    if (index < 0 || index >= PAGE_COUNT)
+        return;
     m_stack->setCurrentIndex(index);
-    m_navActivity->setChecked(index == 0);
-    m_navTimeline->setChecked(index == 1);
-    m_navInbox->setChecked(index == 2);
-    m_navTodo->setChecked(index == 3);
-    m_navSync->setChecked(index == 4);
-    m_navDay->setChecked(index == 5);
-    m_navStats->setChecked(index == 6);
-    if (index == 4)
-        m_sync->refreshDevices();
-    if (index == 3)
-        m_todo->refresh();
 
-    // 切页淡入（受全局动画开关控制；动画结束即移除透明度效果，避免长期合成分开销）
+    // 更新导航按钮状态
+    m_navInbox->setChecked(index == PAGE_INBOX);
+    m_navInboxSettings->setChecked(index == PAGE_INBOX_SETTINGS);
+    m_navTrash->setChecked(index == PAGE_TRASH);
+    m_navTodo->setChecked(index == PAGE_TODO);
+    m_navTimer->setChecked(index == PAGE_FOCUS_TIMER);
+    m_navOverview->setChecked(index == PAGE_FOCUS_OVERVIEW);
+    m_navDetail->setChecked(index == PAGE_FOCUS_DETAIL);
+    m_navWeek->setChecked(index == PAGE_FOCUS_WEEK);
+    m_navHeatmap->setChecked(index == PAGE_FOCUS_HEATMAP);
+    m_navBest->setChecked(index == PAGE_FOCUS_BEST);
+    m_navCalendar->setChecked(index == PAGE_FOCUS_CALENDAR);
+    m_navMemorial->setChecked(index == PAGE_FOCUS_MEMORIAL);
+    m_navActivity->setChecked(index == PAGE_ACTIVITY);
+    m_navTimeline->setChecked(index == PAGE_TIMELINE);
+    m_navDay->setChecked(index == PAGE_DAY);
+    m_navStats->setChecked(index == PAGE_STATS);
+    m_navSync->setChecked(index == PAGE_SYNC);
+
+    // 页面特定处理
+    if (index == PAGE_SYNC)
+        m_sync->refreshDevices();
+    if (index == PAGE_TODO)
+        m_todo->refresh();
+    if (index == PAGE_TRASH)
+        m_trash->refresh();
+
+    // 淡入动画
     if (gFxAnimations) {
         if (QWidget *page = m_stack->widget(index)) {
             auto *eff = new QGraphicsOpacityEffect(page);
@@ -444,7 +513,6 @@ void MainWindow::switchPage(int index)
             anim->setStartValue(0.0);
             anim->setEndValue(1.0);
             anim->setEasingCurve(QEasingCurve::OutCubic);
-            // 注意：setGraphicsEffect(nullptr) 会同步删除原效果，此处不要再对 eff 做 deleteLater
             connect(anim, &QPropertyAnimation::finished, page, [page] {
                 page->setGraphicsEffect(nullptr);
             });
@@ -548,6 +616,24 @@ void MainWindow::applyTheme(const QString &themeId)
         m_day->applyTheme();
     if (m_stats)
         m_stats->applyTheme();
+    if (m_inboxSettings)
+        m_inboxSettings->applyUiScale();
+    if (m_timerPage)
+        m_timerPage->applyUiScale();
+    if (m_overviewPage)
+        m_overviewPage->applyUiScale();
+    if (m_detailPage)
+        m_detailPage->applyUiScale();
+    if (m_weekPage)
+        m_weekPage->applyUiScale();
+    if (m_heatmapPage)
+        m_heatmapPage->applyUiScale();
+    if (m_bestPage)
+        m_bestPage->applyUiScale();
+    if (m_calendarPage)
+        m_calendarPage->applyUiScale();
+    if (m_memorialPage)
+        m_memorialPage->applyUiScale();
 
     // 强制顶层窗口重绘，刷新自绘的图表 / 时间轴等控件
     for (QWidget *w : QApplication::topLevelWidgets())
@@ -577,13 +663,13 @@ void MainWindow::onGlobalHotkey(int id)
     case kHotkeyAddNoteId:
         // 添加记录：只弹出新建笔记对话框，不唤醒/调出主窗口
         // （主窗口隐藏/最小化时保持后台运行，对话框作为模态顶层窗口独立弹出）
-        switchPage(2);
+        switchPage(PAGE_INBOX);
         m_inbox->openNewNote();
         break;
     case kHotkeyShowInboxId:
         // 唤醒并跳转收件箱
         wakeUpAndShow();
-        switchPage(2);
+        switchPage(PAGE_INBOX);
         break;
     default:
         break;
@@ -609,23 +695,25 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
 
 void MainWindow::keyPressEvent(QKeyEvent *event)
 {
-    // 快捷键：1-5 切页，F5 刷新当前页
+    // 快捷键：1-9 切页，F5 刷新当前页
     switch (event->key()) {
-    case Qt::Key_1: switchPage(0); return;
-    case Qt::Key_2: switchPage(1); return;
-    case Qt::Key_3: switchPage(2); return;
-    case Qt::Key_4: switchPage(3); return;
-    case Qt::Key_5: switchPage(4); return;
-    case Qt::Key_6: switchPage(5); return;
-    case Qt::Key_7: switchPage(6); return;
+    case Qt::Key_1: switchPage(PAGE_INBOX); return;
+    case Qt::Key_2: switchPage(PAGE_INBOX_SETTINGS); return;
+    case Qt::Key_3: switchPage(PAGE_TRASH); return;
+    case Qt::Key_4: switchPage(PAGE_TODO); return;
+    case Qt::Key_5: switchPage(PAGE_FOCUS_TIMER); return;
+    case Qt::Key_6: switchPage(PAGE_FOCUS_OVERVIEW); return;
+    case Qt::Key_7: switchPage(PAGE_FOCUS_DETAIL); return;
+    case Qt::Key_8: switchPage(PAGE_FOCUS_WEEK); return;
+    case Qt::Key_9: switchPage(PAGE_FOCUS_HEATMAP); return;
     case Qt::Key_F5:
-        if (m_stack->currentIndex() == 0) m_activity->refresh();
-        else if (m_stack->currentIndex() == 1) m_timeline->refresh();
-        else if (m_stack->currentIndex() == 2) m_inbox->refreshAll();
-        else if (m_stack->currentIndex() == 3) m_todo->refresh();
-        else if (m_stack->currentIndex() == 4) m_sync->refreshDevices();
-        else if (m_stack->currentIndex() == 5) m_day->refresh();
-        else if (m_stack->currentIndex() == 6) m_stats->refresh();
+        if (m_stack->currentIndex() == PAGE_ACTIVITY) m_activity->refresh();
+        else if (m_stack->currentIndex() == PAGE_TIMELINE) m_timeline->refresh();
+        else if (m_stack->currentIndex() == PAGE_INBOX) m_inbox->refreshAll();
+        else if (m_stack->currentIndex() == PAGE_TODO) m_todo->refresh();
+        else if (m_stack->currentIndex() == PAGE_SYNC) m_sync->refreshDevices();
+        else if (m_stack->currentIndex() == PAGE_DAY) m_day->refresh();
+        else if (m_stack->currentIndex() == PAGE_STATS) m_stats->refresh();
         return;
     default: break;
     }
@@ -686,15 +774,15 @@ void MainWindow::applyUiScale()
 {
     gUiScale = m_zoom;
 
-    // 重新生成全局 QSS：把 Npx 字号/间距按缩放比放大，让控件重新布局（文字不糊）
+    // 重新生成全局 QSS
     qApp->setStyleSheet(scaleQss(gGlobalQss));
 
-    // 同步放大基准字体（与全局 QSS 基准 13px 一致），未内联字号的控件随之重排
+    // 同步放大基准字体
     QFont f = qApp->font();
     f.setPixelSize(qRound(13 * m_zoom));
     qApp->setFont(f);
 
-    // 左侧导航：宽度、间距随缩放比与展开状态调整（导航按钮样式来自全局 QSS 已缩放）
+    // 左侧导航
     if (m_nav) {
         m_nav->setFixedWidth(si(m_navExpanded ? kNavExpandedPx : kNavCollapsedPx));
         auto *nl = qobject_cast<QVBoxLayout *>(m_nav->layout());
@@ -704,11 +792,18 @@ void MainWindow::applyUiScale()
         }
     }
 
-    // 页面级缩放样式（目前重点：Inbox 页）
-    if (m_inbox)
-        m_inbox->applyUiScale();
-    if (m_todo)
-        m_todo->applyUiScale();
+    // 页面级缩放样式
+    if (m_inbox) m_inbox->applyUiScale();
+    if (m_inboxSettings) m_inboxSettings->applyUiScale();
+    if (m_todo) m_todo->applyUiScale();
+    if (m_timerPage) m_timerPage->applyUiScale();
+    if (m_overviewPage) m_overviewPage->applyUiScale();
+    if (m_detailPage) m_detailPage->applyUiScale();
+    if (m_weekPage) m_weekPage->applyUiScale();
+    if (m_heatmapPage) m_heatmapPage->applyUiScale();
+    if (m_bestPage) m_bestPage->applyUiScale();
+    if (m_calendarPage) m_calendarPage->applyUiScale();
+    if (m_memorialPage) m_memorialPage->applyUiScale();
 }
 
 void MainWindow::applyDwmBackdrop()

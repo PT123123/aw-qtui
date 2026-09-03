@@ -176,6 +176,16 @@ QList<Note> LocalStore::notes() const
     return out;
 }
 
+QList<Note> LocalStore::deletedNotes() const
+{
+    QList<Note> out;
+    for (const Note &n : m_notes) {
+        if (n.deleted)
+            out << n;
+    }
+    return out;
+}
+
 QList<Note> LocalStore::dirtyNotes() const
 {
     QList<Note> out;
@@ -334,6 +344,24 @@ void LocalStore::removePendingComment(qint64 noteId, const QString &content, con
         if (m_pendingComments[i].noteId == noteId && m_pendingComments[i].content == content
             && m_pendingComments[i].createdAt == createdAt)
             m_pendingComments.removeAt(i);
+    }
+}
+
+void LocalStore::undelete(qint64 id)
+{
+    for (int i = 0; i < m_notes.size(); ++i) {
+        if (m_notes[i].id != id)
+            continue;
+        Note &n = m_notes[i];
+        if (!n.deleted)
+            return;
+        n.deleted = false;
+        n.updatedAt = nowIso();
+        // 原本是 delete tombstone -> update（需要让服务端也知道已恢复为未删除）
+        // 原本是 create（理论上不会进入回收站）-> 保持 create
+        if (n.pendingOp == QLatin1String("delete"))
+            n.pendingOp = QStringLiteral("update");
+        return;
     }
 }
 

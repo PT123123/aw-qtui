@@ -226,4 +226,17 @@ void saveFocusModules(const FocusModules &m)
     s.sync();
 }
 
+QString loadDeviceName()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    return s.value(QStringLiteral("device/name"), QString()).toString();
+}
+
+void saveDeviceName(const QString &name)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("device/name"), name);
+    s.sync();
+}
+
 } // namespace awqtui

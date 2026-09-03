@@ -91,6 +91,10 @@ add_executable(awqtui WIN32
     src/statspage.h
     src/timingdialog.cpp
     src/timingdialog.h
+    src/inboxsettingspage.cpp
+    src/inboxsettingspage.h
+    src/trashpage.cpp
+    src/trashpage.h
 )
 
 target_link_libraries(awqtui PRIVATE

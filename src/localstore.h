@@ -33,6 +33,8 @@ public:
 
     // 未删除的全部笔记（含本地待同步），按本地加入顺序
     QList<Note> notes() const;
+    // 已软删除的笔记（tombstone，待同步 delete 或推送后清理）
+    QList<Note> deletedNotes() const;
     // 需要推送的改动（含已删除的 tombstone）
     QList<Note> dirtyNotes() const;
     int pendingCount() const;
@@ -50,6 +52,8 @@ public:
     void updateLocal(qint64 id, const QString &content, const QStringList &tags);
     // 本地删除：未同步的新建直接移除；服务端笔记标记 tombstone + op=delete
     void markDeleted(qint64 id);
+    // 恢复已软删除的笔记（清掉 deleted + op，标记 update 以便重新同步为未删除）
+    void undelete(qint64 id);
 
     // 推送成功后的收尾
     void clearPending(qint64 id);         // op 清空；若是 delete tombstone 则直接移除

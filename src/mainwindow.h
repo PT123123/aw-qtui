@@ -19,16 +19,27 @@ namespace awqtui {
 class ApiClient;
 class MdnsDiscovery;
 class GlobalHotkey;
-class InboxPage;
-class SyncPage;
+class TagStore;
+class TodoSource;
+class FocusSource;
+class LocalStore;
 class ActivityPage;
 class TimelinePage;
 class DayPage;
 class StatsPage;
+class InboxPage;
+class InboxSettingsPage;
+class TrashPage;
+class SyncPage;
 class TodoPage;
-class TodoSource;
-class FocusSource;
-class TagStore;
+class FocusTimerPage;
+class FocusOverviewPage;
+class FocusDetailPage;
+class FocusWeekPage;
+class FocusHeatmapPage;
+class FocusBestPage;
+class FocusCalendarPage;
+class FocusMemorialPage;
 
 class MainWindow : public QMainWindow
 {
@@ -38,12 +49,17 @@ public:
     ~MainWindow() override;
 
     InboxPage *inboxPage() const { return m_inbox; }
+    InboxSettingsPage *inboxSettingsPage() const { return m_inboxSettings; }
+    TrashPage *trashPage() const { return m_trash; }
     SyncPage *syncPage() const { return m_sync; }
     ActivityPage *activityPage() const { return m_activity; }
     TimelinePage *timelinePage() const { return m_timeline; }
     DayPage *dayPage() const { return m_day; }
     StatsPage *statsPage() const { return m_stats; }
     TodoPage *todoPage() const { return m_todo; }
+
+    // 专注模块页面（Todo 内部用）
+    FocusTimerPage *focusTimerPage() const { return m_timerPage; }
 
     void switchPage(int index);
 
@@ -95,15 +111,40 @@ private:
     // 焦点控件是否为文本输入类（此时无修饰 +/- 应交给输入，不做缩放）
     bool isTextEditingWidget(const QWidget *w) const;
 
+    // 页面索引枚举
+    enum {
+        PAGE_INBOX = 0,
+        PAGE_INBOX_SETTINGS,
+        PAGE_TRASH,
+        PAGE_TODO,
+        PAGE_FOCUS_TIMER,
+        PAGE_FOCUS_OVERVIEW,
+        PAGE_FOCUS_DETAIL,
+        PAGE_FOCUS_WEEK,
+        PAGE_FOCUS_HEATMAP,
+        PAGE_FOCUS_BEST,
+        PAGE_FOCUS_CALENDAR,
+        PAGE_FOCUS_MEMORIAL,
+        PAGE_ACTIVITY,
+        PAGE_TIMELINE,
+        PAGE_DAY,
+        PAGE_STATS,
+        PAGE_SYNC,
+        PAGE_COUNT
+    };
+
     ApiClient *m_api = nullptr;
     MdnsDiscovery *m_mdns = nullptr;
     GlobalHotkey *m_hotkey = nullptr;
     TagStore *m_tagStore = nullptr;
     TodoSource *m_todoStore = nullptr;
     FocusSource *m_focusStore = nullptr;
+    LocalStore *m_localStore = nullptr;
+    InboxPage *m_inbox = nullptr;
+    InboxSettingsPage *m_inboxSettings = nullptr;
+    TrashPage *m_trash = nullptr;
     ActivityPage *m_activity = nullptr;
     TimelinePage *m_timeline = nullptr;
-    InboxPage *m_inbox = nullptr;
     SyncPage *m_sync = nullptr;
     DayPage *m_day = nullptr;
     StatsPage *m_stats = nullptr;
@@ -120,13 +161,33 @@ private:
     qreal m_zoom = 1.0;
     QLabel *m_zoomBadge = nullptr;
     QLabel *m_toast = nullptr;
+    // 左侧导航按钮
+    QPushButton *m_navInbox = nullptr;
+    QPushButton *m_navInboxSettings = nullptr;
+    QPushButton *m_navTrash = nullptr;
+    QPushButton *m_navTodo = nullptr;
+    QPushButton *m_navTimer = nullptr;
+    QPushButton *m_navOverview = nullptr;
+    QPushButton *m_navDetail = nullptr;
+    QPushButton *m_navWeek = nullptr;
+    QPushButton *m_navHeatmap = nullptr;
+    QPushButton *m_navBest = nullptr;
+    QPushButton *m_navCalendar = nullptr;
+    QPushButton *m_navMemorial = nullptr;
     QPushButton *m_navActivity = nullptr;
     QPushButton *m_navTimeline = nullptr;
-    QPushButton *m_navInbox = nullptr;
-    QPushButton *m_navTodo = nullptr;
-    QPushButton *m_navSync = nullptr;
     QPushButton *m_navDay = nullptr;
     QPushButton *m_navStats = nullptr;
+    QPushButton *m_navSync = nullptr;
+    // 专注模块页面指针（Todo 内部持有，这里也存一份供快捷键/刷新用）
+    FocusTimerPage *m_timerPage = nullptr;
+    FocusOverviewPage *m_overviewPage = nullptr;
+    FocusDetailPage *m_detailPage = nullptr;
+    FocusWeekPage *m_weekPage = nullptr;
+    FocusHeatmapPage *m_heatmapPage = nullptr;
+    FocusBestPage *m_bestPage = nullptr;
+    FocusCalendarPage *m_calendarPage = nullptr;
+    FocusMemorialPage *m_memorialPage = nullptr;
     // 系统托盘
     QSystemTrayIcon *m_tray = nullptr;
     bool m_trayExiting = false;   // 托盘菜单「退出」置位：关窗不再拦截
