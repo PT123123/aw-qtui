@@ -10,7 +10,11 @@
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
+#include <QDate>
 #include <QDateTime>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -21,6 +25,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSettings>
@@ -104,11 +109,14 @@ void SyncPage::buildUi()
     connect(m_btnRemoveDevice, &QPushButton::clicked, this, &SyncPage::onRemoveDevice);
     m_btnSetAlias = new QPushButton(QStringLiteral("设置别名"));
     connect(m_btnSetAlias, &QPushButton::clicked, this, &SyncPage::onSetAlias);
+    m_btnClearAllDevices = new QPushButton(QStringLiteral("清空所有配对"));
+    connect(m_btnClearAllDevices, &QPushButton::clicked, this, &SyncPage::onClearAllDevices);
     auto *btnDevRefresh = new QPushButton(QStringLiteral("刷新"));
     connect(btnDevRefresh, &QPushButton::clicked, this, &SyncPage::refreshDevices);
     dlRow->addWidget(m_btnSyncNow);
     dlRow->addWidget(m_btnRemoveDevice);
     dlRow->addWidget(m_btnSetAlias);
+    dlRow->addWidget(m_btnClearAllDevices);
     dlRow->addStretch(1);
     dlRow->addWidget(btnDevRefresh);
     dl->addLayout(dlRow);
@@ -140,6 +148,20 @@ void SyncPage::buildUi()
     pl->addWidget(m_btnAcceptPair);
     pl->addStretch(1);
     devLay->addWidget(pairBox);
+
+    // 快照传输（WiFi 热点点对点：导出本机快照 / 导入合并对端快照）
+    auto *snapBox = new QGroupBox(QStringLiteral("快照传输（WiFi 热点点对点）"));
+    auto *snapl = new QHBoxLayout(snapBox);
+    m_btnExportSnapshot = new QPushButton(QStringLiteral("导出快照"));
+    connect(m_btnExportSnapshot, &QPushButton::clicked, this, &SyncPage::onExportSnapshot);
+    m_btnImportSnapshot = new QPushButton(QStringLiteral("导入合并"));
+    connect(m_btnImportSnapshot, &QPushButton::clicked, this, &SyncPage::onImportSnapshot);
+    m_lblSnapshot = new QLabel(QStringLiteral("导出本机全部数据为 JSON，或把对端快照合并进本机"));
+    m_lblSnapshot->setWordWrap(true);
+    snapl->addWidget(m_btnExportSnapshot);
+    snapl->addWidget(m_btnImportSnapshot);
+    snapl->addWidget(m_lblSnapshot, 1);
+    devLay->addWidget(snapBox);
 
     // 统计信息
     auto *statsBox = new QGroupBox(QStringLiteral("同步统计"));
@@ -245,18 +267,29 @@ void SyncPage::buildUi()
             const auto obj = doc.object();
             const auto arr = obj.value(QStringLiteral("logs")).toArray();
             m_log->clear();
+            int detailCount = 0;
             for (const auto &v : arr) {
-                const auto o = v.toObject();
-                const auto ts = o.value(QStringLiteral("timestamp")).toString();
-                const auto dir = o.value(QStringLiteral("direction")).toString();
-                const auto evt = o.value(QStringLiteral("event_type")).toString();
-                const auto msg = o.value(QStringLiteral("message")).toString();
+                const SyncLogEntry e = SyncLogEntry::fromJson(v.toObject());
                 m_log->appendPlainText(QStringLiteral("[%1] %2 %3 %4")
-                    .arg(formatLocal(ts), dir, evt, msg));
+                    .arg(formatLocal(e.timestamp), e.direction, e.eventType, e.message));
+                if (!e.hasDetails())
+                    continue;
+                // 逐条传输明细：某次同步中每条记录的落地结果
+                m_log->appendPlainText(QStringLiteral("    ── 传输明细 %1 条 ──").arg(e.details.size()));
+                for (const TransferRecord &rec : e.details) {
+                    const QString label = rec.title.isEmpty() ? rec.logicalKey : rec.title;
+                    QString line = QStringLiteral("    · [%1] %2 %3")
+                                       .arg(rec.kind, TransferRecord::actionLabel(rec.action), label);
+                    if (!rec.reason.isEmpty())
+                        line += QStringLiteral("（%1）").arg(rec.reason);
+                    m_log->appendPlainText(line);
+                }
+                detailCount += e.details.size();
             }
-            log(QStringLiteral("日志 %1 条，共 %2 条")
+            log(QStringLiteral("日志 %1 条，共 %2 条%3")
                 .arg(arr.size())
-                .arg(obj.value(QStringLiteral("total")).toVariant().toLongLong()));
+                .arg(obj.value(QStringLiteral("total")).toVariant().toLongLong())
+                .arg(detailCount ? QStringLiteral("，含传输明细 %1 条").arg(detailCount) : QString()));
         });
     });
     m_btnClearLogs = new QPushButton(QStringLiteral("清空日志"));
@@ -285,9 +318,15 @@ void SyncPage::buildUi()
     auto *trashRow = new QHBoxLayout;
     auto *btnRefreshTrash = new QPushButton(QStringLiteral("刷新"));
     connect(btnRefreshTrash, &QPushButton::clicked, this, &SyncPage::refreshTrash);
+    m_btnRestoreTrash = new QPushButton(QStringLiteral("恢复选中"));
+    connect(m_btnRestoreTrash, &QPushButton::clicked, this, &SyncPage::onRestoreTrashRow);
+    m_btnDeleteTrash = new QPushButton(QStringLiteral("删除选中"));
+    connect(m_btnDeleteTrash, &QPushButton::clicked, this, &SyncPage::onDeleteTrashRow);
     m_btnClearTrash = new QPushButton(QStringLiteral("清空回收站"));
     connect(m_btnClearTrash, &QPushButton::clicked, this, &SyncPage::onClearAllTrash);
     trashRow->addWidget(btnRefreshTrash);
+    trashRow->addWidget(m_btnRestoreTrash);
+    trashRow->addWidget(m_btnDeleteTrash);
     trashRow->addWidget(m_btnClearTrash);
     trashRow->addStretch(1);
     tl->addLayout(trashRow);
@@ -510,6 +549,14 @@ void SyncPage::doSync()
 void SyncPage::syncComplete(const ApplyResult &r)
 {
     log(QStringLiteral("同步完成：%1").arg(r.summary()));
+    for (const TransferRecord &rec : r.records) {
+        const QString label = rec.title.isEmpty() ? rec.logicalKey : rec.title;
+        QString line = QStringLiteral("  · [%1] %2 %3")
+                           .arg(rec.kind, TransferRecord::actionLabel(rec.action), label);
+        if (!rec.reason.isEmpty())
+            line += QStringLiteral("（%1）").arg(rec.reason);
+        log(line);
+    }
     for (const QString &e : r.errors)
         log(QStringLiteral("  ✗ %1").arg(e));
     m_serverBadge->setState(StatusBadge::State::Connected);
@@ -521,8 +568,8 @@ void SyncPage::heartbeat(bool quiet)
         return;
     if (!quiet)
         log(QStringLiteral("发送心跳…"));
-    // 心跳通过 getSyncInfo 实现（让服务端知道本机在线）
-    QNetworkReply *r = m_api->getSyncInfo();
+    // 心跳通过 GET /status 实现（同时拿到同步开关/发现状态/监听端口，展示真实服务端状态）
+    QNetworkReply *r = m_api->getSyncStatus();
     connect(r, &QNetworkReply::finished, this, [this, r, quiet] {
         QJsonDocument doc;
         QString err;
@@ -533,7 +580,15 @@ void SyncPage::heartbeat(bool quiet)
         }
         if (!quiet)
             log(QStringLiteral("心跳已发送"));
-        m_serverBadge->setState(StatusBadge::State::Connected);
+        const auto o = doc.object();
+        const bool enabled = o.value(QStringLiteral("enabled")).toBool();
+        const bool discovery = o.value(QStringLiteral("discovery_running")).toBool();
+        const int listenPort = o.value(QStringLiteral("listen_port")).toInt(5600);
+        QString text = enabled ? QStringLiteral("同步已开启") : QStringLiteral("同步未开启");
+        if (enabled)
+            text += QStringLiteral(" · 监听 %1").arg(listenPort);
+        text += discovery ? QStringLiteral(" · 发现运行中") : QStringLiteral(" · 发现未开启");
+        m_serverBadge->setState(StatusBadge::State::Connected, text);
     });
 }
 
@@ -761,6 +816,30 @@ void SyncPage::onSetAlias()
     });
 }
 
+void SyncPage::onClearAllDevices()
+{
+    if (!m_api)
+        return;
+    const auto ret = QMessageBox::warning(
+        this, QStringLiteral("清空所有配对"),
+        QStringLiteral("将清除本机所有已配对设备信息，已同步的数据不受影响。确定继续？"),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (ret != QMessageBox::Yes)
+        return;
+    QNetworkReply *r = m_api->clearAllDevices();
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            log(QStringLiteral("清空配对失败：%1").arg(err));
+            return;
+        }
+        const int n = doc.object().value(QStringLiteral("cleared")).toInt();
+        log(QStringLiteral("已清除 %1 台配对设备").arg(n));
+        refreshDevices();
+    });
+}
+
 void SyncPage::onClearLogs()
 {
     if (!m_api)
@@ -792,6 +871,131 @@ void SyncPage::onClearAllTrash()
         }
         log(QStringLiteral("回收站已清空"));
         refreshTrash();
+    });
+}
+
+// 回收站单条恢复 / 删除（restoreTrash / deleteTrash）
+void SyncPage::onRestoreTrashRow()
+{
+    if (!m_api)
+        return;
+    const int row = m_trashTable->currentRow();
+    if (row < 0 || m_trashTable->item(row, 0) == nullptr) {
+        log(QStringLiteral("请先选择回收站条目"));
+        return;
+    }
+    const qint64 id = m_trashTable->item(row, 0)->text().toLongLong();
+    QNetworkReply *r = m_api->restoreTrash(id);
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            log(QStringLiteral("恢复失败：%1").arg(err));
+            return;
+        }
+        log(QStringLiteral("已恢复回收站条目 #%1").arg(doc.object().value(QStringLiteral("id")).toVariant().toLongLong()));
+        refreshTrash();
+    });
+}
+
+void SyncPage::onDeleteTrashRow()
+{
+    if (!m_api)
+        return;
+    const int row = m_trashTable->currentRow();
+    if (row < 0 || m_trashTable->item(row, 0) == nullptr) {
+        log(QStringLiteral("请先选择回收站条目"));
+        return;
+    }
+    const qint64 id = m_trashTable->item(row, 0)->text().toLongLong();
+    QNetworkReply *r = m_api->deleteTrash(id);
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            log(QStringLiteral("删除失败：%1").arg(err));
+            return;
+        }
+        log(QStringLiteral("已永久删除回收站条目 #%1").arg(doc.object().value(QStringLiteral("id")).toVariant().toLongLong()));
+        refreshTrash();
+    });
+}
+
+// ------------------------------------------------------------------ //
+// 快照传输（WiFi 热点点对点）
+
+void SyncPage::onExportSnapshot()
+{
+    if (!m_api)
+        return;
+    const QString path = QFileDialog::getSaveFileName(
+        this, QStringLiteral("导出快照"),
+        QStringLiteral("aw-snapshot-%1.json").arg(QDate::currentDate().toString(QStringLiteral("yyyyMMdd"))),
+        QStringLiteral("JSON (*.json)"));
+    if (path.isEmpty())
+        return;
+    m_lblSnapshot->setText(QStringLiteral("正在导出…"));
+    QNetworkReply *r = m_api->getSyncSnapshot();
+    connect(r, &QNetworkReply::finished, this, [this, r, path] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            m_lblSnapshot->setText(QStringLiteral("导出失败：%1").arg(err));
+            return;
+        }
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            m_lblSnapshot->setText(QStringLiteral("写入文件失败：%1").arg(f.errorString()));
+            return;
+        }
+        f.write(doc.toJson(QJsonDocument::Indented));
+        f.close();
+        m_lblSnapshot->setText(QStringLiteral("已导出 %1 bytes → %2")
+                                   .arg(doc.toJson(QJsonDocument::Compact).size())
+                                   .arg(QFileInfo(path).fileName()));
+    });
+}
+
+void SyncPage::onImportSnapshot()
+{
+    if (!m_api)
+        return;
+    const QString path = QFileDialog::getOpenFileName(
+        this, QStringLiteral("导入快照（合并到本机）"), QString(),
+        QStringLiteral("JSON (*.json)"));
+    if (path.isEmpty())
+        return;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        m_lblSnapshot->setText(QStringLiteral("读取文件失败：%1").arg(f.errorString()));
+        return;
+    }
+    QJsonParseError perr;
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &perr);
+    f.close();
+    if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
+        m_lblSnapshot->setText(QStringLiteral("快照文件解析失败：%1").arg(perr.errorString()));
+        return;
+    }
+    m_lblSnapshot->setText(QStringLiteral("正在导入合并…"));
+    QNetworkReply *r = m_api->applySnapshot(doc.object());
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            m_lblSnapshot->setText(QStringLiteral("导入失败：%1").arg(err));
+            return;
+        }
+        const auto o = doc.object();
+        const int applied = o.value(QStringLiteral("applied")).toInt();
+        const int created = o.value(QStringLiteral("created")).toInt();
+        const int updated = o.value(QStringLiteral("updated")).toInt();
+        const int ignored = o.value(QStringLiteral("ignored")).toInt();
+        const int conflicts = o.value(QStringLiteral("conflicts")).toInt();
+        m_lblSnapshot->setText(QStringLiteral("导入完成：落库 %1（新增 %2 · 更新 %3）· 忽略 %4 · 冲突 %5")
+                                   .arg(applied).arg(created).arg(updated).arg(ignored).arg(conflicts));
+        refreshTrash();
+        refreshDevices();
     });
 }
 

@@ -58,6 +58,8 @@ signals:
     void togglePinnedRequested(qint64 id);
     void taskToggled(qint64 id, const QString &content);
     void parentReferenceClicked(qint64 parentId);
+    // 查看历史版本（服务端 GET /inbox/notes/<id>/history）
+    void historyRequested(qint64 id);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -115,6 +117,33 @@ private:
     QListWidget *m_list;
     QPlainTextEdit *m_input;
     qint64 m_noteId;
+};
+
+// ------------------------------------------------------------------ //
+// 笔记历史版本对话框（GET /inbox/notes/<id>/history）
+// 左侧版本列表，右侧只读预览；「恢复此版本」把选中版本的内容回填到笔记。
+class NoteHistoryDialog : public QDialog
+{
+    Q_OBJECT
+public:
+    explicit NoteHistoryDialog(qint64 noteId, QWidget *parent = nullptr);
+    void setHistory(const QList<NoteHistory> &items);
+
+signals:
+    // 请求把选中历史版本的内容恢复到笔记正文
+    void restoreRequested(qint64 noteId, const QString &content);
+
+private slots:
+    void onCurrentRowChanged(int row);
+    void onRestoreClicked();
+    void onCopyClicked();
+
+private:
+    QListWidget *m_list = nullptr;
+    QPlainTextEdit *m_preview = nullptr;
+    QPushButton *m_btnRestore = nullptr;
+    QList<NoteHistory> m_items;
+    qint64 m_noteId = 0;
 };
 
 } // namespace awqtui
