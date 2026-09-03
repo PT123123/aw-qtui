@@ -26,7 +26,7 @@
 | ⏱  Timeline | 可交互多行时间线（afk-status / aw-watcher-window / aw-watcher-web），拖拽平移、滚轮缩放、hover 详情 tooltip；顶部 Interval mode / Show last 工具栏，底部 Tockler 风格统计卡片（Total tracked / AFK / First activity / Last activity） |
 | 📥 收件箱 | MoeMemos 风格卡片流（头部相对时间 + 置顶旗标 + ⋯ 菜单）、完整 Markdown 渲染（标题/列表/引用/代码块/粗斜体/删除线/链接）、任务清单 ☐ 点击勾选、内联 #标签 高亮、本地置顶优先排序、无限滚动、标签侧栏多选过滤、搜索、排序、评论（离线优先：本地缓存 + 待同步队列，重连自动补推）、复制全部、连接状态徽标、右下角悬浮新建、工具栏 ⚙ 设置（全局快捷键） |
 | ☑ 任务 | TickTick / Super Productivity 式 Todo：左侧「收集箱/今天/最近 7 天/全部 + 彩色清单」导航，中间任务列表（快速添加、优先级/期限/标签元信息、已完成折叠区），右侧详情面板（标题/已完成/清单/优先级/截止日期/重复/标签/备注/子任务）。数据源走 `TodoSource` 抽象，当前为本地 mock（`todo_local.json` 持久化 + 种子数据），后续接入 Rust 时新增 `TodoApiStore` 实现同一接口即可，页面零改动 |
-| ⇄ 局域网同步 | 设备注册表（device_id/名称/平台/最后在线/最后同步/待同步/版本）、手动同步（POST /inbox/sync，展示拉取数与冲突）、设备心跳注册、mDNS 自动发现（`_activitywatch._tcp.local.`，Win32 原生 DNS-SD） |
+| ⇄ 局域网同步 | 设备注册表（device_id/名称/平台/最后在线/最后同步/待同步/版本）、手动同步（`POST /api/0/sync/devices/<id>/sync`，展示应用条数与逐条明细）、设备心跳、mDNS 自动发现（`_activitywatch._tcp.local.`，Win32 原生 DNS-SD） |
 | 🏷 标签 Day | ManicTime 式时间标签：时间线选择模式（左键拖拽吸附活动边界、Ctrl 多选、双击选整块）→ Add tag（标签/备注/Billable/起止时间/最近标签/Tag picker）、Tag editor（组合/单标签/快捷键/标签源，重命名/替换/删除/改色/导入导出/右键 Skip 与默认可计费）、自动标签规则引擎（Regular/Append/Prepend/Absorb + 间隙填充 + 高亮猜测 + AutoTags lane 实时重算 + 复制到手工标签）、未标记热力图月历、Tag away 一键给未标记时间段打标签、计时工具（秒表/计时器/番茄钟）、高级搜索（日期范围/时间线选择/未标记过滤/批量打标/删除/导出/双击跳转）、当日过滤框（group:/duration>/start>/end>/label=billable/note:/-取反/or/通配符/#regex）。本地数据 `timetags_local.json`（独立于收件箱） |
 | 📈 统计 | 多日统计：多 Tab + 类型（Top / Day duration / Attendance / Custom）、日期范围（本周/本月）、折线/柱状切换、平均值线、多序列应用对比、数据表联动、导出 CSV |
 
@@ -331,19 +331,32 @@ aw-qtui/
 **方法 / 路径 / 请求体 / 响应字段全部对上**，并已用融合后的 `aw-server.exe` 实测全链路
 （create / get / put / delete / comment / heartbeat / sync / devices / tags / todos 均 200 / 204）：
 
-- 笔记：`GET/POST /inbox/notes`、`PUT/DELETE /inbox/notes/<id>`
+- 笔记：`GET/POST /inbox/notes`、`PUT/DELETE /inbox/notes/<id>`、`PUT /inbox/notes/<id>/restore`、`GET /inbox/notes/<id>/history`
 - 标签：`GET /inbox/tags`、`GET /inbox/tags/detailed`
 - 评论：`GET/POST /inbox/notes/<id>/comments`
-- 同步：`POST /inbox/sync`、`GET /inbox/sync/devices`、`POST /inbox/sync/devices/heartbeat`
-- 任务：`GET/POST /inbox/todos`、`PUT/DELETE /inbox/todos/<id>`
+- 任务：`GET/POST /inbox/todos`、`PUT/DELETE /inbox/todos/<id>`、`PUT /inbox/todos/<id>/restore`
+- 同步（`aw-sync-rust`，挂载在 `/api/0/sync`）：`GET /info`、`GET/PUT /config`、`POST /paircode`、`POST /join`、
+  `POST /devices`、`GET /devices`、`POST /pair/{initiate,accept}`、`POST /devices/<id>/sync`、
+  `DELETE /devices/<id>`、`PUT /devices/<id>/alias`、`GET /devices/<id>/{stats,conflicts}`、
+  `GET/DELETE /log`、`GET /snapshot`、`POST /apply`、`POST /push`、`GET /status`、
+  `GET /trash`、`POST /trash/<id>/restore`、`DELETE /trash/<id>`、`DELETE /trash`
+
+所有写请求带 `X-Device-ID` 头，与服务端 `DeviceIdGuard` 对齐。
+同步日志（`GET /api/0/sync/log`）与同步结果（`/push`、`/apply` 的 `result`）均可能携带
+逐条传输明细 `details` / `records`（`kind`/`logical_key`/`title`/`action`/`reason`），
+客户端在同步页「日志」里按条展开展示。
+
+> 旧版 `/inbox/sync*`（`POST /inbox/sync`、`GET /inbox/sync/devices`、
+> `POST /inbox/sync/devices/heartbeat`）已从服务端移除，同步统一由 `aw-sync-rust` 提供。
 
 所有写请求带 `X-Device-ID` 头，与服务端 `DeviceIdGuard` 对齐。
 
 **已知契约缺口（服务端侧，不影响当前单页可用性，列为待办）：**
 
-- `SyncRequest.device_versions` / `last_full_sync_at` 服务端**解析但未使用**（简化版冲突模型）；
 - 服务端另有 `POST /inbox/notes/<source_id>/relations/<target_id>`、
   `GET /inbox/notes/<note_id>/relations`、`POST /inbox/route-debug`（调试）——客户端当前未用；
+- 笔记 / 任务的删除均为软删（`deleted=1`），列表接口只返回未删除项；
+  服务端**没有「列出已删除项」的端点**，因此 `PUT .../restore` 目前只能按已知 id 恢复，客户端暂无回收站入口；
 - 无 `/healthz`、无 `/version` 端点（M3 规划补 `/inbox/version`）。
 
 > 注：旧版「GET /inbox/notes 的 offset/sort_by 解析但忽略」问题已在融合时随 Todo CRUD

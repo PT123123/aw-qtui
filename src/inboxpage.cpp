@@ -817,6 +817,7 @@ QWidget *InboxPage::makeCard(const Note &n)
     connect(card, &NoteCard::deleteRequested, this, &InboxPage::onDeleteNote);
     connect(card, &NoteCard::commentRequested, this, &InboxPage::onComment);
     connect(card, &NoteCard::togglePinnedRequested, this, &InboxPage::onTogglePinned);
+    connect(card, &NoteCard::historyRequested, this, &InboxPage::onNoteHistory);
     connect(card, &NoteCard::taskToggled, this, &InboxPage::onTaskToggled);
     connect(card, &NoteCard::parentReferenceClicked, this, &InboxPage::onParentReferenceClicked);
     // 评论笔记：在内容下方展示被评论笔记的引用预览
@@ -978,6 +979,39 @@ void InboxPage::onTogglePinned(qint64 id)
         }
     }
     applyClientFilter();
+}
+
+void InboxPage::onNoteHistory(qint64 id)
+{
+    // 历史版本由服务端维护：离线或本地尚未同步的新建（负 id）都没有可查的历史
+    if (id < 0 || isOffline()) {
+        QMessageBox::information(this, QStringLiteral("历史版本"),
+                                 id < 0 ? QStringLiteral("本地新建的笔记尚未同步到服务端，暂无历史版本。")
+                                        : QStringLiteral("当前离线，无法获取服务端的历史版本。"));
+        return;
+    }
+    QNetworkReply *r = m_api->getNoteHistory(id);
+    connect(r, &QNetworkReply::finished, this, [this, r, id] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            QMessageBox::warning(this, QStringLiteral("历史版本"),
+                                 QStringLiteral("获取历史版本失败：%1").arg(err));
+            return;
+        }
+        QList<NoteHistory> items;
+        const auto arr = doc.isArray() ? doc.array() : QJsonArray();
+        for (const auto &v : arr)
+            items << NoteHistory::fromJson(v.toObject());
+
+        auto *dlg = new NoteHistoryDialog(id, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setHistory(items);
+        // 恢复 = 把历史版本内容当作一次普通编辑提交（走 applyContent，离线也能兜底）
+        connect(dlg, &NoteHistoryDialog::restoreRequested, this,
+                [this](qint64 noteId, const QString &content) { applyContent(noteId, content); });
+        dlg->show();
+    });
 }
 
 void InboxPage::onTaskToggled(qint64 id, const QString &content)

@@ -58,6 +58,7 @@ private slots:
     void onDeleteNote(qint64 id);
     void onComment(qint64 id);
     void onTogglePinned(qint64 id);
+    void onNoteHistory(qint64 id);
     void onTaskToggled(qint64 id, const QString &content);
     void onParentReferenceClicked(qint64 parentId);
     void onScroll();

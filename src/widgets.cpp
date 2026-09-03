@@ -211,6 +211,7 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
         QAction *actCopy = menu.addAction(QStringLiteral("复制内容"));
         QAction *actEdit = menu.addAction(QStringLiteral("编辑"));
         QAction *actCmt = menu.addAction(QStringLiteral("评论"));
+        QAction *actHistory = menu.addAction(QStringLiteral("历史版本"));
         QAction *actDel = menu.addAction(QStringLiteral("删除"));
         actDel->setIcon(QApplication::style()->standardIcon(QStyle::SP_TrashIcon));
         QAction *chosen = menu.exec(menuBtn->mapToGlobal(QPoint(0, menuBtn->height())));
@@ -222,6 +223,8 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
             emit editRequested(m_note.id);
         else if (chosen == actCmt)
             emit commentRequested(m_note.id);
+        else if (chosen == actHistory)
+            emit historyRequested(m_note.id);
         else if (chosen == actDel)
             emit deleteRequested(m_note.id);
     });
@@ -570,6 +573,108 @@ void CommentsDialog::setComments(const QList<Comment> &comments)
 QString CommentsDialog::commentText() const
 {
     return m_input->toPlainText().trimmed();
+}
+
+// ------------------------------------------------------------------ //
+// 笔记历史版本对话框
+
+NoteHistoryDialog::NoteHistoryDialog(qint64 noteId, QWidget *parent)
+    : QDialog(parent), m_noteId(noteId)
+{
+    setWindowTitle(QStringLiteral("历史版本 · 笔记 #%1").arg(noteId));
+    setModal(true);
+    resize(620, 460);
+
+    auto *lay = new QVBoxLayout(this);
+    lay->setSpacing(si(8));
+
+    auto *split = new QHBoxLayout;
+
+    m_list = new QListWidget;
+    m_list->setMaximumWidth(si(240));
+    m_list->setStyleSheet(scaleQss(QStringLiteral(
+        "QListWidget { background: %1; border: 1px solid %2; border-radius: 6px; }")
+                              .arg(kColorBgElev, kColorBorder)));
+    split->addWidget(m_list);
+
+    m_preview = new QPlainTextEdit;
+    m_preview->setReadOnly(true);
+    m_preview->setPlaceholderText(QStringLiteral("（选择一个版本查看内容）"));
+    m_preview->setStyleSheet(scaleQss(QStringLiteral(
+        "QPlainTextEdit { background: %1; border: 1px solid %2; border-radius: 6px; }")
+                                  .arg(kColorBgElev, kColorBorder)));
+    split->addWidget(m_preview, 1);
+
+    lay->addLayout(split, 1);
+
+    auto *row = new QHBoxLayout;
+    auto *btnCopy = new QPushButton(QStringLiteral("复制内容"));
+    connect(btnCopy, &QPushButton::clicked, this, &NoteHistoryDialog::onCopyClicked);
+    row->addWidget(btnCopy);
+
+    m_btnRestore = new QPushButton(QStringLiteral("恢复此版本"));
+    m_btnRestore->setEnabled(false);
+    m_btnRestore->setStyleSheet(scaleQss(QStringLiteral(
+        "QPushButton { background: %1; color: white; border: none;"
+        " border-radius: 6px; padding: 6px 16px; }")
+                                    .arg(kColorAccent)));
+    connect(m_btnRestore, &QPushButton::clicked, this, &NoteHistoryDialog::onRestoreClicked);
+    row->addWidget(m_btnRestore);
+
+    auto *btnClose = new QPushButton(QStringLiteral("关闭"));
+    connect(btnClose, &QPushButton::clicked, this, &QDialog::reject);
+    row->addWidget(btnClose);
+    row->addStretch(1);
+    lay->addLayout(row);
+
+    connect(m_list, &QListWidget::currentRowChanged, this, &NoteHistoryDialog::onCurrentRowChanged);
+}
+
+void NoteHistoryDialog::setHistory(const QList<NoteHistory> &items)
+{
+    m_items = items;
+    m_list->clear();
+    if (items.isEmpty()) {
+        m_list->addItem(QStringLiteral("（暂无历史版本）"));
+        m_preview->clear();
+        m_btnRestore->setEnabled(false);
+        return;
+    }
+    for (const NoteHistory &h : items) {
+        const QString ts = formatLocal(h.snapshotAt.isEmpty() ? h.updatedAt : h.snapshotAt);
+        auto *item = new QListWidgetItem(QStringLiteral("v%1  %2").arg(h.version).arg(ts));
+        item->setToolTip(h.content);
+        m_list->addItem(item);
+    }
+    m_list->setCurrentRow(0);
+}
+
+void NoteHistoryDialog::onCurrentRowChanged(int row)
+{
+    if (row < 0 || row >= m_items.size()) {
+        m_preview->clear();
+        m_btnRestore->setEnabled(false);
+        return;
+    }
+    m_preview->setPlainText(m_items.at(row).content);
+    m_btnRestore->setEnabled(true);
+}
+
+void NoteHistoryDialog::onCopyClicked()
+{
+    const int row = m_list->currentRow();
+    if (row < 0 || row >= m_items.size())
+        return;
+    QApplication::clipboard()->setText(m_items.at(row).content);
+}
+
+void NoteHistoryDialog::onRestoreClicked()
+{
+    const int row = m_list->currentRow();
+    if (row < 0 || row >= m_items.size())
+        return;
+    emit restoreRequested(m_noteId, m_items.at(row).content);
+    accept();
 }
 
 } // namespace awqtui

@@ -29,6 +29,10 @@ public:
     QNetworkReply *createNote(const QString &content, const QStringList &tags);
     QNetworkReply *updateNote(qint64 id, const QString &content, const QStringList &tags);
     QNetworkReply *deleteNote(qint64 id);
+    // 历史版本：GET /inbox/notes/<id>/history（每次更新前的内容快照，按版本倒序）
+    QNetworkReply *getNoteHistory(qint64 id);
+    // 恢复软删除的笔记：PUT /inbox/notes/<id>/restore
+    QNetworkReply *restoreNote(qint64 id);
 
     // 标签
     QNetworkReply *getTags();
@@ -37,6 +41,10 @@ public:
     // 评论
     QNetworkReply *getComments(qint64 noteId);
     QNetworkReply *addComment(qint64 noteId, const QString &content);
+
+    // 关系（GET /inbox/notes/<id>/relations；POST /inbox/notes/<src>/relations/<tgt>）
+    QNetworkReply *getRelations(qint64 noteId);
+    QNetworkReply *createRelation(qint64 sourceId, qint64 targetId, const QString &relationType);
 
     // ── 局域网同步 (aw-sync-rust /api/0/sync) ──
     QNetworkReply *getSyncInfo();                                         // GET /info
@@ -50,6 +58,7 @@ public:
     QNetworkReply *getSyncDevices();                                      // GET /devices
     QNetworkReply *triggerSync(const QString &deviceId);                  // POST /devices/<id>/sync
     QNetworkReply *removeDevice(const QString &deviceId);                 // DELETE /devices/<id>
+    QNetworkReply *clearAllDevices();                                     // DELETE /devices/all（清空所有配对信息）
     QNetworkReply *setDeviceAlias(const QString &deviceId, const QString &alias); // PUT /devices/<id>/alias
     QNetworkReply *getDeviceStats(const QString &deviceId);               // GET /devices/<id>/stats
     QNetworkReply *getDeviceConflicts(const QString &deviceId);           // GET /devices/<id>/conflicts
@@ -76,10 +85,13 @@ public:
 
     // Inbox Todo (/inbox/todos)
     QNetworkReply *getTodos(bool includeCompleted = false);
+    QNetworkReply *getTodo(qint64 id);
     QNetworkReply *createTodo(const QString &title, const QString &content = QString(),
                               const QStringList &tags = {});
     QNetworkReply *updateTodo(qint64 id, const QJsonObject &patch);
     QNetworkReply *deleteTodo(qint64 id);
+    // 恢复软删除的任务：PUT /inbox/todos/<id>/restore
+    QNetworkReply *restoreTodo(qint64 id);
 
     // 解析回复：ok=true 且 doc 有效 -> 成功；否则 err 为错误描述
     static bool parseReply(QNetworkReply *reply, QJsonDocument *doc, QString *err);
