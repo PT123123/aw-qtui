@@ -112,40 +112,18 @@ QNetworkReply *ApiClient::addComment(qint64 noteId, const QString &content)
     return sendJson("POST", QStringLiteral("/inbox/notes/%1/comments").arg(noteId), body);
 }
 
-QNetworkReply *ApiClient::sync(const QJsonObject &payload)
-{
-    return sendJson("POST", QStringLiteral("/inbox/sync"), payload);
-}
-
-QNetworkReply *ApiClient::getSyncDevices()
-{
-    return get(QStringLiteral("/inbox/sync/devices"));
-}
-
-QNetworkReply *ApiClient::deviceHeartbeat(const QString &name, const QString &platform, qint64 pending,
-                                          qint64 localVersion)
-{
-    QJsonObject body;
-    body.insert(QStringLiteral("device_id"), m_deviceId);
-    body.insert(QStringLiteral("name"), name);
-    body.insert(QStringLiteral("platform"), platform);
-    body.insert(QStringLiteral("pending_changes"), pending);
-    body.insert(QStringLiteral("local_version"), localVersion);
-    return sendJson("POST", QStringLiteral("/inbox/sync/devices/heartbeat"), body);
-}
-
 bool ApiClient::parseReply(QNetworkReply *reply, QJsonDocument *doc, QString *err)
 {
     const QByteArray raw = reply->readAll();
     const QNetworkReply::NetworkError e = reply->error();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QString errString = reply->errorString(); // 先取出来，deleteLater 后不再访问对象
+    const QString errString = reply->errorString();
     reply->deleteLater();
 
     if (e == QNetworkReply::NoError) {
         if (raw.isEmpty()) {
             *doc = QJsonDocument();
-            return true; // 例如 204
+            return true;
         }
         QJsonParseError pe;
         *doc = QJsonDocument::fromJson(raw, &pe);
@@ -166,6 +144,152 @@ bool ApiClient::parseReply(QNetworkReply *reply, QJsonDocument *doc, QString *er
                    .arg(detail);
     }
     return false;
+}
+
+// ------------------------------------------------------------------ //
+// 局域网同步 (aw-sync-rust /api/0/sync)
+
+QNetworkReply *ApiClient::getSyncInfo()
+{
+    return get(QStringLiteral("/api/0/sync/info"));
+}
+
+QNetworkReply *ApiClient::getSyncConfig()
+{
+    return get(QStringLiteral("/api/0/sync/config"));
+}
+
+QNetworkReply *ApiClient::setSyncConfig(const QJsonObject &cfg)
+{
+    return sendJson("PUT", QStringLiteral("/api/0/sync/config"), cfg);
+}
+
+QNetworkReply *ApiClient::createPairCode()
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/paircode"), QJsonObject());
+}
+
+QNetworkReply *ApiClient::joinWithCode(const QString &code, const QJsonObject &device)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("code"), code);
+    body.insert(QStringLiteral("device"), device);
+    return sendJson("POST", QStringLiteral("/api/0/sync/join"), body);
+}
+
+QNetworkReply *ApiClient::addDevice(const QJsonObject &device)
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/devices"), device);
+}
+
+QNetworkReply *ApiClient::initiatePair(const QString &deviceId)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("device_id"), deviceId);
+    return sendJson("POST", QStringLiteral("/api/0/sync/pair/initiate"), body);
+}
+
+QNetworkReply *ApiClient::acceptPair(const QString &deviceId)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("device_id"), deviceId);
+    return sendJson("POST", QStringLiteral("/api/0/sync/pair/accept"), body);
+}
+
+QNetworkReply *ApiClient::getSyncDevices()
+{
+    return get(QStringLiteral("/api/0/sync/devices"));
+}
+
+QNetworkReply *ApiClient::triggerSync(const QString &deviceId)
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/devices/%1/sync").arg(deviceId), QJsonObject());
+}
+
+QNetworkReply *ApiClient::removeDevice(const QString &deviceId)
+{
+    return sendJson("DELETE", QStringLiteral("/api/0/sync/devices/%1").arg(deviceId), QJsonObject());
+}
+
+QNetworkReply *ApiClient::setDeviceAlias(const QString &deviceId, const QString &alias)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("alias"), alias);
+    return sendJson("PUT", QStringLiteral("/api/0/sync/devices/%1/alias").arg(deviceId), body);
+}
+
+QNetworkReply *ApiClient::getDeviceStats(const QString &deviceId)
+{
+    return get(QStringLiteral("/api/0/sync/devices/%1/stats").arg(deviceId));
+}
+
+QNetworkReply *ApiClient::getDeviceConflicts(const QString &deviceId)
+{
+    return get(QStringLiteral("/api/0/sync/devices/%1/conflicts").arg(deviceId));
+}
+
+QNetworkReply *ApiClient::getSyncLogs(const QString &direction, const QString &protocol,
+                                       const QString &eventType, int limit, int offset)
+{
+    QUrlQuery q;
+    if (!direction.isEmpty())
+        q.addQueryItem(QStringLiteral("direction"), direction);
+    if (!protocol.isEmpty())
+        q.addQueryItem(QStringLiteral("protocol"), protocol);
+    if (!eventType.isEmpty())
+        q.addQueryItem(QStringLiteral("event_type"), eventType);
+    q.addQueryItem(QStringLiteral("limit"), QString::number(limit));
+    q.addQueryItem(QStringLiteral("offset"), QString::number(offset));
+    const QString query = q.toString(QUrl::FullyEncoded);
+    return get(QStringLiteral("/api/0/sync/log?%1").arg(query));
+}
+
+QNetworkReply *ApiClient::clearSyncLogs()
+{
+    return sendJson("DELETE", QStringLiteral("/api/0/sync/log"), QJsonObject());
+}
+
+QNetworkReply *ApiClient::getSyncSnapshot()
+{
+    return get(QStringLiteral("/api/0/sync/snapshot"));
+}
+
+QNetworkReply *ApiClient::applySnapshot(const QJsonObject &snap)
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/apply"), snap);
+}
+
+QNetworkReply *ApiClient::pushSnapshot(const QJsonObject &snap)
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/push"), snap);
+}
+
+QNetworkReply *ApiClient::getSyncStatus()
+{
+    return get(QStringLiteral("/api/0/sync/status"));
+}
+
+QNetworkReply *ApiClient::getTrash(const QString &kind)
+{
+    QString path = QStringLiteral("/api/0/sync/trash");
+    if (!kind.isEmpty())
+        path += QStringLiteral("?kind=") + kind;
+    return get(path);
+}
+
+QNetworkReply *ApiClient::restoreTrash(qint64 id)
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/trash/%1/restore").arg(id), QJsonObject());
+}
+
+QNetworkReply *ApiClient::deleteTrash(qint64 id)
+{
+    return sendJson("DELETE", QStringLiteral("/api/0/sync/trash/%1").arg(id), QJsonObject());
+}
+
+QNetworkReply *ApiClient::clearAllTrash()
+{
+    return sendJson("DELETE", QStringLiteral("/api/0/sync/trash"), QJsonObject());
 }
 
 // ------------------------------------------------------------------ //
