@@ -58,8 +58,13 @@ private slots:
     void onSyncNow();
     void onRemoveDevice();
     void onSetAlias();
+    void onClearAllDevices();
     void onClearLogs();
     void onClearAllTrash();
+    void onRestoreTrashRow();
+    void onDeleteTrashRow();
+    void onExportSnapshot();
+    void onImportSnapshot();
     void onCloudKindChanged(int idx);
     void onCloudTest();
     void onCloudSave();
@@ -110,7 +115,13 @@ private:
     QPushButton *m_btnSyncNow;
     QPushButton *m_btnRemoveDevice;
     QPushButton *m_btnSetAlias;
+    QPushButton *m_btnClearAllDevices;
     QPushButton *m_btnClearLogs;
+
+    // 快照传输（WiFi 热点点对点，bb3f187）
+    QPushButton *m_btnExportSnapshot;
+    QPushButton *m_btnImportSnapshot;
+    QLabel *m_lblSnapshot;
 
     // mDNS 自动发现
     QPushButton *m_btnBrowse;
@@ -125,6 +136,8 @@ private:
     // 统计 & 回收站
     QLabel *m_lblStats;
     QTableWidget *m_trashTable;
+    QPushButton *m_btnRestoreTrash;
+    QPushButton *m_btnDeleteTrash;
     QPushButton *m_btnClearTrash;
 
     // 云存储（实验性）

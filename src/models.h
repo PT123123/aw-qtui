@@ -51,6 +51,35 @@ struct Note {
     }
 };
 
+// NoteHistory: id, note_id, content, tags, version, device_id, updated_at, snapshot_at
+// 对应服务端 GET /inbox/notes/<note_id>/history（每次更新前的旧内容快照）
+struct NoteHistory {
+    qint64 id = 0;
+    qint64 noteId = 0;
+    QString content;
+    QStringList tags;
+    qint64 version = 0;
+    QString deviceId;
+    QString updatedAt;   // 该版本自身的更新时间
+    QString snapshotAt;  // 被归档为历史版本的时间
+
+    static NoteHistory fromJson(const QJsonObject &o)
+    {
+        NoteHistory h;
+        h.id = o.value(QLatin1String("id")).toVariant().toLongLong();
+        h.noteId = o.value(QLatin1String("note_id")).toVariant().toLongLong();
+        h.content = o.value(QLatin1String("content")).toString();
+        const auto t = o.value(QLatin1String("tags")).toArray();
+        for (const auto &v : t)
+            h.tags << v.toString();
+        h.version = o.value(QLatin1String("version")).toVariant().toLongLong();
+        h.deviceId = o.value(QLatin1String("device_id")).toString();
+        h.updatedAt = o.value(QLatin1String("updated_at")).toString();
+        h.snapshotAt = o.value(QLatin1String("snapshot_at")).toString();
+        return h;
+    }
+};
+
 // DetailedTag: name, count, last_modified
 struct DetailedTag {
     QString name;
@@ -94,6 +123,27 @@ struct PendingComment {
     qint64 noteId = 0;
     QString content;
     QString createdAt;
+};
+
+// NoteRelation: id, source_note_id, target_note_id, relation_type, created_at
+// 对应服务端 GET /inbox/notes/<id>/relations（relation_type: comment / reference / link）
+struct NoteRelation {
+    qint64 id = 0;
+    qint64 sourceNoteId = 0;
+    qint64 targetNoteId = 0;
+    QString relationType;
+    QString createdAt;
+
+    static NoteRelation fromJson(const QJsonObject &o)
+    {
+        NoteRelation r;
+        r.id = o.value(QLatin1String("id")).toVariant().toLongLong();
+        r.sourceNoteId = o.value(QLatin1String("source_note_id")).toVariant().toLongLong();
+        r.targetNoteId = o.value(QLatin1String("target_note_id")).toVariant().toLongLong();
+        r.relationType = o.value(QLatin1String("relation_type")).toString();
+        r.createdAt = o.value(QLatin1String("created_at")).toString();
+        return r;
+    }
 };
 
 // DeviceInfo: device_id, name, platform, last_seen_at, last_synced_at, pending_changes, version, is_current, status
@@ -312,7 +362,46 @@ struct SyncStats {
     }
 };
 
-// ApplyResult: applied, created, updated, ignored, archived, deleted, conflicts, errors
+// TransferRecord: kind, logical_key, title, action, reason
+// 一次同步中单条记录的操作结果（服务端 SyncLogEntry.details / ApplyResult.records）
+struct TransferRecord {
+    QString kind;        // note / todo / ...
+    QString logicalKey;  // uuid 或 legacy:{id}
+    QString title;
+    QString action;      // created / updated / deleted / archived / ignored / conflict
+    QString reason;      // 被忽略或归档的原因（可为空）
+
+    // 展示用：动作 -> 中文 + 图标
+    static QString actionLabel(const QString &action)
+    {
+        if (action == QLatin1String("created"))
+            return QStringLiteral("＋ 新增");
+        if (action == QLatin1String("updated"))
+            return QStringLiteral("✎ 更新");
+        if (action == QLatin1String("deleted"))
+            return QStringLiteral("− 删除");
+        if (action == QLatin1String("archived"))
+            return QStringLiteral("⧉ 归档");
+        if (action == QLatin1String("ignored"))
+            return QStringLiteral("◦ 忽略");
+        if (action == QLatin1String("conflict"))
+            return QStringLiteral("⚠ 冲突");
+        return action;
+    }
+
+    static TransferRecord fromJson(const QJsonObject &o)
+    {
+        TransferRecord r;
+        r.kind = o.value(QLatin1String("kind")).toString();
+        r.logicalKey = o.value(QLatin1String("logical_key")).toString();
+        r.title = o.value(QLatin1String("title")).toString();
+        r.action = o.value(QLatin1String("action")).toString();
+        r.reason = o.value(QLatin1String("reason")).toString();
+        return r;
+    }
+};
+
+// ApplyResult: applied, created, updated, ignored, archived, deleted, conflicts, errors, records
 struct ApplyResult {
     qint32 applied = 0;
     qint32 created = 0;
@@ -322,6 +411,7 @@ struct ApplyResult {
     qint32 deleted = 0;
     qint32 conflicts = 0;
     QStringList errors;
+    QList<TransferRecord> records;  // 逐条传输明细（P1 起）
 
     static ApplyResult fromJson(const QJsonObject &o)
     {
@@ -336,8 +426,14 @@ struct ApplyResult {
         const auto errArr = o.value(QLatin1String("errors")).toArray();
         for (const auto &v : errArr)
             r.errors << v.toString();
+        const auto recArr = o.value(QLatin1String("records")).toArray();
+        for (const auto &v : recArr)
+            r.records << TransferRecord::fromJson(v.toObject());
         return r;
     }
+
+    // 明细行数（供 UI 判断是否需要展开逐条展示）
+    int recordCount() const { return records.size(); }
 
     QString summary() const
     {
@@ -400,7 +496,7 @@ struct TrashEntry {
     }
 };
 
-// SyncLogEntry: id, timestamp, direction, protocol, peer_id, event_type, status, message, data_size
+// SyncLogEntry: id, timestamp, direction, protocol, peer_id, event_type, status, message, data_size, details
 struct SyncLogEntry {
     qint64 id = 0;
     QString timestamp;
@@ -411,6 +507,7 @@ struct SyncLogEntry {
     QString status;
     QString message;
     qint64 dataSize = 0;
+    QList<TransferRecord> details;  // 逐条传输明细（可为服务端缺省 → 空）
 
     static SyncLogEntry fromJson(const QJsonObject &o)
     {
@@ -424,8 +521,13 @@ struct SyncLogEntry {
         e.status = o.value(QLatin1String("status")).toString();
         e.message = o.value(QLatin1String("message")).toString();
         e.dataSize = o.value(QLatin1String("data_size")).toVariant().toLongLong();
+        const auto detArr = o.value(QLatin1String("details")).toArray();
+        for (const auto &v : detArr)
+            e.details << TransferRecord::fromJson(v.toObject());
         return e;
     }
+
+    bool hasDetails() const { return !details.isEmpty(); }
 };
 
 } // namespace awqtui

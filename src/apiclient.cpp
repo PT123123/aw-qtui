@@ -90,6 +90,16 @@ QNetworkReply *ApiClient::deleteNote(qint64 id)
     return sendJson("DELETE", QStringLiteral("/inbox/notes/%1").arg(id), QJsonObject());
 }
 
+QNetworkReply *ApiClient::getNoteHistory(qint64 id)
+{
+    return get(QStringLiteral("/inbox/notes/%1/history").arg(id));
+}
+
+QNetworkReply *ApiClient::restoreNote(qint64 id)
+{
+    return sendJson("PUT", QStringLiteral("/inbox/notes/%1/restore").arg(id), QJsonObject());
+}
+
 QNetworkReply *ApiClient::getTags()
 {
     return get(QStringLiteral("/inbox/tags"));
@@ -110,6 +120,18 @@ QNetworkReply *ApiClient::addComment(qint64 noteId, const QString &content)
     QJsonObject body;
     body.insert(QStringLiteral("content"), content);
     return sendJson("POST", QStringLiteral("/inbox/notes/%1/comments").arg(noteId), body);
+}
+
+QNetworkReply *ApiClient::getRelations(qint64 noteId)
+{
+    return get(QStringLiteral("/inbox/notes/%1/relations").arg(noteId));
+}
+
+QNetworkReply *ApiClient::createRelation(qint64 sourceId, qint64 targetId, const QString &relationType)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("relation_type"), relationType);
+    return sendJson("POST", QStringLiteral("/inbox/notes/%1/relations/%2").arg(sourceId).arg(targetId), body);
 }
 
 bool ApiClient::parseReply(QNetworkReply *reply, QJsonDocument *doc, QString *err)
@@ -209,6 +231,11 @@ QNetworkReply *ApiClient::triggerSync(const QString &deviceId)
 QNetworkReply *ApiClient::removeDevice(const QString &deviceId)
 {
     return sendJson("DELETE", QStringLiteral("/api/0/sync/devices/%1").arg(deviceId), QJsonObject());
+}
+
+QNetworkReply *ApiClient::clearAllDevices()
+{
+    return sendJson("DELETE", QStringLiteral("/api/0/sync/devices/all"), QJsonObject());
 }
 
 QNetworkReply *ApiClient::setDeviceAlias(const QString &deviceId, const QString &alias)
@@ -346,6 +373,11 @@ QNetworkReply *ApiClient::getTodos(bool includeCompleted)
     return get(path);
 }
 
+QNetworkReply *ApiClient::getTodo(qint64 id)
+{
+    return get(QStringLiteral("/inbox/todos/%1").arg(id));
+}
+
 QNetworkReply *ApiClient::createTodo(const QString &title, const QString &content, const QStringList &tags)
 {
     QJsonObject body;
@@ -369,6 +401,11 @@ QNetworkReply *ApiClient::updateTodo(qint64 id, const QJsonObject &patch)
 QNetworkReply *ApiClient::deleteTodo(qint64 id)
 {
     return sendJson("DELETE", QStringLiteral("/inbox/todos/%1").arg(id), QJsonObject());
+}
+
+QNetworkReply *ApiClient::restoreTodo(qint64 id)
+{
+    return sendJson("PUT", QStringLiteral("/inbox/todos/%1/restore").arg(id), QJsonObject());
 }
 
 } // namespace awqtui
