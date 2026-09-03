@@ -124,25 +124,244 @@ struct DeviceInfo {
     }
 };
 
-// 同步结果摘要（SyncResponse 的精简视图）
-struct SyncSummary {
-    qint64 currentVersion = 0;
-    int pulledCount = 0;
-    bool hasMore = false;
-    int conflictCount = 0;
-    QJsonArray conflicts;
-    QJsonArray pushResults;
+// ── aw-sync-rust 局域网同步模型 ──
 
-    static SyncSummary fromJson(const QJsonObject &o)
+// SyncConfig: enabled, http_enabled, discovery_method, listen_port, udp_port, sync_inbox, sync_activity, sync_todo, self_alias, probe_interval
+struct SyncConfig {
+    bool enabled = false;
+    bool httpEnabled = true;
+    QString discoveryMethod;
+    quint16 listenPort = 5600;
+    quint16 udpPort = 46000;
+    bool syncInbox = true;
+    bool syncActivity = true;
+    bool syncTodo = true;
+    QString selfAlias;
+    quint16 probeInterval = 10;
+
+    static SyncConfig fromJson(const QJsonObject &o)
     {
-        SyncSummary s;
-        s.currentVersion = o.value(QLatin1String("current_version")).toVariant().toLongLong();
-        s.pulledCount = o.value(QLatin1String("pulled_notes")).toArray().size();
-        s.hasMore = o.value(QLatin1String("has_more")).toBool();
-        s.conflicts = o.value(QLatin1String("conflicts")).toArray();
-        s.conflictCount = s.conflicts.size();
-        s.pushResults = o.value(QLatin1String("push_results")).toArray();
+        SyncConfig c;
+        c.enabled = o.value(QLatin1String("enabled")).toBool();
+        c.httpEnabled = o.value(QLatin1String("http_enabled")).toBool(true);
+        c.discoveryMethod = o.value(QLatin1String("discovery_method")).toString();
+        c.listenPort = o.value(QLatin1String("listen_port")).toInt(5600);
+        c.udpPort = o.value(QLatin1String("udp_port")).toInt(46000);
+        c.syncInbox = o.value(QLatin1String("sync_inbox")).toBool(true);
+        c.syncActivity = o.value(QLatin1String("sync_activity")).toBool(true);
+        c.syncTodo = o.value(QLatin1String("sync_todo")).toBool(true);
+        c.selfAlias = o.value(QLatin1String("self_alias")).toString();
+        c.probeInterval = o.value(QLatin1String("probe_interval")).toInt(10);
+        return c;
+    }
+
+    QJsonObject toJson() const
+    {
+        QJsonObject o;
+        o.insert(QStringLiteral("enabled"), enabled);
+        o.insert(QStringLiteral("http_enabled"), httpEnabled);
+        o.insert(QStringLiteral("discovery_method"), discoveryMethod);
+        o.insert(QStringLiteral("listen_port"), listenPort);
+        o.insert(QStringLiteral("udp_port"), udpPort);
+        o.insert(QStringLiteral("sync_inbox"), syncInbox);
+        o.insert(QStringLiteral("sync_activity"), syncActivity);
+        o.insert(QStringLiteral("sync_todo"), syncTodo);
+        o.insert(QStringLiteral("self_alias"), selfAlias);
+        o.insert(QStringLiteral("probe_interval"), probeInterval);
+        return o;
+    }
+};
+
+// SyncDevice: id, name, device_kind, ip, port, paired_at, last_sync_at, last_seen_at, is_online, is_self, paired, alias
+struct SyncDevice {
+    QString id;
+    QString name;
+    QString deviceKind;
+    QString ip;
+    quint16 port = 5600;
+    QString pairedAt;
+    QString lastSyncAt;
+    QString lastSeenAt;
+    bool isOnline = false;
+    bool isSelf = false;
+    bool paired = false;
+    QString alias;
+
+    static SyncDevice fromJson(const QJsonObject &o)
+    {
+        SyncDevice d;
+        d.id = o.value(QLatin1String("id")).toString();
+        d.name = o.value(QLatin1String("name")).toString();
+        d.deviceKind = o.value(QLatin1String("device_kind")).toString();
+        d.ip = o.value(QLatin1String("ip")).toString();
+        d.port = o.value(QLatin1String("port")).toInt(5600);
+        d.pairedAt = o.value(QLatin1String("paired_at")).toString();
+        d.lastSyncAt = o.value(QLatin1String("last_sync_at")).toString();
+        d.lastSeenAt = o.value(QLatin1String("last_seen_at")).toString();
+        d.isOnline = o.value(QLatin1String("is_online")).toBool();
+        d.isSelf = o.value(QLatin1String("is_self")).toBool();
+        d.paired = o.value(QLatin1String("paired")).toBool();
+        d.alias = o.value(QLatin1String("alias")).toString();
+        return d;
+    }
+
+    QString displayName() const
+    {
+        if (!alias.isEmpty())
+            return alias;
+        if (isSelf)
+            return name + QStringLiteral("（本机）");
+        return name;
+    }
+};
+
+// DeviceSyncStats: device_id, pending_push_count, pending_conflict_count, total_synced_count, total_synced_size, local_note_count, remote_note_count, last_sync_at, last_full_sync_at, sync_frequency_minutes, last_error, last_error_at
+struct SyncStats {
+    QString deviceId;
+    qint32 pendingPushCount = 0;
+    qint32 pendingConflictCount = 0;
+    qint64 totalSyncedCount = 0;
+    qint64 totalSyncedSize = 0;
+    qint32 localNoteCount = 0;
+    qint32 remoteNoteCount = 0;
+    QString lastSyncAt;
+    QString lastFullSyncAt;
+    qint32 syncFrequencyMinutes = 0;
+    QString lastError;
+    QString lastErrorAt;
+
+    static SyncStats fromJson(const QJsonObject &o)
+    {
+        SyncStats s;
+        s.deviceId = o.value(QLatin1String("device_id")).toString();
+        s.pendingPushCount = o.value(QLatin1String("pending_push_count")).toInt();
+        s.pendingConflictCount = o.value(QLatin1String("pending_conflict_count")).toInt();
+        s.totalSyncedCount = o.value(QLatin1String("total_synced_count")).toVariant().toLongLong();
+        s.totalSyncedSize = o.value(QLatin1String("total_synced_size")).toVariant().toLongLong();
+        s.localNoteCount = o.value(QLatin1String("local_note_count")).toInt();
+        s.remoteNoteCount = o.value(QLatin1String("remote_note_count")).toInt();
+        s.lastSyncAt = o.value(QLatin1String("last_sync_at")).toString();
+        s.lastFullSyncAt = o.value(QLatin1String("last_full_sync_at")).toString();
+        s.syncFrequencyMinutes = o.value(QLatin1String("sync_frequency_minutes")).toInt();
+        s.lastError = o.value(QLatin1String("last_error")).toString();
+        s.lastErrorAt = o.value(QLatin1String("last_error_at")).toString();
         return s;
+    }
+};
+
+// ApplyResult: applied, created, updated, ignored, archived, deleted, conflicts, errors
+struct ApplyResult {
+    qint32 applied = 0;
+    qint32 created = 0;
+    qint32 updated = 0;
+    qint32 ignored = 0;
+    qint32 archived = 0;
+    qint32 deleted = 0;
+    qint32 conflicts = 0;
+    QStringList errors;
+
+    static ApplyResult fromJson(const QJsonObject &o)
+    {
+        ApplyResult r;
+        r.applied = o.value(QLatin1String("applied")).toInt();
+        r.created = o.value(QLatin1String("created")).toInt();
+        r.updated = o.value(QLatin1String("updated")).toInt();
+        r.ignored = o.value(QLatin1String("ignored")).toInt();
+        r.archived = o.value(QLatin1String("archived")).toInt();
+        r.deleted = o.value(QLatin1String("deleted")).toInt();
+        r.conflicts = o.value(QLatin1String("conflicts")).toInt();
+        const auto errArr = o.value(QLatin1String("errors")).toArray();
+        for (const auto &v : errArr)
+            r.errors << v.toString();
+        return r;
+    }
+
+    QString summary() const
+    {
+        return QStringLiteral("应用 %1 条（新增 %2 / 更新 %3 / 删除 %4），忽略 %5，归档 %6，错误 %7")
+            .arg(applied)
+            .arg(created)
+            .arg(updated)
+            .arg(deleted)
+            .arg(ignored)
+            .arg(archived)
+            .arg(errors.size());
+    }
+};
+
+// ConflictSummary: note_id, note_title, detected_at, resolved, resolution
+struct ConflictInfo {
+    qint64 noteId = 0;
+    QString noteTitle;
+    QString detectedAt;
+    bool resolved = false;
+    QString resolution;
+
+    static ConflictInfo fromJson(const QJsonObject &o)
+    {
+        ConflictInfo c;
+        c.noteId = o.value(QLatin1String("note_id")).toVariant().toLongLong();
+        c.noteTitle = o.value(QLatin1String("note_title")).toString();
+        c.detectedAt = o.value(QLatin1String("detected_at")).toString();
+        c.resolved = o.value(QLatin1String("resolved")).toBool();
+        c.resolution = o.value(QLatin1String("resolution")).toString();
+        return c;
+    }
+};
+
+// TrashEntry: id, kind, logical_key, archived, winner_rev, reason, source_device, archived_at, restored
+struct TrashEntry {
+    qint64 id = 0;
+    QString kind;
+    QString logicalKey;
+    QString archived;
+    QString winnerRev;
+    QString reason;
+    QString sourceDevice;
+    QString archivedAt;
+    bool restored = false;
+
+    static TrashEntry fromJson(const QJsonObject &o)
+    {
+        TrashEntry t;
+        t.id = o.value(QLatin1String("id")).toVariant().toLongLong();
+        t.kind = o.value(QLatin1String("kind")).toString();
+        t.logicalKey = o.value(QLatin1String("logical_key")).toString();
+        t.archived = o.value(QLatin1String("archived")).toString();
+        t.winnerRev = o.value(QLatin1String("winner_rev")).toString();
+        t.reason = o.value(QLatin1String("reason")).toString();
+        t.sourceDevice = o.value(QLatin1String("source_device")).toString();
+        t.archivedAt = o.value(QLatin1String("archived_at")).toString();
+        t.restored = o.value(QLatin1String("restored")).toBool();
+        return t;
+    }
+};
+
+// SyncLogEntry: id, timestamp, direction, protocol, peer_id, event_type, status, message, data_size
+struct SyncLogEntry {
+    qint64 id = 0;
+    QString timestamp;
+    QString direction;
+    QString protocol;
+    QString peerId;
+    QString eventType;
+    QString status;
+    QString message;
+    qint64 dataSize = 0;
+
+    static SyncLogEntry fromJson(const QJsonObject &o)
+    {
+        SyncLogEntry e;
+        e.id = o.value(QLatin1String("id")).toVariant().toLongLong();
+        e.timestamp = o.value(QLatin1String("timestamp")).toString();
+        e.direction = o.value(QLatin1String("direction")).toString();
+        e.protocol = o.value(QLatin1String("protocol")).toString();
+        e.peerId = o.value(QLatin1String("peer_id")).toString();
+        e.eventType = o.value(QLatin1String("event_type")).toString();
+        e.status = o.value(QLatin1String("status")).toString();
+        e.message = o.value(QLatin1String("message")).toString();
+        e.dataSize = o.value(QLatin1String("data_size")).toVariant().toLongLong();
+        return e;
     }
 };
 
