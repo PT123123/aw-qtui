@@ -84,6 +84,8 @@ public:
     // 解析回复：ok=true 且 doc 有效 -> 成功；否则 err 为错误描述
     static bool parseReply(QNetworkReply *reply, QJsonDocument *doc, QString *err);
 
+    QNetworkAccessManager *networkAccessManager() const { return m_nam; }
+
 private:
     QNetworkRequest makeRequest(const QString &path) const;
     QNetworkReply *get(const QString &path);

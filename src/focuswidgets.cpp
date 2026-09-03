@@ -59,7 +59,7 @@ void FocusTimerPage::buildUi()
     modeRow->setSpacing(si(8));
     const auto mkMode = [this, modeRow](const char *txt) {
         auto *b = new QToolButton;
-        b->setText(QString::fromLatin1(txt));
+        b->setText(QString::fromUtf8(txt));
         b->setCheckable(true);
         b->setCursor(Qt::PointingHandCursor);
         b->setObjectName(QStringLiteral("FocusModeBtn"));
@@ -708,11 +708,13 @@ void FocusMemorialPage::refresh()
             remain = QStringLiteral("已过 %1 天").arg(-days);
 
         auto *row = new QWidget;
+        row->setMinimumHeight(si(48));
         auto *hl = new QHBoxLayout(row);
-        hl->setContentsMargins(si(4), si(4), si(4), si(4));
+        hl->setContentsMargins(si(8), si(8), si(8), si(8));
         hl->setSpacing(si(10));
         auto *emo = new QLabel(m.emoji.isEmpty() ? QStringLiteral("🎉") : m.emoji);
         emo->setStyleSheet(QStringLiteral("font-size: %1;").arg(sp(22)));
+        emo->setFixedWidth(si(32));
         hl->addWidget(emo);
         auto *main = new QLabel;
         const QString dateStr = d.isValid() ? d.toString(QStringLiteral("yyyy-MM-dd"))
@@ -722,6 +724,7 @@ void FocusMemorialPage::refresh()
                                remain, dateStr));
         main->setStyleSheet(QStringLiteral("font-size: %1; color: %2;")
                                 .arg(sp(13), QString::fromLatin1(kColorFg)));
+        main->setWordWrap(true);
         hl->addWidget(main, 1);
         auto *del = new QToolButton;
         del->setText(QStringLiteral("✕"));
@@ -734,7 +737,7 @@ void FocusMemorialPage::refresh()
             m_focus->deleteMemorial(id);
         });
         auto *item = new QListWidgetItem;
-        item->setSizeHint(row->sizeHint());
+        item->setSizeHint(QSize(0, si(56)));
         m_list->addItem(item);
         m_list->setItemWidget(item, row);
     }

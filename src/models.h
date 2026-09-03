@@ -215,6 +215,69 @@ struct SyncDevice {
     }
 };
 
+// ── 云存储同步（实验性） ──
+
+enum CloudStorageKind {
+    CloudNone = 0,
+    CloudWebDAV = 1,
+    CloudS3 = 2,
+};
+
+struct CloudStorageConfig {
+    CloudStorageKind kind = CloudNone;
+
+    // WebDAV
+    QString webdavUrl;
+    QString webdavUser;
+    QString webdavPass;
+    QString webdavPath = QStringLiteral("/aw-qtui/");
+
+    // S3 / MinIO
+    QString s3Endpoint;
+    QString s3AccessKey;
+    QString s3SecretKey;
+    QString s3Bucket;
+    QString s3Region = QStringLiteral("us-east-1");
+    QString s3Path = QStringLiteral("aw-qtui/");
+    bool s3UsePathStyle = true;          // MinIO / 私有云需要
+    bool s3Tls = true;
+
+    static CloudStorageConfig fromJson(const QJsonObject &o)
+    {
+        CloudStorageConfig c;
+        c.kind = static_cast<CloudStorageKind>(o.value(QLatin1String("kind")).toInt());
+        c.webdavUrl = o.value(QLatin1String("webdav_url")).toString();
+        c.webdavUser = o.value(QLatin1String("webdav_user")).toString();
+        // 密码不持久化到 JSON（仅内存持有）
+        c.webdavPath = o.value(QLatin1String("webdav_path")).toString("/aw-qtui/");
+        c.s3Endpoint = o.value(QLatin1String("s3_endpoint")).toString();
+        c.s3AccessKey = o.value(QLatin1String("s3_access_key")).toString();
+        c.s3Bucket = o.value(QLatin1String("s3_bucket")).toString();
+        c.s3Region = o.value(QLatin1String("s3_region")).toString("us-east-1");
+        c.s3Path = o.value(QLatin1String("s3_path")).toString("aw-qtui/");
+        c.s3UsePathStyle = o.value(QLatin1String("s3_use_path_style")).toBool(true);
+        c.s3Tls = o.value(QLatin1String("s3_tls")).toBool(true);
+        return c;
+    }
+
+    QJsonObject toJson() const
+    {
+        QJsonObject o;
+        o.insert(QStringLiteral("kind"), static_cast<int>(kind));
+        o.insert(QStringLiteral("webdav_url"), webdavUrl);
+        o.insert(QStringLiteral("webdav_user"), webdavUser);
+        o.insert(QStringLiteral("webdav_path"), webdavPath);
+        o.insert(QStringLiteral("s3_endpoint"), s3Endpoint);
+        o.insert(QStringLiteral("s3_access_key"), s3AccessKey);
+        o.insert(QStringLiteral("s3_bucket"), s3Bucket);
+        o.insert(QStringLiteral("s3_region"), s3Region);
+        o.insert(QStringLiteral("s3_path"), s3Path);
+        o.insert(QStringLiteral("s3_use_path_style"), s3UsePathStyle);
+        o.insert(QStringLiteral("s3_tls"), s3Tls);
+        return o;
+    }
+};
+
 // DeviceSyncStats: device_id, pending_push_count, pending_conflict_count, total_synced_count, total_synced_size, local_note_count, remote_note_count, last_sync_at, last_full_sync_at, sync_frequency_minutes, last_error, last_error_at
 struct SyncStats {
     QString deviceId;

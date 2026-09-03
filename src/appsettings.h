@@ -113,4 +113,8 @@ FocusModules loadFocusModules();
 // 持久化功能模块开关
 void saveFocusModules(const FocusModules &m);
 
+// 设备显示名（空 = 默认 hostname）
+QString loadDeviceName();
+void saveDeviceName(const QString &name);
+
 } // namespace awqtui
