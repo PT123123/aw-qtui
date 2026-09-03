@@ -1,14 +1,18 @@
-// syncpage.h —— 局域网同步页
+// syncpage.h —— 局域网同步页 (aw-sync-rust /api/0/sync)
 #pragma once
 
 #include <QWidget>
 
 #include "models.h"
 
+#include <QCheckBox>
+#include <QComboBox>
+class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
 class QTableWidget;
+class QTabWidget;
 
 namespace awqtui {
 
@@ -45,27 +49,79 @@ private slots:
     void onPeerFound(const QString &name, const QString &host, int port);
     void onPeerLost(const QString &name);
     void onAddPeer();
+    void onRefreshConfig();
+    void onSaveConfig();
+    void onCreatePairCode();
+    void onJoinDevice();
+    void onInitiatePair();
+    void onAcceptPair();
+    void onSyncNow();
+    void onRemoveDevice();
+    void onSetAlias();
+    void onClearLogs();
+    void onClearAllTrash();
 
 private:
     void buildUi();
     void log(const QString &line);
     void rebuildPeerTable();
-    void syncComplete(const SyncSummary &s);
+    void syncComplete(const ApplyResult &r);
+    void refreshSyncConfig();
+    void refreshDeviceStats(const QString &deviceId);
+    void refreshTrash();
 
     ApiClient *m_api;
     MdnsDiscovery *m_mdns;
-    QList<DeviceInfo> m_devices;
+    QList<SyncDevice> m_devices;
     QList<SyncPeer> m_peers;
+    QString m_currentPairCode;
 
+    // 服务端地址
     QLineEdit *m_serverEdit;
     StatusBadge *m_serverBadge;
+
+    // 设备列表
     QTableWidget *m_devTable;
-    QPlainTextEdit *m_log;
+
+    // 同步配置
+    QCheckBox *m_chkEnabled;
+    QCheckBox *m_chkHttp;
+    QCheckBox *m_chkSyncInbox;
+    QCheckBox *m_chkSyncActivity;
+    QCheckBox *m_chkSyncTodo;
+    QLineEdit *m_editAlias;
+    QLineEdit *m_editListenPort;
+    QLineEdit *m_editUdpPort;
+    QPushButton *m_btnSaveConfig;
+
+    // 配对
+    QLabel *m_lblPairCode;
+    QLineEdit *m_editPairCode;
+    QPushButton *m_btnCreatePairCode;
+    QPushButton *m_btnJoinDevice;
+    QPushButton *m_btnInitiatePair;
+    QPushButton *m_btnAcceptPair;
+
+    // 操作
+    QPushButton *m_btnSyncNow;
+    QPushButton *m_btnRemoveDevice;
+    QPushButton *m_btnSetAlias;
+    QPushButton *m_btnClearLogs;
+
+    // mDNS 自动发现
     QPushButton *m_btnBrowse;
     QLineEdit *m_portEdit;
     QTableWidget *m_peerTable;
     QLineEdit *m_peerAdd;
     bool m_browsing = false;
+
+    // 日志
+    QPlainTextEdit *m_log;
+
+    // 统计 & 回收站
+    QLabel *m_lblStats;
+    QTableWidget *m_trashTable;
+    QPushButton *m_btnClearTrash;
 };
 
 } // namespace awqtui

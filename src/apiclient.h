@@ -38,11 +38,34 @@ public:
     QNetworkReply *getComments(qint64 noteId);
     QNetworkReply *addComment(qint64 noteId, const QString &content);
 
-    // 局域网同步
-    QNetworkReply *sync(const QJsonObject &payload);
-    QNetworkReply *getSyncDevices();
-    QNetworkReply *deviceHeartbeat(const QString &name, const QString &platform, qint64 pending,
-                                   qint64 localVersion);
+    // ── 局域网同步 (aw-sync-rust /api/0/sync) ──
+    QNetworkReply *getSyncInfo();                                         // GET /info
+    QNetworkReply *getSyncConfig();                                       // GET /config
+    QNetworkReply *setSyncConfig(const QJsonObject &cfg);                 // PUT /config
+    QNetworkReply *createPairCode();                                      // POST /paircode
+    QNetworkReply *joinWithCode(const QString &code, const QJsonObject &device); // POST /join
+    QNetworkReply *addDevice(const QJsonObject &device);                  // POST /devices
+    QNetworkReply *initiatePair(const QString &deviceId);                 // POST /pair/initiate
+    QNetworkReply *acceptPair(const QString &deviceId);                   // POST /pair/accept
+    QNetworkReply *getSyncDevices();                                      // GET /devices
+    QNetworkReply *triggerSync(const QString &deviceId);                  // POST /devices/<id>/sync
+    QNetworkReply *removeDevice(const QString &deviceId);                 // DELETE /devices/<id>
+    QNetworkReply *setDeviceAlias(const QString &deviceId, const QString &alias); // PUT /devices/<id>/alias
+    QNetworkReply *getDeviceStats(const QString &deviceId);               // GET /devices/<id>/stats
+    QNetworkReply *getDeviceConflicts(const QString &deviceId);           // GET /devices/<id>/conflicts
+    QNetworkReply *getSyncLogs(const QString &direction = QString(),      // GET /log?<query>
+                               const QString &protocol = QString(),
+                               const QString &eventType = QString(),
+                               int limit = 200, int offset = 0);
+    QNetworkReply *clearSyncLogs();                                       // DELETE /log
+    QNetworkReply *getSyncSnapshot();                                     // GET /snapshot
+    QNetworkReply *applySnapshot(const QJsonObject &snap);                // POST /apply
+    QNetworkReply *pushSnapshot(const QJsonObject &snap);                 // POST /push
+    QNetworkReply *getSyncStatus();                                       // GET /status
+    QNetworkReply *getTrash(const QString &kind = QString());             // GET /trash
+    QNetworkReply *restoreTrash(qint64 id);                               // POST /trash/<id>/restore
+    QNetworkReply *deleteTrash(qint64 id);                                // DELETE /trash/<id>
+    QNetworkReply *clearAllTrash();                                       // DELETE /trash
 
     // ActivityWatch /api/0
     QNetworkReply *getBuckets();
