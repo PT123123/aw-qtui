@@ -177,6 +177,7 @@ struct DeviceInfo {
 // ── aw-sync-rust 局域网同步模型 ──
 
 // SyncConfig: enabled, http_enabled, discovery_method, listen_port, udp_port, sync_inbox, sync_activity, sync_todo, self_alias, probe_interval
+//  + D1 云同步字段：d1_enabled / d1_account_id / d1_database_id / d1_api_token / d1_sync_interval
 struct SyncConfig {
     bool enabled = false;
     bool httpEnabled = true;
@@ -188,6 +189,13 @@ struct SyncConfig {
     bool syncTodo = true;
     QString selfAlias;
     quint16 probeInterval = 10;
+
+    // Cloudflare D1 云同步（服务端 aw-sync-rust 维护；前端只读写这些字段）
+    bool d1Enabled = false;
+    QString d1AccountId;
+    QString d1DatabaseId;
+    QString d1ApiToken;
+    quint32 d1SyncInterval = 300;
 
     static SyncConfig fromJson(const QJsonObject &o)
     {
@@ -202,6 +210,11 @@ struct SyncConfig {
         c.syncTodo = o.value(QLatin1String("sync_todo")).toBool(true);
         c.selfAlias = o.value(QLatin1String("self_alias")).toString();
         c.probeInterval = o.value(QLatin1String("probe_interval")).toInt(10);
+        c.d1Enabled = o.value(QLatin1String("d1_enabled")).toBool();
+        c.d1AccountId = o.value(QLatin1String("d1_account_id")).toString();
+        c.d1DatabaseId = o.value(QLatin1String("d1_database_id")).toString();
+        c.d1ApiToken = o.value(QLatin1String("d1_api_token")).toString();
+        c.d1SyncInterval = o.value(QLatin1String("d1_sync_interval")).toInt(300);
         return c;
     }
 
@@ -218,6 +231,11 @@ struct SyncConfig {
         o.insert(QStringLiteral("sync_todo"), syncTodo);
         o.insert(QStringLiteral("self_alias"), selfAlias);
         o.insert(QStringLiteral("probe_interval"), probeInterval);
+        o.insert(QStringLiteral("d1_enabled"), d1Enabled);
+        o.insert(QStringLiteral("d1_account_id"), d1AccountId);
+        o.insert(QStringLiteral("d1_database_id"), d1DatabaseId);
+        o.insert(QStringLiteral("d1_api_token"), d1ApiToken);
+        o.insert(QStringLiteral("d1_sync_interval"), qint64(d1SyncInterval));
         return o;
     }
 };

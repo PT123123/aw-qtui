@@ -319,6 +319,21 @@ QNetworkReply *ApiClient::clearAllTrash()
     return sendJson("DELETE", QStringLiteral("/api/0/sync/trash"), QJsonObject());
 }
 
+QNetworkReply *ApiClient::d1SyncNow()
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/d1/sync"), QJsonObject());
+}
+
+QNetworkReply *ApiClient::d1Status()
+{
+    return get(QStringLiteral("/api/0/sync/d1/status"));
+}
+
+QNetworkReply *ApiClient::d1Test()
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/d1/test"), QJsonObject());
+}
+
 // ------------------------------------------------------------------ //
 // ActivityWatch /api/0
 
@@ -361,6 +376,13 @@ QNetworkReply *ApiClient::heartbeat(const QString &bucketId, const QJsonObject &
     body.insert(QStringLiteral("timestamp"), timestamp.toUTC().toString(Qt::ISODate));
     const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(bucketId));
     return sendJson("POST", QStringLiteral("/api/0/buckets/%1/heartbeat").arg(encodedId), body);
+}
+
+// ── Query Explorer ────────────────────────────────────────────
+
+QNetworkReply *ApiClient::postQuery(const QJsonObject &payload)
+{
+    return sendJson("POST", QStringLiteral("/api/0/query"), payload);
 }
 
 // ── Inbox Todo ─────────────────────────────────────────────────

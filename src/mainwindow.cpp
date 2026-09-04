@@ -17,6 +17,10 @@
 #include "settingsdialog.h"
 #include "statspage.h"
 #include "syncpage.h"
+#include "syncdetailspage.h"
+#include "stopwatchpage.h"
+#include "querypage.h"
+#include "d1syncpage.h"
 #include "tagstore.h"
 #include "theme.h"
 #include "timelinepage.h"
@@ -320,15 +324,23 @@ void MainWindow::buildUi()
     m_navTimeline = makeNavBtn("⏱", "Timeline");
     m_navDay = makeNavBtn("🏷", "标签 Day");
     m_navStats = makeNavBtn("📈", "统计");
+    m_navStopwatch = makeNavBtn("⏱", "秒表");
+    m_navQuery = makeNavBtn("🔍", "Query");
     awSec.layout->addWidget(m_navActivity);
     awSec.layout->addWidget(m_navTimeline);
     awSec.layout->addWidget(m_navDay);
     awSec.layout->addWidget(m_navStats);
+    awSec.layout->addWidget(m_navStopwatch);
+    awSec.layout->addWidget(m_navQuery);
 
     // ---- 分组 4：同步 ----
     NavSection syncSec = makeSection(QStringLiteral("同步"), false);
     m_navSync = makeNavBtn("⇄", "局域网同步");
+    m_navD1Sync = makeNavBtn("☁", "D1 云同步");
+    m_navSyncDetails = makeNavBtn("📋", "同步详情");
     syncSec.layout->addWidget(m_navSync);
+    syncSec.layout->addWidget(m_navD1Sync);
+    syncSec.layout->addWidget(m_navSyncDetails);
 
     // 窄栏模式：隐藏分组标题，图标平铺
     m_navSectionHeaders = {inboxSec.header, todoSec.header, awSec.header, syncSec.header};
@@ -361,6 +373,10 @@ void MainWindow::buildUi()
     connect(m_navDay, &QPushButton::clicked, this, [this] { switchPage(PAGE_DAY); });
     connect(m_navStats, &QPushButton::clicked, this, [this] { switchPage(PAGE_STATS); });
     connect(m_navSync, &QPushButton::clicked, this, [this] { switchPage(PAGE_SYNC); });
+    connect(m_navD1Sync, &QPushButton::clicked, this, [this] { switchPage(PAGE_D1_SYNC); });
+    connect(m_navSyncDetails, &QPushButton::clicked, this, [this] { switchPage(PAGE_SYNC_DETAILS); });
+    connect(m_navStopwatch, &QPushButton::clicked, this, [this] { switchPage(PAGE_STOPWATCH); });
+    connect(m_navQuery, &QPushButton::clicked, this, [this] { switchPage(PAGE_QUERY); });
 
     navLay->addStretch(1);
     root->addWidget(nav);
@@ -386,6 +402,10 @@ void MainWindow::buildUi()
     m_day = new DayPage(m_api, m_tagStore);
     m_stats = new StatsPage(m_api, m_tagStore);
     m_sync = new SyncPage(m_api, m_mdns);
+    m_d1Sync = new D1SyncPage(m_api);
+    m_syncDetails = new SyncDetailsPage(m_api);
+    m_stopwatch = new StopwatchPage(m_api);
+    m_query = new QueryPage(m_api);
 
     // 添加到堆栈（顺序必须与 switchPage 的索引一致）
     m_stack->addWidget(m_inbox);             // PAGE_INBOX = 0
@@ -405,10 +425,18 @@ void MainWindow::buildUi()
     m_stack->addWidget(m_day);               // PAGE_DAY = 14
     m_stack->addWidget(m_stats);             // PAGE_STATS = 15
     m_stack->addWidget(m_sync);              // PAGE_SYNC = 16
+    m_stack->addWidget(m_d1Sync);            // PAGE_D1_SYNC = 17
+    m_stack->addWidget(m_stopwatch);         // PAGE_STOPWATCH = 18
+    m_stack->addWidget(m_query);             // PAGE_QUERY = 19
+    m_stack->addWidget(m_syncDetails);       // PAGE_SYNC_DETAILS = 20
 
     root->addWidget(m_stack, 1);
 
     connect(m_inbox, &InboxPage::settingsRequested, this, &MainWindow::openSettings);
+
+    // SyncDetailsPage：返回同步页 + 转发日志信号
+    connect(m_syncDetails, &SyncDetailsPage::backToSync, this, [this] { switchPage(PAGE_SYNC); });
+    connect(m_syncDetails, &SyncDetailsPage::logMessage, m_sync, &SyncPage::logMessage);
 
     // 默认显示收件箱
     switchPage(PAGE_INBOX);
@@ -493,6 +521,10 @@ void MainWindow::switchPage(int index)
     m_navDay->setChecked(index == PAGE_DAY);
     m_navStats->setChecked(index == PAGE_STATS);
     m_navSync->setChecked(index == PAGE_SYNC);
+    m_navD1Sync->setChecked(index == PAGE_D1_SYNC);
+    m_navSyncDetails->setChecked(index == PAGE_SYNC_DETAILS);
+    m_navStopwatch->setChecked(index == PAGE_STOPWATCH);
+    m_navQuery->setChecked(index == PAGE_QUERY);
 
     // 页面特定处理
     if (index == PAGE_SYNC)
@@ -712,6 +744,9 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         else if (m_stack->currentIndex() == PAGE_INBOX) m_inbox->refreshAll();
         else if (m_stack->currentIndex() == PAGE_TODO) m_todo->refresh();
         else if (m_stack->currentIndex() == PAGE_SYNC) m_sync->refreshDevices();
+        else if (m_stack->currentIndex() == PAGE_SYNC_DETAILS) m_syncDetails->refreshLogs();
+        else if (m_stack->currentIndex() == PAGE_STOPWATCH) m_stopwatch->refresh();
+        else if (m_stack->currentIndex() == PAGE_QUERY) m_query->refresh();
         else if (m_stack->currentIndex() == PAGE_DAY) m_day->refresh();
         else if (m_stack->currentIndex() == PAGE_STATS) m_stats->refresh();
         return;
