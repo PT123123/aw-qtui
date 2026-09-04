@@ -142,6 +142,16 @@ void SyncDetailsPage::buildUi()
     m_filterEvent->addItem(QStringLiteral("error"), QStringLiteral("error"));
     filterBar->addWidget(m_filterEvent);
 
+    filterBar->addWidget(new QLabel(QStringLiteral("类型")));
+    m_filterKind = new QComboBox;
+    m_filterKind->addItem(QStringLiteral("ActivityWatch（日志）"), QStringLiteral("activity"));
+    m_filterKind->addItem(QStringLiteral("收件箱（已禁用）"), QStringLiteral("note"));
+    m_filterKind->addItem(QStringLiteral("任务（已禁用）"), QStringLiteral("todo"));
+    m_filterKind->addItem(QStringLiteral("全部"), QString());
+    m_filterKind->setCurrentIndex(0);
+    m_filterKind->setToolTip(QStringLiteral("局域网同步详情默认只显示 ActivityWatch 日志；收件箱/任务由 D1 云同步管理"));
+    filterBar->addWidget(m_filterKind);
+
     filterBar->addStretch(1);
 
     m_logCountLabel = new QLabel(QStringLiteral("0 条"));
@@ -151,6 +161,7 @@ void SyncDetailsPage::buildUi()
     connect(m_filterDirection, QOverload<int>::of(&QComboBox::activated), this, &SyncDetailsPage::onLogFiltersChanged);
     connect(m_filterProtocol, QOverload<int>::of(&QComboBox::activated), this, &SyncDetailsPage::onLogFiltersChanged);
     connect(m_filterEvent, QOverload<int>::of(&QComboBox::activated), this, &SyncDetailsPage::onLogFiltersChanged);
+    connect(m_filterKind, QOverload<int>::of(&QComboBox::activated), this, &SyncDetailsPage::onLogFiltersChanged);
 
     logLay->addLayout(filterBar);
 
@@ -290,9 +301,10 @@ void SyncDetailsPage::refreshLogs()
     QString direction = m_filterDirection->currentData().toString();
     QString protocol = m_filterProtocol->currentData().toString();
     QString eventType = m_filterEvent->currentData().toString();
+    QString kind = m_filterKind->currentData().toString();
 
     QNetworkReply *r = m_api->getSyncLogs(direction, protocol, eventType, m_limit, m_offset);
-    connect(r, &QNetworkReply::finished, this, [this, r] {
+    connect(r, &QNetworkReply::finished, this, [this, r, kind] {
         QJsonDocument doc;
         QString err;
         if (!ApiClient::parseReply(r, &doc, &err)) {
@@ -302,7 +314,7 @@ void SyncDetailsPage::refreshLogs()
         const auto obj = doc.object();
         const auto arr = obj.value(QStringLiteral("logs")).toArray();
         m_totalLogs = obj.value(QStringLiteral("total")).toVariant().toLongLong();
-        populateLogTable(arr, m_totalLogs);
+        populateLogTable(arr, m_totalLogs, kind);
     });
 }
 
@@ -324,7 +336,7 @@ void SyncDetailsPage::refreshTrash()
     });
 }
 
-void SyncDetailsPage::populateLogTable(const QJsonArray &logs, qint64 total)
+void SyncDetailsPage::populateLogTable(const QJsonArray &logs, qint64 total, const QString &kindFilter)
 {
     m_logTable->setRowCount(0);
     m_logEntries.clear();
@@ -332,6 +344,27 @@ void SyncDetailsPage::populateLogTable(const QJsonArray &logs, qint64 total)
     int row = 0;
     for (const auto &v : logs) {
         const SyncLogEntry e = SyncLogEntry::fromJson(v.toObject());
+
+        // 类型过滤：默认只显示 ActivityWatch 相关日志（kind=activity），
+        // 收件箱（note）和任务（todo）由 D1 云同步管理，此页默认不显示
+        if (!kindFilter.isEmpty()) {
+            bool hasKindMatch = false;
+            for (const TransferRecord &rec : e.details) {
+                if (rec.kind == kindFilter) {
+                    hasKindMatch = true;
+                    break;
+                }
+            }
+            if (!hasKindMatch && e.details.isEmpty()) {
+                // 如果没有details但kindFilter不为空，根据protocol推断
+                // LAN同步默认就是activity，这里简化处理：只显示有匹配details的日志
+                continue;
+            }
+            if (!hasKindMatch) {
+                continue;
+            }
+        }
+
         m_logEntries.append(e);
 
         m_logTable->insertRow(row);
@@ -361,7 +394,7 @@ void SyncDetailsPage::populateLogTable(const QJsonArray &logs, qint64 total)
     m_btnPrevPage->setEnabled(m_offset > 0);
     m_btnNextPage->setEnabled(m_offset + m_limit < total);
 
-    m_logCountLabel->setText(QStringLiteral("%1 条（共 %2）").arg(logs.size()).arg(total));
+    m_logCountLabel->setText(QStringLiteral("%1 条（共 %2）").arg(m_logEntries.size()).arg(total));
 }
 
 void SyncDetailsPage::populateTrashTable(const QJsonArray &arr)

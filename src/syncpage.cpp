@@ -218,14 +218,13 @@ void SyncPage::buildUi()
     auto *fl = new QFormLayout(cfgBox);
     m_chkEnabled = new QCheckBox(QStringLiteral("启用局域网同步"));
     m_chkHttp = new QCheckBox(QStringLiteral("启用 HTTP 同步"));
-    m_chkSyncInbox = new QCheckBox(QStringLiteral("同步收件箱"));
-    m_chkSyncActivity = new QCheckBox(QStringLiteral("同步 ActivityWatch"));
-    m_chkSyncTodo = new QCheckBox(QStringLiteral("同步任务"));
     fl->addRow(m_chkEnabled);
     fl->addRow(m_chkHttp);
-    fl->addRow(m_chkSyncInbox);
-    fl->addRow(m_chkSyncActivity);
-    fl->addRow(m_chkSyncTodo);
+    auto *syncRangeHint = new QLabel(QStringLiteral(
+        "同步范围（收件箱/任务/ActivityWatch）请在「设置 → 同步」中配置"));
+    syncRangeHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
+    syncRangeHint->setWordWrap(true);
+    fl->addRow(syncRangeHint);
     fl->addRow(QStringLiteral("本机别名"), m_editAlias = new QLineEdit);
     fl->addRow(QStringLiteral("监听端口"), m_editListenPort = new QLineEdit);
     fl->addRow(QStringLiteral("UDP 端口"), m_editUdpPort = new QLineEdit);
@@ -615,13 +614,11 @@ void SyncPage::refreshSyncConfig()
         SyncConfig cfg = SyncConfig::fromJson(doc.object());
         m_chkEnabled->setChecked(cfg.enabled);
         m_chkHttp->setChecked(cfg.httpEnabled);
-        m_chkSyncInbox->setChecked(cfg.syncInbox);
-        m_chkSyncActivity->setChecked(cfg.syncActivity);
-        m_chkSyncTodo->setChecked(cfg.syncTodo);
+        // syncInbox / syncActivity / syncTodo 已移至 Settings → 同步 Tab，UI 不再展示
         m_editAlias->setText(cfg.selfAlias);
         m_editListenPort->setText(QString::number(cfg.listenPort));
         m_editUdpPort->setText(QString::number(cfg.udpPort));
-        log(QStringLiteral("同步配置已刷新"));
+        log(QStringLiteral("同步配置已刷新（同步范围请在「设置 → 同步」中查看）"));
     });
 }
 
@@ -632,9 +629,7 @@ void SyncPage::onSaveConfig()
     SyncConfig cfg;
     cfg.enabled = m_chkEnabled->isChecked();
     cfg.httpEnabled = m_chkHttp->isChecked();
-    cfg.syncInbox = m_chkSyncInbox->isChecked();
-    cfg.syncActivity = m_chkSyncActivity->isChecked();
-    cfg.syncTodo = m_chkSyncTodo->isChecked();
+    // syncInbox / syncActivity / syncTodo 由 SettingsDialog 统一管理，此处不修改
     cfg.selfAlias = m_editAlias->text().trimmed();
     cfg.listenPort = m_editListenPort->text().toInt();
     cfg.udpPort = m_editUdpPort->text().toInt();
