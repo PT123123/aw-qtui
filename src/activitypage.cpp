@@ -37,7 +37,8 @@ static QLabel *createCardTitle(const QString &text, QWidget *parent = nullptr)
 }
 
 ActivityPage::ActivityPage(ApiClient *api, QWidget *parent)
-    : QWidget(parent), m_api(api), m_date(QDate::currentDate())
+    : QWidget(parent), m_api(api), m_dateStart(QDate::currentDate()), m_dateEnd(QDate::currentDate()),
+      m_rangeLabel(QStringLiteral("Today"))
 {
     qDebug() << "[ActivityPage] ctor start";
     applyTheme();
@@ -74,6 +75,12 @@ void ActivityPage::applyTheme()
             padding: 5px 12px; color: %5; font-size: 12px;
         }
         QPushButton#ToolBtn:hover { background: %8; border-color: %7; }
+        QPushButton#ChipBtn {
+            background: transparent; border: 1px solid %2; border-radius: 14px;
+            padding: 4px 14px; color: %4; font-size: 12px; min-width: 36px;
+        }
+        QPushButton#ChipBtn:hover { background: %6; border-color: %7; color: %5; }
+        QPushButton#ChipBtn:checked { background: %7; border-color: %7; color: %9; font-weight: 600; }
         QTabWidget::pane { border: 1px solid %2; border-radius: 8px; background: %9; }
         QTabBar::tab {
             background: transparent; color: %4; padding: 8px 18px;
@@ -117,6 +124,37 @@ void ActivityPage::buildUi()
     toolbar->addWidget(m_dateLabel);
     toolbar->addWidget(m_nextBtn);
     toolbar->addWidget(m_todayBtn);
+    toolbar->addSpacing(16);
+
+    // 日期 chips
+    m_chipToday = new QPushButton(QStringLiteral("Today"));
+    m_chipToday->setObjectName(QStringLiteral("ChipBtn"));
+    m_chipToday->setCheckable(true);
+    m_chipToday->setChecked(true);
+    m_chipYesterday = new QPushButton(QStringLiteral("Yesterday"));
+    m_chipYesterday->setObjectName(QStringLiteral("ChipBtn"));
+    m_chipYesterday->setCheckable(true);
+    m_chipLast7 = new QPushButton(QStringLiteral("Last 7 days"));
+    m_chipLast7->setObjectName(QStringLiteral("ChipBtn"));
+    m_chipLast7->setCheckable(true);
+    m_chipLast30 = new QPushButton(QStringLiteral("Last 30 days"));
+    m_chipLast30->setObjectName(QStringLiteral("ChipBtn"));
+    m_chipLast30->setCheckable(true);
+    m_chipAll = new QPushButton(QStringLiteral("All"));
+    m_chipAll->setObjectName(QStringLiteral("ChipBtn"));
+    m_chipAll->setCheckable(true);
+
+    connect(m_chipToday, &QPushButton::clicked, this, &ActivityPage::onDateChipToday);
+    connect(m_chipYesterday, &QPushButton::clicked, this, &ActivityPage::onDateChipYesterday);
+    connect(m_chipLast7, &QPushButton::clicked, this, &ActivityPage::onDateChipLast7);
+    connect(m_chipLast30, &QPushButton::clicked, this, &ActivityPage::onDateChipLast30);
+    connect(m_chipAll, &QPushButton::clicked, this, &ActivityPage::onDateChipAll);
+
+    toolbar->addWidget(m_chipToday);
+    toolbar->addWidget(m_chipYesterday);
+    toolbar->addWidget(m_chipLast7);
+    toolbar->addWidget(m_chipLast30);
+    toolbar->addWidget(m_chipAll);
     toolbar->addSpacing(16);
 
     m_hostLabel = new QLabel;
@@ -292,12 +330,64 @@ void ActivityPage::buildUi()
 
     m_tabs->addTab(editorWidget, QStringLiteral("Editor"));
 
+    // === Trends 页（多日聚合） ===
+    auto *trendsWidget = new QWidget;
+    auto *trendsRoot = new QVBoxLayout(trendsWidget);
+    trendsRoot->setContentsMargins(10, 12, 10, 10);
+    trendsRoot->setSpacing(10);
+
+    // 占位符（无数据时显示）
+    m_trendPlaceholder = createCard();
+    auto *phLay = new QVBoxLayout(m_trendPlaceholder);
+    phLay->setContentsMargins(20, 20, 20, 20);
+    auto *phLabel = new QLabel(QStringLiteral("Select a date range to view trends\n(Today / Yesterday / Last 7 days / Last 30 days / All)"));
+    phLabel->setObjectName(QStringLiteral("ToolbarLabel"));
+    phLabel->setAlignment(Qt::AlignCenter);
+    phLay->addWidget(phLabel);
+    trendsRoot->addWidget(m_trendPlaceholder);
+
+    // Top Applications (multi-day aggregate)
+    auto *tAppsCard = createCard();
+    auto *tAppsLay = new QVBoxLayout(tAppsCard);
+    tAppsLay->setContentsMargins(4, 0, 8, 8);
+    tAppsLay->addWidget(createCardTitle(QStringLiteral("Top Applications (Trend)")));
+    m_trendApps = new HorizontalBarChart;
+    m_trendApps->setLabelWidth(150);
+    tAppsLay->addWidget(m_trendApps, 1);
+    trendsRoot->addWidget(tAppsCard, 1);
+
+    // Top Categories (multi-day aggregate)
+    auto *tCatsCard = createCard();
+    auto *tCatsLay = new QVBoxLayout(tCatsCard);
+    tCatsLay->setContentsMargins(4, 0, 8, 8);
+    tCatsLay->addWidget(createCardTitle(QStringLiteral("Top Categories (Trend)")));
+    m_trendCats = new HorizontalBarChart;
+    m_trendCats->setLabelWidth(150);
+    tCatsLay->addWidget(m_trendCats, 1);
+    trendsRoot->addWidget(tCatsCard, 1);
+
+    // Daily breakdown
+    auto *tDailyCard = createCard();
+    auto *tDailyLay = new QVBoxLayout(tDailyCard);
+    tDailyLay->setContentsMargins(4, 0, 8, 8);
+    tDailyLay->addWidget(createCardTitle(QStringLiteral("Daily Activity")));
+    m_trendDaily = new HorizontalBarChart;
+    m_trendDaily->setLabelWidth(100);
+    tDailyLay->addWidget(m_trendDaily, 1);
+    trendsRoot->addWidget(tDailyCard, 1);
+
+    m_tabs->addTab(trendsWidget, QStringLiteral("Trends"));
+
     root->addWidget(m_tabs, 1);
 }
 
 void ActivityPage::setDate(const QDate &date)
 {
-    m_date = date;
+    m_dateStart = date;
+    m_dateEnd = date;
+    m_rangeLabel = QStringLiteral("Today");
+    uncheckAllChips();
+    if (m_chipToday) m_chipToday->setChecked(true);
     reloadData();
 }
 
@@ -308,30 +398,104 @@ void ActivityPage::refresh()
 
 void ActivityPage::onPrevDay()
 {
-    m_date = m_date.addDays(-1);
+    m_dateStart = m_dateStart.addDays(-1);
+    m_dateEnd = m_dateStart;
+    m_rangeLabel = m_dateStart.toString(QStringLiteral("yyyy-MM-dd"));
+    uncheckAllChips();
     reloadData();
 }
 
 void ActivityPage::onNextDay()
 {
-    m_date = m_date.addDays(1);
+    m_dateStart = m_dateStart.addDays(1);
+    m_dateEnd = m_dateStart;
+    m_rangeLabel = m_dateStart.toString(QStringLiteral("yyyy-MM-dd"));
+    uncheckAllChips();
     reloadData();
 }
 
 void ActivityPage::onToday()
 {
-    m_date = QDate::currentDate();
+    m_dateStart = QDate::currentDate();
+    m_dateEnd = QDate::currentDate();
+    m_rangeLabel = QStringLiteral("Today");
+    uncheckAllChips();
+    if (m_chipToday) m_chipToday->setChecked(true);
     reloadData();
+}
+
+void ActivityPage::onDateChipToday()
+{
+    uncheckAllChips();
+    m_chipToday->setChecked(true);
+    m_dateStart = QDate::currentDate();
+    m_dateEnd = QDate::currentDate();
+    m_rangeLabel = QStringLiteral("Today");
+    reloadData();
+}
+
+void ActivityPage::onDateChipYesterday()
+{
+    uncheckAllChips();
+    m_chipYesterday->setChecked(true);
+    m_dateStart = QDate::currentDate().addDays(-1);
+    m_dateEnd = m_dateStart;
+    m_rangeLabel = QStringLiteral("Yesterday");
+    reloadData();
+}
+
+void ActivityPage::onDateChipLast7()
+{
+    uncheckAllChips();
+    m_chipLast7->setChecked(true);
+    m_dateEnd = QDate::currentDate();
+    m_dateStart = m_dateEnd.addDays(-6);
+    m_rangeLabel = QStringLiteral("Last 7 days");
+    reloadData();
+}
+
+void ActivityPage::onDateChipLast30()
+{
+    uncheckAllChips();
+    m_chipLast30->setChecked(true);
+    m_dateEnd = QDate::currentDate();
+    m_dateStart = m_dateEnd.addDays(-29);
+    m_rangeLabel = QStringLiteral("Last 30 days");
+    reloadData();
+}
+
+void ActivityPage::onDateChipAll()
+{
+    uncheckAllChips();
+    m_chipAll->setChecked(true);
+    m_dateStart = QDate(2020, 1, 1);
+    m_dateEnd = QDate::currentDate();
+    m_rangeLabel = QStringLiteral("All time");
+    reloadData();
+}
+
+void ActivityPage::uncheckAllChips()
+{
+    if (m_chipToday) m_chipToday->setChecked(false);
+    if (m_chipYesterday) m_chipYesterday->setChecked(false);
+    if (m_chipLast7) m_chipLast7->setChecked(false);
+    if (m_chipLast30) m_chipLast30->setChecked(false);
+    if (m_chipAll) m_chipAll->setChecked(false);
 }
 
 void ActivityPage::reloadData()
 {
-    const QString weekday = m_date.toString(QStringLiteral("ddd"));
-    m_dateLabel->setText(m_date.toString(QStringLiteral("yyyy-MM-dd ")) + weekday);
+    const QString dateText = (m_dateStart == m_dateEnd)
+        ? m_dateStart.toString(QStringLiteral("yyyy-MM-dd ddd"))
+        : m_dateStart.toString(QStringLiteral("yyyy-MM-dd")) + QStringLiteral(" → ") +
+          m_dateEnd.toString(QStringLiteral("yyyy-MM-dd"));
+    m_dateLabel->setText(dateText);
 
     if (!m_api) {
-        m_lanes = generateTimelineLanes(m_date);
+        // Mock 模式：用 mockdata 生成
+        m_lanes = generateTimelineLanes(m_dateStart);
         updateUiFromLanes();
+        updateTrendsFromLanes();
         return;
     }
 
@@ -371,8 +535,8 @@ void ActivityPage::fetchAllEvents()
     m_eventsMap.clear();
     m_pendingEvents = m_buckets.size();
 
-    const qint64 dayStart = QDateTime(m_date, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
-    const qint64 dayEnd = dayStart + 86400000LL;
+    const qint64 dayStart = QDateTime(m_dateStart, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
+    const qint64 dayEnd = QDateTime(m_dateEnd, QTime(23, 59, 59), Qt::LocalTime).toMSecsSinceEpoch() + 1;
 
     for (const BucketInfo &b : m_buckets) {
         QNetworkReply *reply = m_api->getEvents(b.id, dayStart, dayEnd);
@@ -399,6 +563,7 @@ void ActivityPage::onEventLoaded()
     if (--m_pendingEvents <= 0) {
         m_loading = false;
         updateUiFromLanes();
+        updateTrendsFromLanes();
     }
 }
 
@@ -431,6 +596,53 @@ void ActivityPage::updateUiFromLanes()
     m_editorFiles->setItems(mockEditorFiles(10));
 }
 
+void ActivityPage::updateTrendsFromLanes()
+{
+    // 多日范围时显示趋势数据
+    if (m_dateStart == m_dateEnd) {
+        // 单日：趋势图显示该日数据
+        m_trendApps->setItems(topAppsFromLanes(m_lanes, 10));
+        m_trendCats->setItems(topCategoriesFromLanes(m_lanes, 8));
+
+        QList<BarItem> daily;
+        BarItem d;
+        d.label = m_dateStart.toString(QStringLiteral("MM-dd"));
+        d.valueSeconds = 0;
+        for (const auto &lane : m_lanes) {
+            for (const auto &ev : lane.events) {
+                d.valueSeconds += (ev.endMs - ev.startMs) / 1000;
+            }
+        }
+        d.color = kColorAccent;
+        daily.append(d);
+        m_trendDaily->setItems(daily);
+    } else {
+        // 多日：按天聚合（这里简化处理，实际应逐日请求）
+        m_trendApps->setItems(topAppsFromLanes(m_lanes, 10));
+        m_trendCats->setItems(topCategoriesFromLanes(m_lanes, 8));
+
+        // 按天聚合总时长
+        QHash<QString, qint64> dayDur;
+        for (const auto &lane : m_lanes) {
+            for (const auto &ev : lane.events) {
+                const QDate d = QDateTime::fromMSecsSinceEpoch(ev.startMs, Qt::LocalTime).date();
+                dayDur[d.toString(QStringLiteral("yyyy-MM-dd"))] += (ev.endMs - ev.startMs) / 1000;
+            }
+        }
+        QList<BarItem> daily;
+        QStringList keys = dayDur.keys();
+        std::sort(keys.begin(), keys.end());
+        for (const QString &k : keys) {
+            BarItem d;
+            d.label = k.right(5);  // MM-dd
+            d.valueSeconds = dayDur[k];
+            d.color = kColorAccent;
+            daily.append(d);
+        }
+        m_trendDaily->setItems(daily);
+    }
+}
+
 void ActivityPage::showEmptyState(const QString &msg)
 {
     m_loading = false;
@@ -449,6 +661,9 @@ void ActivityPage::showEmptyState(const QString &msg)
     m_topDomains->setItems({});
     m_topUrls->setItems({});
     m_editorFiles->setItems({});
+    m_trendApps->setItems({});
+    m_trendCats->setItems({});
+    m_trendDaily->setItems({});
     qWarning() << "[ActivityPage]" << msg;
 }
 
@@ -469,7 +684,6 @@ QStringList ActivityPage::computeHourlyCategories() const
                 const qint64 segEnd = qMin(ev.endMs, hourEnd + 1);
                 hourDur[h] += (segEnd - cur) / 1000;
                 if (hourDur[h] > 0 && (hourCat[h].isEmpty() || hourDur[h] > 0)) {
-                    // 记录该小时时长最长的分类：简化为最后一个非空分类
                     hourCat[h] = ev.category;
                 }
                 cur = segEnd;
