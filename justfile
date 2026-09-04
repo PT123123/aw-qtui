@@ -7,14 +7,14 @@
 #   just build          仅构建 Release 客户端（不带服务端）
 #   just build-dbg      仅构建 Debug 客户端
 #   just server         构建并部署 aw-server.exe（完整 /api/0 + /inbox + /todo）到 build/server/
-#   just dist           打包 dist/aw-qtui-<ver>-win64.zip（版本 +0.01，写回 CMakeLists）
+#   just dist           打包 build/release/aw-qtui-<ver>-win64.zip（版本 +0.01，写回 CMakeLists）
 #   just install        把已部署的 build/ 拷贝到安装目录（默认 %LOCALAPPDATA%/Programs/aw-qtui）
 #   just asan           AddressSanitizer 诊断构建
 #   just selftest       编译并运行 TodoStore 自测
 #   just run            运行 build/awqtui.exe
 #   just notify         发送 Windows Toast 通知
 #   just clean          清理 build / build-dbg / build-asan / server-src
-#   just clean-all      额外清理 dist/
+#   just clean-all      同 clean（build/ 已含 release 打包产物）
 #
 # 设计：本 justfile 只做「任务编排」，真正的编译引擎是 cmake -G Ninja（ninja 调 cl），
 #       服务端是 cargo。VC / Windows SDK 环境由 tools/vcenv.sh 注入（不依赖 Developer Prompt）。
@@ -119,7 +119,7 @@ dist version="" skip_server="":
     args=""
     [ -n "$ver" ] && args="$args --version $ver"
     [ -n "{{skip_server}}" ] && args="$args --skip-server"
-    python tools/make_zip.py $args
+    python tools/make_zip.py --root build/release $args
 
 # ---------- 安装（把已部署的 build/ 拷贝到安装目录） ----------
 install install_dir="":
@@ -164,6 +164,3 @@ notify title="aw-qtui" message="build complete":
 # ---------- 清理 ----------
 clean:
     rm -rf build build-dbg build-asan server-src tools/moc_todostore.cpp tools/todostore_selftest.exe
-
-clean-all: clean
-    rm -rf dist
