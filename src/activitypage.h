@@ -13,6 +13,7 @@ class QLabel;
 class QPushButton;
 class QTabWidget;
 class QNetworkReply;
+class QFrame;
 
 namespace awqtui {
 
@@ -29,7 +30,7 @@ public:
     explicit ActivityPage(ApiClient *api, QWidget *parent = nullptr);
 
     void setDate(const QDate &date);
-    QDate date() const { return m_date; }
+    QDate date() const { return m_dateStart; }
     void refresh();
     // 按当前主题重建页面内联样式（主题切换时调用）
     void applyTheme();
@@ -38,6 +39,11 @@ private slots:
     void onPrevDay();
     void onNextDay();
     void onToday();
+    void onDateChipToday();
+    void onDateChipYesterday();
+    void onDateChipLast7();
+    void onDateChipLast30();
+    void onDateChipAll();
     void onBucketsLoaded();
     void onEventLoaded();
 
@@ -50,8 +56,13 @@ private:
     QStringList computeHourlyCategories() const;
     QList<BarItem> mockEditorFiles(int limit) const;
 
+    void uncheckAllChips();
+    void updateTrendsFromLanes();
+
     ApiClient *m_api = nullptr;
-    QDate m_date;
+    QDate m_dateStart;
+    QDate m_dateEnd;
+    QString m_rangeLabel;
     QList<TimelineLane> m_lanes;
     QList<BucketInfo> m_buckets;
     QHash<QString, QJsonArray> m_eventsMap;
@@ -64,6 +75,11 @@ private:
     QPushButton *m_prevBtn = nullptr;
     QPushButton *m_nextBtn = nullptr;
     QPushButton *m_todayBtn = nullptr;
+    QPushButton *m_chipToday = nullptr;
+    QPushButton *m_chipYesterday = nullptr;
+    QPushButton *m_chipLast7 = nullptr;
+    QPushButton *m_chipLast30 = nullptr;
+    QPushButton *m_chipAll = nullptr;
     HourlyActivityBars *m_hourlyBars = nullptr;
     QTabWidget *m_tabs = nullptr;
 
@@ -81,6 +97,12 @@ private:
     HorizontalBarChart *m_topUrls = nullptr;
 
     HorizontalBarChart *m_editorFiles;
+
+    // 趋势 Tab（多日聚合）
+    HorizontalBarChart *m_trendApps = nullptr;
+    HorizontalBarChart *m_trendCats = nullptr;
+    HorizontalBarChart *m_trendDaily = nullptr;
+    QFrame *m_trendPlaceholder = nullptr;
 };
 
 } // namespace awqtui
