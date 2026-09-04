@@ -37,6 +37,10 @@ add_executable(awqtui WIN32
     src/inboxpage.h
     src/syncpage.cpp
     src/syncpage.h
+    src/syncdetailspage.cpp
+    src/syncdetailspage.h
+    src/d1syncpage.cpp
+    src/d1syncpage.h
     src/mdnsdiscovery.cpp
     src/mdnsdiscovery.h
     src/mockdata.cpp
@@ -95,6 +99,10 @@ add_executable(awqtui WIN32
     src/inboxsettingspage.h
     src/trashpage.cpp
     src/trashpage.h
+    src/stopwatchpage.cpp
+    src/stopwatchpage.h
+    src/querypage.cpp
+    src/querypage.h
 )
 
 target_link_libraries(awqtui PRIVATE
