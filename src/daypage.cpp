@@ -229,6 +229,7 @@ void DayPage::buildUi()
     split->addWidget(m_bottomTabs);
     split->setStretchFactor(0, 3);
     split->setStretchFactor(1, 2);
+    m_bottomTabs->setMinimumHeight(120);
     dl->addWidget(split, 1);
     m_stack->addWidget(dayPane);
 
