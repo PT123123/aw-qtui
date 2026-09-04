@@ -300,14 +300,14 @@ void MainWindow::buildUi()
     // ---- 分组 2：任务 ----
     NavSection todoSec = makeSection(QStringLiteral("任务"), true);
     m_navTodo = makeNavBtn("☑", "收集箱");
-    m_navTimer = makeNavBtn("🍅", "计时专注");
-    m_navOverview = makeNavBtn("📊", "记录专注");
-    m_navDetail = makeNavBtn("🕓", "记录详情");
-    m_navWeek = makeNavBtn("📈", "时间线");
-    m_navHeatmap = makeNavBtn("🔥", "日历图");
-    m_navBest = makeNavBtn("⏰", "最佳专注时间");
+    m_navTimer = makeNavBtn("⏱", "计时专注");
+    m_navOverview = makeNavBtn("☰", "记录专注");
+    m_navDetail = makeNavBtn("≡", "记录详情");
+    m_navWeek = makeNavBtn("📊", "时间线");
+    m_navHeatmap = makeNavBtn("▦", "日历图");
+    m_navBest = makeNavBtn("⭐", "最佳专注时间");
     m_navCalendar = makeNavBtn("📅", "日历");
-    m_navMemorial = makeNavBtn("🎂", "倒数纪念日");
+    m_navMemorial = makeNavBtn("🏷", "倒数纪念日");
     todoSec.layout->addWidget(m_navTodo);
     todoSec.layout->addWidget(m_navTimer);
     todoSec.layout->addWidget(m_navOverview);
