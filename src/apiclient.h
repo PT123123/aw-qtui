@@ -76,12 +76,19 @@ public:
     QNetworkReply *deleteTrash(qint64 id);                                // DELETE /trash/<id>
     QNetworkReply *clearAllTrash();                                       // DELETE /trash
 
+    // D1 云同步 (aw-sync-rust /api/0/sync/d1/*)
+    QNetworkReply *d1SyncNow();                                           // POST /d1/sync
+    QNetworkReply *d1Status();                                            // GET  /d1/status
+    QNetworkReply *d1Test();                                              // POST /d1/test
+
     // ActivityWatch /api/0
     QNetworkReply *getBuckets();
     QNetworkReply *getEvents(const QString &bucketId, qint64 startMs, qint64 endMs);
     QNetworkReply *createBucket(const QString &bucketId, const QString &client, const QString &type);
     QNetworkReply *heartbeat(const QString &bucketId, const QJsonObject &data, double durationSec,
                               const QDateTime &timestamp);
+    // Query Explorer：POST /api/0/query（query 脚本 + 时间范围）
+    QNetworkReply *postQuery(const QJsonObject &payload);
 
     // Inbox Todo (/inbox/todos)
     QNetworkReply *getTodos(bool includeCompleted = false);

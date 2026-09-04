@@ -31,6 +31,10 @@ class InboxPage;
 class InboxSettingsPage;
 class TrashPage;
 class SyncPage;
+class D1SyncPage;
+class StopwatchPage;
+class QueryPage;
+class SyncDetailsPage;
 class TodoPage;
 class FocusTimerPage;
 class FocusOverviewPage;
@@ -52,6 +56,10 @@ public:
     InboxSettingsPage *inboxSettingsPage() const { return m_inboxSettings; }
     TrashPage *trashPage() const { return m_trash; }
     SyncPage *syncPage() const { return m_sync; }
+    D1SyncPage *d1SyncPage() const { return m_d1Sync; }
+    StopwatchPage *stopwatchPage() const { return m_stopwatch; }
+    QueryPage *queryPage() const { return m_query; }
+    SyncDetailsPage *syncDetailsPage() const { return m_syncDetails; }
     ActivityPage *activityPage() const { return m_activity; }
     TimelinePage *timelinePage() const { return m_timeline; }
     DayPage *dayPage() const { return m_day; }
@@ -130,6 +138,10 @@ private:
         PAGE_DAY,
         PAGE_STATS,
         PAGE_SYNC,
+        PAGE_D1_SYNC,
+        PAGE_STOPWATCH,
+        PAGE_QUERY,
+        PAGE_SYNC_DETAILS,
         PAGE_COUNT
     };
 
@@ -146,9 +158,13 @@ private:
     ActivityPage *m_activity = nullptr;
     TimelinePage *m_timeline = nullptr;
     SyncPage *m_sync = nullptr;
+    D1SyncPage *m_d1Sync = nullptr;
     DayPage *m_day = nullptr;
     StatsPage *m_stats = nullptr;
     TodoPage *m_todo = nullptr;
+    StopwatchPage *m_stopwatch = nullptr;
+    QueryPage *m_query = nullptr;
+    SyncDetailsPage *m_syncDetails = nullptr;
     QStackedWidget *m_stack = nullptr;
     // 左侧导航栏（缩放时按比例调整宽度）
     QWidget *m_nav = nullptr;
@@ -179,6 +195,10 @@ private:
     QPushButton *m_navDay = nullptr;
     QPushButton *m_navStats = nullptr;
     QPushButton *m_navSync = nullptr;
+    QPushButton *m_navD1Sync = nullptr;
+    QPushButton *m_navSyncDetails = nullptr;
+    QPushButton *m_navStopwatch = nullptr;
+    QPushButton *m_navQuery = nullptr;
     // 专注模块页面指针（Todo 内部持有，这里也存一份供快捷键/刷新用）
     FocusTimerPage *m_timerPage = nullptr;
     FocusOverviewPage *m_overviewPage = nullptr;
