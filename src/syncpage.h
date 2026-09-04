@@ -92,12 +92,9 @@ private:
     // 设备列表
     QTableWidget *m_devTable;
 
-    // 同步配置
+    // 同步配置（总开关和基础配置，同步范围已在SettingsDialog同步Tab设置）
     QCheckBox *m_chkEnabled;
     QCheckBox *m_chkHttp;
-    QCheckBox *m_chkSyncInbox;
-    QCheckBox *m_chkSyncActivity;
-    QCheckBox *m_chkSyncTodo;
     QLineEdit *m_editAlias;
     QLineEdit *m_editListenPort;
     QLineEdit *m_editUdpPort;

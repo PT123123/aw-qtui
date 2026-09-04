@@ -48,7 +48,7 @@ private slots:
 private:
     void buildUi();
     void log(const QString &line);
-    void populateLogTable(const QJsonArray &logs, qint64 total);
+    void populateLogTable(const QJsonArray &logs, qint64 total, const QString &kindFilter);
     void populateTrashTable(const QJsonArray &arr);
 
     ApiClient *m_api;
@@ -65,6 +65,7 @@ private:
     QComboBox *m_filterDirection;
     QComboBox *m_filterProtocol;
     QComboBox *m_filterEvent;
+    QComboBox *m_filterKind;
     QSpinBox *m_pageSpin;
     QPushButton *m_btnPrevPage;
     QPushButton *m_btnNextPage;

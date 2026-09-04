@@ -18,7 +18,7 @@
 
 namespace awqtui {
 
-static QString formatMs(qint64 ms)
+static QString formatMsLocal(qint64 ms)
 {
     return formatDuration(ms / 1000);
 }
@@ -213,7 +213,7 @@ void TimingDialog::onSwStop()
     m_swDisplay->setText(QStringLiteral("00:00:00"));
     QMessageBox::information(this, QStringLiteral("秒表"),
                              QStringLiteral("已保存 %1（%2）").arg(m_swTags.join(QStringLiteral(", ")),
-                                                                  formatMs(totalMs)));
+                                                                  formatMsLocal(totalMs)));
     emit tagsChanged();
 }
 
@@ -222,7 +222,7 @@ void TimingDialog::onSwTick()
     qint64 total = m_swAccum;
     if (m_swRunning)
         total += QDateTime::currentMSecsSinceEpoch() - m_swResumeMs;
-    m_swDisplay->setText(formatMs(total));
+    m_swDisplay->setText(formatMsLocal(total));
 }
 
 // ── 计时器 ──────────────────────────────────────────────────

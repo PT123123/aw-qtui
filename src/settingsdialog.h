@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QJsonObject>
 #include <QKeySequence>
 #include <QLineEdit>
 
@@ -38,7 +39,28 @@ private:
     QKeySequence m_seq;
 };
 
-// 设置对话框：Tab 分页 —— 外观（主题+界面效果）/ 边缘修复（实验开关）/ 快捷键 / 关于（设备信息）
+// 同步配置数据（供 SettingsDialog 同步 Tab 读写，经 ApiClient 持久化到 aw-server-rust）
+struct SyncSettingsConfig {
+    bool syncInbox = true;    // 收件箱 → D1 云同步
+    bool syncActivity = true; // ActivityWatch → 局域网同步
+    bool syncTodo = true;     // 任务 → D1 云同步
+    static SyncSettingsConfig fromJson(const QJsonObject &o) {
+        SyncSettingsConfig c;
+        c.syncInbox = o.value(QLatin1String("sync_inbox")).toBool(true);
+        c.syncActivity = o.value(QLatin1String("sync_activity")).toBool(true);
+        c.syncTodo = o.value(QLatin1String("sync_todo")).toBool(true);
+        return c;
+    }
+    QJsonObject toJson() const {
+        QJsonObject o;
+        o.insert(QStringLiteral("sync_inbox"), syncInbox);
+        o.insert(QStringLiteral("sync_activity"), syncActivity);
+        o.insert(QStringLiteral("sync_todo"), syncTodo);
+        return o;
+    }
+};
+
+// 设置对话框：Tab 分页 —— 外观（主题+界面效果）/ 边缘修复（实验开关）/ 同步 / 快捷键 / 关于（设备信息）
 class SettingsDialog : public QDialog
 {
     Q_OBJECT
@@ -51,6 +73,9 @@ public:
     QString themeId() const;
     // 当前勾选的界面效果开关
     UiEffects uiEffects() const;
+    // 同步设置（D1 / LAN / 冷备）
+    SyncSettingsConfig syncSettings() const;
+    void setSyncSettings(const SyncSettingsConfig &s);
     // 校验快捷键配置，返回错误信息（空串表示通过）
     static QString validate(const ShortcutConfig &c);
 
@@ -69,6 +94,10 @@ private:
     QCheckBox *m_cbFixGlass;      // 玻璃防叠影
     QCheckBox *m_cbFixZoom;       // 缩放对齐
     QCheckBox *m_cbFixShadow;     // 投影随主题
+    // 同步设置 Tab
+    QCheckBox *m_cbSyncInbox;     // 收件箱 → D1 云同步
+    QCheckBox *m_cbSyncActivity;  // ActivityWatch → 局域网同步
+    QCheckBox *m_cbSyncTodo;      // 任务 → D1 云同步
     bool m_updatingPreset = false;
 };
 
