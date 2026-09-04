@@ -175,8 +175,10 @@ int main(int argc, char *argv[])
     gTheme = findTheme(themeId);
     applyThemeColors(*gTheme);
     app.setStyleSheet(gGlobalQss);
-    // emoji 程序图标（纯代码渲染，无需额外资源文件）：固定 kAppEmoji(🌿) + 白色圆形背景
-    app.setWindowIcon(makeEmojiIcon(QString::fromUtf8(kAppEmoji)));
+    // 程序图标（纯代码渲染，无需额外资源文件）：对齐 aw-android-native 启动图标
+    // —— 白底圆 + 彩色圆盘 + 时钟（3:00），款式可在设置中切换，详见 theme.h makeAppIcon()
+    gAppIcon = findAppIcon(loadAppIconId());
+    app.setWindowIcon(makeAppIcon());
     qDebug() << "stylesheet set, theme =" << gTheme->id;
 
     qDebug() << "creating MainWindow...";
@@ -232,7 +234,8 @@ int main(int argc, char *argv[])
         QTimer::singleShot(shotDelay, &win, [&app, shotSettingsDir] {
             // 对话框须在堆上存活到截图完成：栈对象会在 lambda 结束时销毁，导致
             // 内部 QTimer（context=dlg）被取消，截图永不执行、进程挂起。
-            auto *dlg = new SettingsDialog(loadShortcuts(), loadThemeId(), loadUiEffects());
+            auto *dlg = new SettingsDialog(loadShortcuts(), loadThemeId(), loadUiEffects(),
+                                           loadAppIconId());
             dlg->setAttribute(Qt::WA_DeleteOnClose);
             dlg->show();
             QTimer::singleShot(600, dlg, [dlg, &app, shotSettingsDir] {

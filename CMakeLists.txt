@@ -103,6 +103,8 @@ add_executable(awqtui WIN32
     src/stopwatchpage.h
     src/querypage.cpp
     src/querypage.h
+    src/cloudbackuppage.cpp
+    src/cloudbackuppage.h
 )
 
 target_link_libraries(awqtui PRIVATE

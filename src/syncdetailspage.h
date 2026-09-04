@@ -1,4 +1,4 @@
-// syncdetailspage.h —— 同步详情独立页（日志筛选 / 分页 / 明细展开 / 回收站）
+// syncdetailspage.h —— 同步详情独立页（传输明细 / 日志筛选 / 分页 / 回收站）
 #pragma once
 
 #include <QWidget>
@@ -28,6 +28,7 @@ public:
     void setServerUrl(const QString &url);
     void refreshLogs();
     void refreshTrash();
+    void refreshLatestSync();
     void applyTheme();
 
 signals:
@@ -44,12 +45,14 @@ private slots:
     void onRestoreTrashRow();
     void onDeleteTrashRow();
     void onBack();
+    void onRefreshLatestSync();
 
 private:
     void buildUi();
     void log(const QString &line);
     void populateLogTable(const QJsonArray &logs, qint64 total, const QString &kindFilter);
     void populateTrashTable(const QJsonArray &arr);
+    void populateLatestSync(const QJsonObject &result);
 
     ApiClient *m_api;
 
@@ -59,6 +62,12 @@ private:
     QPushButton *m_backBtn;
 
     QTabWidget *m_tabs;
+
+    // 最近一次同步结果 Tab
+    QWidget *m_latestSyncTab;
+    QLabel *m_lblLatestSummary;
+    QTableWidget *m_latestRecordsTable;
+    QPushButton *m_btnRefreshLatestSync;
 
     // 日志 Tab
     QTableWidget *m_logTable;

@@ -60,17 +60,20 @@ struct SyncSettingsConfig {
     }
 };
 
-// 设置对话框：Tab 分页 —— 外观（主题+界面效果）/ 边缘修复（实验开关）/ 同步 / 快捷键 / 关于（设备信息）
+// 设置对话框：Tab 分页 —— 外观（主题+程序图标+界面效果）/ 边缘修复（实验开关）/ 同步 / 快捷键 / 关于（设备信息）
 class SettingsDialog : public QDialog
 {
     Q_OBJECT
 public:
     explicit SettingsDialog(const ShortcutConfig &cfg, const QString &themeId = QString(),
-                            const UiEffects &fx = UiEffects{}, QWidget *parent = nullptr);
+                            const UiEffects &fx = UiEffects{},
+                            const QString &appIconId = QString(), QWidget *parent = nullptr);
 
     ShortcutConfig config() const;
     // 当前选择的主题 ID
     QString themeId() const;
+    // 当前选择的程序图标 ID（见 theme.h kAppIconVariants）
+    QString appIconId() const;
     // 当前勾选的界面效果开关
     UiEffects uiEffects() const;
     // 同步设置（D1 / LAN / 冷备）
@@ -84,6 +87,7 @@ private:
     ShortcutEdit *m_inbox;
     QComboBox *m_themeCombo;
     QLabel *m_themeDesc;
+    QComboBox *m_iconCombo;       // 程序图标（对齐 aw-android 可选启动图标）
     QComboBox *m_presetCombo;     // 效果预设
     QComboBox *m_shadowCombo;     // 阴影强度
     QComboBox *m_glassCombo;      // 玻璃强度

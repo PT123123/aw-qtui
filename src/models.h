@@ -180,10 +180,11 @@ struct DeviceInfo {
 //   - 高频率变更数据：
 //     · inbox（收件箱）/ todo（任务）→ Cloudflare D1 云同步（通过 D1SyncPage 配置）
 //     · ActivityWatch（活动记录）→ 局域网同步 aw-sync-rust（通过 SyncPage 配置）
-//   - 低频率冷备（长期定期备份）→ S3 / WebDAV（在 SyncPage 云存储页配置）
+//   - 低频率冷备（长期定期备份）→ S3 / WebDAV（通过 CloudBackupPage 配置）
 //
 // SyncConfig: enabled, http_enabled, discovery_method, listen_port, udp_port, sync_inbox, sync_activity, sync_todo, self_alias, probe_interval
 //  + D1 云同步字段：d1_enabled / d1_account_id / d1_database_id / d1_api_token / d1_sync_interval
+//  + 冷备配置：通过 CloudBackupPage 的 QSettings("cloud") 存储（不在 SyncConfig 中）
 struct SyncConfig {
     bool enabled = false;
     bool httpEnabled = true;
