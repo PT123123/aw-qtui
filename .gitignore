@@ -31,6 +31,8 @@ Thumbs.db
 
 # WorkBuddy 工作记忆目录（非项目源码）
 .workbuddy/
+# commandcode 临时工作目录（非项目源码）
+.commandcode/
 
 # 运行时 SQLite 数据库（inbox / todo 本地存储）
 *.db
