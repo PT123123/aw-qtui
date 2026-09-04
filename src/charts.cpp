@@ -26,6 +26,26 @@ QString formatDuration(qint64 totalSeconds)
     return QStringLiteral("%1h %2m").arg(h).arg(m);
 }
 
+QString formatMs(qint64 ms)
+{
+    const int tenths = static_cast<int>((ms % 1000) / 100);
+    const qint64 sec = ms / 1000;
+    const int s = static_cast<int>(sec % 60);
+    const int m = static_cast<int>((sec / 60) % 60);
+    const int h = static_cast<int>(sec / 3600);
+
+    if (h > 0) {
+        return QStringLiteral("%1:%2:%3")
+            .arg(h, 2, 10, QLatin1Char('0'))
+            .arg(m, 2, 10, QLatin1Char('0'))
+            .arg(s, 2, 10, QLatin1Char('0'));
+    }
+    return QStringLiteral("%1:%2.%3")
+        .arg(m, 2, 10, QLatin1Char('0'))
+        .arg(s, 2, 10, QLatin1Char('0'))
+        .arg(tenths);
+}
+
 // ═══════════════════════════════════════════════════════════
 // HorizontalBarChart
 // ═══════════════════════════════════════════════════════════

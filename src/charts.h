@@ -99,5 +99,6 @@ private:
 
 // ── 时长格式化 ──────────────────────────────────────────────
 QString formatDuration(qint64 totalSeconds);
+QString formatMs(qint64 ms); // ms -> "SS.x" / "MM:SS.x" / "HH:MM:SS"
 
 } // namespace awqtui
