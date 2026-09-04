@@ -10,6 +10,7 @@
 #include <QFocusEvent>
 #include <QFormLayout>
 #include <QFrame>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
@@ -339,7 +340,56 @@ SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId
     tabs->addTab(fixPage, QStringLiteral("边缘修复"));
 
     // ================================================================ //
-    // Tab 3：快捷键
+    // Tab 3：同步设置 —— 同步范围限制说明
+    //   收件箱 / 任务 → D1 云同步（Cloudflare D1，高频率变更）
+    //   ActivityWatch → 局域网同步（aw-sync-rust LAN，高频率数据）
+    //   冷备（长期定期备份）→ S3 / WebDAV（在 SyncPage 云存储页配置）
+    // ================================================================ //
+    auto *syncPage = new QWidget;
+    auto *syncLayout = new QVBoxLayout(syncPage);
+    syncLayout->setContentsMargins(8, 12, 8, 10);
+    syncLayout->setSpacing(10);
+
+    auto *syncTitle = new QLabel(QStringLiteral("同步范围设置"));
+    syncTitle->setStyleSheet(sectionTitleStyle);
+    syncLayout->addWidget(syncTitle);
+
+    auto *syncHint = new QLabel(QStringLiteral(
+        "设置各数据类型走哪条同步路径。"
+        "收件箱和任务建议使用 D1 云同步（高频变更），"
+        "ActivityWatch 数据走局域网同步（高频上报），"
+        "长期冷备请在「云存储」页配置 S3 / WebDAV（定期备份）。"));
+    syncHint->setWordWrap(true);
+    syncHint->setStyleSheet(hintStyle);
+    syncLayout->addWidget(syncHint);
+
+    auto *syncBox = new QGroupBox;
+    auto *syncForm = new QVBoxLayout(syncBox);
+
+    m_cbSyncInbox = new QCheckBox(QStringLiteral("收件箱（Inbox）"));
+    m_cbSyncInbox->setChecked(true);
+    m_cbSyncInbox->setToolTip(QStringLiteral("通过 D1 云同步变更（高频），局域网同步默认不包含收件箱"));
+    m_cbSyncInbox->setStyleSheet(cbStyle);
+    syncForm->addWidget(m_cbSyncInbox);
+
+    m_cbSyncActivity = new QCheckBox(QStringLiteral("ActivityWatch（活动记录）"));
+    m_cbSyncActivity->setChecked(true);
+    m_cbSyncActivity->setToolTip(QStringLiteral("通过局域网同步（aw-sync-rust），高频上报活动数据"));
+    m_cbSyncActivity->setStyleSheet(cbStyle);
+    syncForm->addWidget(m_cbSyncActivity);
+
+    m_cbSyncTodo = new QCheckBox(QStringLiteral("任务（Todo）"));
+    m_cbSyncTodo->setChecked(true);
+    m_cbSyncTodo->setToolTip(QStringLiteral("通过 D1 云同步变更（高频），局域网同步默认不包含任务"));
+    m_cbSyncTodo->setStyleSheet(cbStyle);
+    syncForm->addWidget(m_cbSyncTodo);
+
+    syncLayout->addWidget(syncBox);
+    syncLayout->addStretch(1);
+    tabs->addTab(syncPage, QStringLiteral("同步"));
+
+    // ================================================================ //
+    // Tab 4：快捷键
     // ================================================================ //
     auto *shortcutPage = new QWidget;
     auto *shortcutLayout = new QVBoxLayout(shortcutPage);
@@ -385,7 +435,7 @@ SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId
     tabs->addTab(shortcutPage, QStringLiteral("快捷键"));
 
     // ================================================================ //
-    // Tab 4：关于（设备信息，只读）
+    // Tab 5：关于（设备信息，只读）
     // ================================================================ //
     auto *aboutPage = new QWidget;
     auto *aboutLayout = new QVBoxLayout(aboutPage);
@@ -516,6 +566,22 @@ UiEffects SettingsDialog::uiEffects() const
     e.fixSnapZoom = m_cbFixZoom->isChecked();
     e.fixShadowAdaptive = m_cbFixShadow->isChecked();
     return e;
+}
+
+SyncSettingsConfig SettingsDialog::syncSettings() const
+{
+    SyncSettingsConfig c;
+    c.syncInbox = m_cbSyncInbox->isChecked();
+    c.syncActivity = m_cbSyncActivity->isChecked();
+    c.syncTodo = m_cbSyncTodo->isChecked();
+    return c;
+}
+
+void SettingsDialog::setSyncSettings(const SyncSettingsConfig &s)
+{
+    m_cbSyncInbox->setChecked(s.syncInbox);
+    m_cbSyncActivity->setChecked(s.syncActivity);
+    m_cbSyncTodo->setChecked(s.syncTodo);
 }
 
 QString SettingsDialog::validate(const ShortcutConfig &c)

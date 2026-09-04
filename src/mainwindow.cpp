@@ -14,6 +14,7 @@
 #include "inboxsettingspage.h"
 #include "localstore.h"
 #include "mdnsdiscovery.h"
+#include "models.h"
 #include "settingsdialog.h"
 #include "statspage.h"
 #include "syncpage.h"
@@ -624,6 +625,30 @@ void MainWindow::openSettings()
 
     saveShortcuts(dlg.config());
     const QStringList failed = applyShortcuts();
+
+    // 同步设置（sync_inbox / sync_activity / sync_todo）保存到 aw-server-rust
+    const SyncSettingsConfig syncCfg = dlg.syncSettings();
+    QNetworkReply *rg = m_api->getSyncConfig();
+    connect(rg, &QNetworkReply::finished, this, [this, rg, syncCfg] {
+        QJsonDocument doc;
+        QString err;
+        SyncConfig cfg;
+        if (ApiClient::parseReply(rg, &doc, &err)) {
+            cfg = SyncConfig::fromJson(doc.object());
+        }
+        rg->deleteLater();
+
+        // 更新同步范围设置（其他字段保留）
+        cfg.syncInbox = syncCfg.syncInbox;
+        cfg.syncActivity = syncCfg.syncActivity;
+        cfg.syncTodo = syncCfg.syncTodo;
+
+        QNetworkReply *rp = m_api->setSyncConfig(cfg.toJson());
+        connect(rp, &QNetworkReply::finished, this, [this, rp] {
+            rp->deleteLater();
+        });
+    });
+
     // 冲突提示用非模态 toast：短暂显示后自动消失，不阻塞、无需点击
     if (!failed.isEmpty())
         showToast(QStringLiteral("快捷键冲突：%1（可能已被其它程序占用，已保存但暂不生效）")
