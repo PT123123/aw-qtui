@@ -82,6 +82,19 @@ void saveThemeId(const QString &id)
     s.sync();
 }
 
+QString loadAppIconId()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    return s.value(QStringLiteral("ui/appIcon"), QStringLiteral("amber")).toString();
+}
+
+void saveAppIconId(const QString &id)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("ui/appIcon"), id);
+    s.sync();
+}
+
 UiEffects UiEffects::fromPreset(Preset p)
 {
     UiEffects e;

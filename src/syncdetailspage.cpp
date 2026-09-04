@@ -1,4 +1,4 @@
-// syncdetailspage.cpp —— 同步详情独立页
+// syncdetailspage.cpp —— 同步详情独立页（最近一次同步 / 日志 / 回收站）
 #include "syncdetailspage.h"
 
 #include "apiclient.h"
@@ -50,28 +50,69 @@ void SyncDetailsPage::applyTheme()
             left: 10px;
             padding: 0 6px;
             color: %3;
+            font-weight: 600;
         }
         QLabel#StatusLabel { color: %3; font-size: 12px; }
+        QLabel#Heading {
+            color: %5;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        QLabel#SubHeading {
+            color: %3;
+            font-size: 12px;
+        }
+        QLabel#SummaryLabel {
+            color: %5;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 12px;
+            background: %4;
+            border-radius: 6px;
+        }
         QPushButton#ToolBtn {
             background: %4; border: 1px solid %2; border-radius: 6px;
-            padding: 5px 12px; color: %5; font-size: 12px;
+            padding: 5px 14px; color: %5; font-size: 12px;
         }
         QPushButton#ToolBtn:hover { background: %6; border-color: %7; }
         QPushButton#NavBtn {
-            background: transparent; border: 1px solid %2; border-radius: 4px;
-            padding: 4px 10px; color: %5; font-size: 12px;
+            background: transparent; border: 1px solid %2; border-radius: 6px;
+            padding: 5px 14px; color: %5; font-size: 12px;
         }
         QPushButton#NavBtn:hover { background: %4; border-color: %7; }
+        QPushButton#DangerBtn {
+            background: %9; border: 1px solid %9; border-radius: 6px;
+            padding: 5px 14px; color: white; font-size: 12px;
+        }
+        QPushButton#DangerBtn:hover { background: %10; border-color: %10; }
+        QTabWidget::pane { border: 1px solid %2; border-radius: 8px; background: %1; }
+        QTabBar::tab {
+            background: %4; border: 1px solid %2; border-bottom: none;
+            border-top-left-radius: 6px; border-top-right-radius: 6px;
+            padding: 6px 14px; margin-right: 2px; color: %3;
+        }
+        QTabBar::tab:selected { background: %1; color: %5; border-bottom: 2px solid %7; }
+        QTabBar::tab:hover { background: %6; }
+        QTableWidget { gridline-color: %2; }
+        QHeaderView::section {
+            background: %4;
+            border: none;
+            border-bottom: 1px solid %2;
+            padding: 6px;
+            color: %3;
+            font-weight: 600;
+        }
     )")
-                                  .arg(kColorBgElev, kColorBorder, kColorFgMuted,
-                                       kColorBgElev2, kColorFgSoft, kColorBgElev2, kColorAccent));
+                          .arg(kColorBgElev, kColorBorder, kColorFgMuted,
+                               kColorBgElev2, kColorFgSoft, kColorBgElev2, kColorAccent, kColorAccentHover,
+                               kColorDanger, kColorDanger));
 }
 
 void SyncDetailsPage::buildUi()
 {
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(16, 16, 16, 16);
-    root->setSpacing(12);
+    root->setContentsMargins(20, 20, 20, 20);
+    root->setSpacing(14);
 
     // ── 顶部工具栏 ──
     auto *toolbar = new QHBoxLayout;
@@ -84,8 +125,17 @@ void SyncDetailsPage::buildUi()
 
     toolbar->addSpacing(16);
 
+    auto *title = new QLabel(QStringLiteral("📋 同步详情"));
+    title->setObjectName(QStringLiteral("Heading"));
+    toolbar->addWidget(title);
+
+    auto *subtitle = new QLabel(QStringLiteral("传输明细 / 日志 / 回收站"));
+    subtitle->setObjectName(QStringLiteral("SubHeading"));
+    toolbar->addWidget(subtitle);
+    toolbar->addStretch(1);
+
     m_serverEdit = new QLineEdit(m_api ? m_api->baseUrl() : kDefaultServerUrl);
-    m_serverEdit->setFixedWidth(280);
+    m_serverEdit->setFixedWidth(240);
     toolbar->addWidget(new QLabel(QStringLiteral("服务端")));
     toolbar->addWidget(m_serverEdit);
 
@@ -96,23 +146,56 @@ void SyncDetailsPage::buildUi()
     });
     toolbar->addWidget(btnApply);
 
-    toolbar->addSpacing(12);
-
-    m_statusLabel = new QLabel(QStringLiteral("—"));
-    m_statusLabel->setObjectName(QStringLiteral("StatusLabel"));
-    toolbar->addWidget(m_statusLabel);
-
-    toolbar->addStretch(1);
-
     root->addLayout(toolbar);
 
     // ── 标签页 ──
     m_tabs = new QTabWidget;
 
+    // ── 最近一次同步 Tab ──
+    m_latestSyncTab = new QWidget;
+    auto *latestLay = new QVBoxLayout(m_latestSyncTab);
+    latestLay->setContentsMargins(12, 12, 12, 12);
+    latestLay->setSpacing(8);
+
+    auto *latestToolbar = new QHBoxLayout;
+    latestToolbar->setSpacing(8);
+    m_btnRefreshLatestSync = new QPushButton(QStringLiteral("↻ 刷新"));
+    m_btnRefreshLatestSync->setObjectName(QStringLiteral("ToolBtn"));
+    connect(m_btnRefreshLatestSync, &QPushButton::clicked, this, &SyncDetailsPage::onRefreshLatestSync);
+    latestToolbar->addWidget(m_btnRefreshLatestSync);
+    latestToolbar->addStretch(1);
+    latestLay->addLayout(latestToolbar);
+
+    m_lblLatestSummary = new QLabel(QStringLiteral("暂无同步记录"));
+    m_lblLatestSummary->setObjectName(QStringLiteral("SummaryLabel"));
+    m_lblLatestSummary->setWordWrap(true);
+    latestLay->addWidget(m_lblLatestSummary);
+
+    auto *latestBox = new QGroupBox(QStringLiteral("传输明细"));
+    auto *latestBoxLay = new QVBoxLayout(latestBox);
+    m_latestRecordsTable = new QTableWidget(0, 5);
+    m_latestRecordsTable->setHorizontalHeaderLabels({QStringLiteral("类型"),
+                                                      QStringLiteral("逻辑键"),
+                                                      QStringLiteral("标题"),
+                                                      QStringLiteral("操作"),
+                                                      QStringLiteral("原因")});
+    m_latestRecordsTable->verticalHeader()->setVisible(false);
+    m_latestRecordsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_latestRecordsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_latestRecordsTable->horizontalHeader()->setStretchLastSection(true);
+    m_latestRecordsTable->setColumnWidth(0, 80);
+    m_latestRecordsTable->setColumnWidth(1, 180);
+    m_latestRecordsTable->setColumnWidth(2, 180);
+    m_latestRecordsTable->setColumnWidth(3, 90);
+    latestBoxLay->addWidget(m_latestRecordsTable);
+    latestLay->addWidget(latestBox, 1);
+
+    m_tabs->addTab(m_latestSyncTab, QStringLiteral("📊 最近同步"));
+
     // ── 日志 Tab ──
     auto *logTab = new QWidget;
     auto *logLay = new QVBoxLayout(logTab);
-    logLay->setContentsMargins(0, 0, 0, 0);
+    logLay->setContentsMargins(12, 12, 12, 12);
     logLay->setSpacing(8);
 
     // 筛选栏
@@ -184,6 +267,7 @@ void SyncDetailsPage::buildUi()
 
     // 分页栏
     auto *pageBar = new QHBoxLayout;
+    pageBar->setSpacing(8);
     m_btnPrevPage = new QPushButton(QStringLiteral("◀ 上一页"));
     m_btnPrevPage->setObjectName(QStringLiteral("ToolBtn"));
     m_btnPrevPage->setEnabled(false);
@@ -220,7 +304,7 @@ void SyncDetailsPage::buildUi()
     pageBar->addWidget(m_btnRefreshLog);
 
     m_btnClearLogs = new QPushButton(QStringLiteral("🗑 清空"));
-    m_btnClearLogs->setObjectName(QStringLiteral("ToolBtn"));
+    m_btnClearLogs->setObjectName(QStringLiteral("DangerBtn"));
     connect(m_btnClearLogs, &QPushButton::clicked, this, &SyncDetailsPage::onClearLogs);
     pageBar->addWidget(m_btnClearLogs);
 
@@ -231,27 +315,28 @@ void SyncDetailsPage::buildUi()
     auto *dl = new QVBoxLayout(detailBox);
     m_detailPanel = new QPlainTextEdit;
     m_detailPanel->setReadOnly(true);
-    m_detailPanel->setMaximumHeight(200);
+    m_detailPanel->setMaximumHeight(180);
     m_detailPanel->setPlaceholderText(QStringLiteral("双击上方日志行查看传输明细…"));
     dl->addWidget(m_detailPanel);
     logLay->addWidget(detailBox);
 
-    m_tabs->addTab(logTab, QStringLiteral("同步日志"));
+    m_tabs->addTab(logTab, QStringLiteral("📜 同步日志"));
 
     // ── 回收站 Tab ──
     auto *trashTab = new QWidget;
     auto *trashLay = new QVBoxLayout(trashTab);
-    trashLay->setContentsMargins(0, 0, 0, 0);
+    trashLay->setContentsMargins(12, 12, 12, 12);
     trashLay->setSpacing(8);
 
     auto *trashBar = new QHBoxLayout;
+    trashBar->setSpacing(8);
     m_btnRefreshTrash = new QPushButton(QStringLiteral("↻ 刷新"));
     m_btnRefreshTrash->setObjectName(QStringLiteral("ToolBtn"));
     connect(m_btnRefreshTrash, &QPushButton::clicked, this, &SyncDetailsPage::onRefreshTrash);
     trashBar->addWidget(m_btnRefreshTrash);
 
     m_btnClearTrash = new QPushButton(QStringLiteral("🗑 清空"));
-    m_btnClearTrash->setObjectName(QStringLiteral("ToolBtn"));
+    m_btnClearTrash->setObjectName(QStringLiteral("DangerBtn"));
     connect(m_btnClearTrash, &QPushButton::clicked, this, &SyncDetailsPage::onClearTrash);
     trashBar->addWidget(m_btnClearTrash);
 
@@ -263,7 +348,7 @@ void SyncDetailsPage::buildUi()
     trashBar->addWidget(m_btnRestoreTrash);
 
     m_btnDeleteTrash = new QPushButton(QStringLiteral("✗ 永久删除"));
-    m_btnDeleteTrash->setObjectName(QStringLiteral("ToolBtn"));
+    m_btnDeleteTrash->setObjectName(QStringLiteral("DangerBtn"));
     connect(m_btnDeleteTrash, &QPushButton::clicked, this, &SyncDetailsPage::onDeleteTrashRow);
     trashBar->addWidget(m_btnDeleteTrash);
 
@@ -279,7 +364,7 @@ void SyncDetailsPage::buildUi()
     m_trashTable->horizontalHeader()->setStretchLastSection(true);
     trashLay->addWidget(m_trashTable, 1);
 
-    m_tabs->addTab(trashTab, QStringLiteral("回收站"));
+    m_tabs->addTab(trashTab, QStringLiteral("🗑 回收站"));
 
     root->addWidget(m_tabs, 1);
 }
@@ -291,6 +376,85 @@ void SyncDetailsPage::setServerUrl(const QString &url)
         m_statusLabel->setText(QStringLiteral("已切换到: %1").arg(url));
         refreshLogs();
         refreshTrash();
+        refreshLatestSync();
+    }
+}
+
+void SyncDetailsPage::onRefreshLatestSync()
+{
+    refreshLatestSync();
+}
+
+void SyncDetailsPage::refreshLatestSync()
+{
+    if (!m_api)
+        return;
+    QNetworkReply *r = m_api->getSyncLogs(QString(), QString(), QString("sync"), 1, 0);
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            m_lblLatestSummary->setText(QStringLiteral("获取最近同步记录失败：%1").arg(err));
+            return;
+        }
+        const auto obj = doc.object();
+        const auto arr = obj.value(QStringLiteral("logs")).toArray();
+        if (arr.isEmpty()) {
+            m_lblLatestSummary->setText(QStringLiteral("暂无同步记录"));
+            m_latestRecordsTable->setRowCount(0);
+            return;
+        }
+        const auto logEntry = arr.first().toObject();
+        const auto result = logEntry.value(QStringLiteral("result")).toObject();
+        if (result.isEmpty()) {
+            m_lblLatestSummary->setText(QStringLiteral("最近一条同步无结果数据"));
+            m_latestRecordsTable->setRowCount(0);
+            return;
+        }
+        populateLatestSync(result);
+    });
+}
+
+void SyncDetailsPage::populateLatestSync(const QJsonObject &result)
+{
+    const ApplyResult r = ApplyResult::fromJson(result);
+
+    m_lblLatestSummary->setText(
+        QStringLiteral("应用 %1 条（新增 %2 / 更新 %3 / 删除 %4）· 忽略 %5 · 归档 %6 · 错误 %7")
+            .arg(r.applied).arg(r.created).arg(r.updated).arg(r.deleted)
+            .arg(r.ignored).arg(r.archived).arg(r.errors.size()));
+
+    m_latestRecordsTable->setRowCount(0);
+    int row = 0;
+    for (const TransferRecord &rec : r.records) {
+        m_latestRecordsTable->insertRow(row);
+        m_latestRecordsTable->setItem(row, 0, new QTableWidgetItem(rec.kind));
+        m_latestRecordsTable->setItem(row, 1, new QTableWidgetItem(rec.logicalKey));
+        m_latestRecordsTable->setItem(row, 2, new QTableWidgetItem(rec.title));
+        m_latestRecordsTable->setItem(row, 3, new QTableWidgetItem(TransferRecord::actionLabel(rec.action)));
+        m_latestRecordsTable->setItem(row, 4, new QTableWidgetItem(rec.reason));
+        QColor actionColor;
+        if (rec.action == QLatin1String("created"))
+            actionColor = QColor(QString::fromLatin1(kColorOk));
+        else if (rec.action == QLatin1String("updated"))
+            actionColor = QColor(QString::fromLatin1(kColorAccent));
+        else if (rec.action == QLatin1String("deleted"))
+            actionColor = QColor(QString::fromLatin1(kColorDanger));
+        else if (rec.action == QLatin1String("archived"))
+            actionColor = QColor(QString::fromLatin1(kColorWarn));
+        else if (rec.action == QLatin1String("conflict"))
+            actionColor = QColor(QString::fromLatin1(kColorDanger));
+        for (int c = 0; c < 5; ++c) {
+            if (auto *it = m_latestRecordsTable->item(row, c))
+                it->setForeground(actionColor);
+        }
+        ++row;
+    }
+    if (r.records.isEmpty()) {
+        if (!r.errors.isEmpty()) {
+            m_lblLatestSummary->setText(m_lblLatestSummary->text() +
+                                        QStringLiteral("\n错误：") + r.errors.join(QStringLiteral("；")));
+        }
     }
 }
 
@@ -298,13 +462,11 @@ void SyncDetailsPage::refreshLogs()
 {
     if (!m_api)
         return;
-    QString direction = m_filterDirection->currentData().toString();
-    QString protocol = m_filterProtocol->currentData().toString();
-    QString eventType = m_filterEvent->currentData().toString();
-    QString kind = m_filterKind->currentData().toString();
-
-    QNetworkReply *r = m_api->getSyncLogs(direction, protocol, eventType, m_limit, m_offset);
-    connect(r, &QNetworkReply::finished, this, [this, r, kind] {
+    const QString dir = m_filterDirection->currentData().toString();
+    const QString proto = m_filterProtocol->currentData().toString();
+    const QString eventT = m_filterEvent->currentData().toString();
+    QNetworkReply *r = m_api->getSyncLogs(dir, proto, eventT, m_limit, m_offset);
+    connect(r, &QNetworkReply::finished, this, [this, r] {
         QJsonDocument doc;
         QString err;
         if (!ApiClient::parseReply(r, &doc, &err)) {
@@ -313,111 +475,56 @@ void SyncDetailsPage::refreshLogs()
         }
         const auto obj = doc.object();
         const auto arr = obj.value(QStringLiteral("logs")).toArray();
-        m_totalLogs = obj.value(QStringLiteral("total")).toVariant().toLongLong();
-        populateLogTable(arr, m_totalLogs, kind);
-    });
-}
-
-void SyncDetailsPage::refreshTrash()
-{
-    if (!m_api)
-        return;
-    QNetworkReply *r = m_api->getTrash();
-    connect(r, &QNetworkReply::finished, this, [this, r] {
-        QJsonDocument doc;
-        QString err;
-        if (!ApiClient::parseReply(r, &doc, &err)) {
-            log(QStringLiteral("获取回收站失败：%1").arg(err));
-            return;
-        }
-        const auto arr = doc.array();
-        populateTrashTable(arr);
-        log(QStringLiteral("回收站 %1 条").arg(arr.size()));
+        const qint64 total = obj.value(QStringLiteral("total")).toVariant().toLongLong();
+        const QString kindFilter = m_filterKind->currentData().toString();
+        populateLogTable(arr, total, kindFilter);
     });
 }
 
 void SyncDetailsPage::populateLogTable(const QJsonArray &logs, qint64 total, const QString &kindFilter)
 {
-    m_logTable->setRowCount(0);
     m_logEntries.clear();
-
+    m_logTable->setRowCount(0);
     int row = 0;
     for (const auto &v : logs) {
-        const SyncLogEntry e = SyncLogEntry::fromJson(v.toObject());
-
-        // 类型过滤：默认只显示 ActivityWatch 相关日志（kind=activity），
-        // 收件箱（note）和任务（todo）由 D1 云同步管理，此页默认不显示
+        if (!v.isObject())
+            continue;
+        const auto o = v.toObject();
         if (!kindFilter.isEmpty()) {
-            bool hasKindMatch = false;
-            for (const TransferRecord &rec : e.details) {
-                if (rec.kind == kindFilter) {
-                    hasKindMatch = true;
-                    break;
-                }
-            }
-            if (!hasKindMatch && e.details.isEmpty()) {
-                // 如果没有details但kindFilter不为空，根据protocol推断
-                // LAN同步默认就是activity，这里简化处理：只显示有匹配details的日志
+            const QString kind = o.value(QStringLiteral("event_type")).toString();
+            if (kind != kindFilter && !(kindFilter == QStringLiteral("activity") && kind.isEmpty()))
                 continue;
-            }
-            if (!hasKindMatch) {
-                continue;
-            }
         }
-
+        const SyncLogEntry e = SyncLogEntry::fromJson(o);
         m_logEntries.append(e);
-
         m_logTable->insertRow(row);
         m_logTable->setItem(row, 0, new QTableWidgetItem(formatLocal(e.timestamp)));
         m_logTable->setItem(row, 1, new QTableWidgetItem(e.direction));
         m_logTable->setItem(row, 2, new QTableWidgetItem(e.protocol));
         m_logTable->setItem(row, 3, new QTableWidgetItem(e.eventType));
         m_logTable->setItem(row, 4, new QTableWidgetItem(e.status));
-        m_logTable->setItem(row, 5, new QTableWidgetItem(e.message));
-
-        // 错误行标红
-        if (e.status == QStringLiteral("error")) {
-            for (int c = 0; c < 6; ++c) {
-                if (auto *it = m_logTable->item(row, c))
-                    it->setForeground(QColor(kColorDanger));
-            }
-        }
+        QString msg = e.message;
+        if (e.dataSize > 0)
+            msg += QStringLiteral(" (%1 bytes)").arg(e.dataSize);
+        m_logTable->setItem(row, 5, new QTableWidgetItem(msg));
         ++row;
     }
-
-    // 更新分页
-    int totalPages = (total + m_limit - 1) / m_limit;
-    if (totalPages < 1) totalPages = 1;
-    m_pageSpin->setMaximum(totalPages);
+    m_totalLogs = total;
+    const int totalPages = (total + m_limit - 1) / m_limit;
+    m_logCountLabel->setText(QStringLiteral("%1 条（第 %2/%3 页）")
+                                  .arg(total)
+                                  .arg(qBound(1, (m_offset / m_limit) + 1, qMax(1, totalPages)))
+                                  .arg(totalPages));
+    m_pageSpin->setMaximum(qMax(1, totalPages));
     m_pageSpin->setSuffix(QStringLiteral(" / %1").arg(totalPages));
-    m_pageSpin->setValue(m_offset / m_limit + 1);
+    m_pageSpin->setValue(qBound(1, (m_offset / m_limit) + 1, qMax(1, totalPages)));
     m_btnPrevPage->setEnabled(m_offset > 0);
     m_btnNextPage->setEnabled(m_offset + m_limit < total);
-
-    m_logCountLabel->setText(QStringLiteral("%1 条（共 %2）").arg(m_logEntries.size()).arg(total));
-}
-
-void SyncDetailsPage::populateTrashTable(const QJsonArray &arr)
-{
-    m_trashTable->setRowCount(0);
-    int row = 0;
-    for (const auto &v : arr) {
-        const auto o = v.toObject();
-        m_trashTable->insertRow(row);
-        m_trashTable->setItem(row, 0, new QTableWidgetItem(
-            QString::number(o.value(QStringLiteral("id")).toVariant().toLongLong())));
-        m_trashTable->setItem(row, 1, new QTableWidgetItem(o.value(QStringLiteral("kind")).toString()));
-        m_trashTable->setItem(row, 2, new QTableWidgetItem(o.value(QStringLiteral("logical_key")).toString()));
-        m_trashTable->setItem(row, 3, new QTableWidgetItem(o.value(QStringLiteral("reason")).toString()));
-        m_trashTable->setItem(row, 4, new QTableWidgetItem(o.value(QStringLiteral("source_device")).toString()));
-        m_trashTable->setItem(row, 5, new QTableWidgetItem(
-            formatLocal(o.value(QStringLiteral("archived_at")).toString())));
-        ++row;
-    }
 }
 
 void SyncDetailsPage::onRefreshLogs()
 {
+    m_offset = 0;
     refreshLogs();
 }
 
@@ -433,7 +540,7 @@ void SyncDetailsPage::onClearLogs()
             log(QStringLiteral("清空日志失败：%1").arg(err));
             return;
         }
-        log(QStringLiteral("同步日志已清空"));
+        log(QStringLiteral("日志已清空"));
         refreshLogs();
     });
 }
@@ -444,24 +551,30 @@ void SyncDetailsPage::onLogFiltersChanged()
     refreshLogs();
 }
 
-void SyncDetailsPage::onLogRowExpanded(int row, int /*column*/)
+void SyncDetailsPage::onLogRowExpanded(int row, int column)
 {
+    Q_UNUSED(column);
     if (row < 0 || row >= m_logEntries.size())
         return;
     const SyncLogEntry &e = m_logEntries[row];
-    if (!e.hasDetails()) {
-        m_detailPanel->setPlainText(QStringLiteral("该日志条目无传输明细。"));
-        return;
-    }
-    QString text = QStringLiteral("[%1] %2 %3 %4\n")
-        .arg(formatLocal(e.timestamp)).arg(e.direction).arg(e.eventType).arg(e.message);
-    text += QStringLiteral("── 传输明细 %1 条 ──\n").arg(e.details.size());
-    for (const TransferRecord &rec : e.details) {
-        const QString label = rec.title.isEmpty() ? rec.logicalKey : rec.title;
-        text += QStringLiteral("  · [%1] %2 %3").arg(rec.kind).arg(TransferRecord::actionLabel(rec.action)).arg(label);
-        if (!rec.reason.isEmpty())
-            text += QStringLiteral("（%1）").arg(rec.reason);
-        text += QChar('\n');
+    QString text;
+    text += QStringLiteral("时间：%1\n").arg(e.timestamp);
+    text += QStringLiteral("方向：%1\n").arg(e.direction);
+    text += QStringLiteral("协议：%1\n").arg(e.protocol);
+    text += QStringLiteral("事件：%1\n").arg(e.eventType);
+    text += QStringLiteral("状态：%1\n").arg(e.status);
+    text += QStringLiteral("消息：%1\n").arg(e.message.isEmpty() ? QStringLiteral("—") : e.message);
+    if (e.dataSize > 0)
+        text += QStringLiteral("数据大小：%1 bytes\n").arg(e.dataSize);
+    if (e.hasDetails()) {
+        text += QStringLiteral("\n--- 传输明细 ---\n");
+        for (const TransferRecord &rec : e.details) {
+            text += QStringLiteral("  · [%1] %2 %3\n")
+                        .arg(rec.kind, TransferRecord::actionLabel(rec.action),
+                             rec.title.isEmpty() ? rec.logicalKey : rec.title);
+            if (!rec.reason.isEmpty())
+                text += QStringLiteral("    原因：%1\n").arg(rec.reason);
+        }
     }
     m_detailPanel->setPlainText(text);
 }
@@ -471,9 +584,54 @@ void SyncDetailsPage::onRefreshTrash()
     refreshTrash();
 }
 
+void SyncDetailsPage::refreshTrash()
+{
+    if (!m_api)
+        return;
+    QNetworkReply *r = m_api->getTrash();
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            log(QStringLiteral("获取回收站失败：%1").arg(err));
+            return;
+        }
+        const auto obj = doc.object();
+        const auto arr = obj.value(QStringLiteral("trash")).toArray();
+        populateTrashTable(arr);
+        log(QStringLiteral("回收站 %1 条").arg(arr.size()));
+    });
+}
+
+void SyncDetailsPage::populateTrashTable(const QJsonArray &arr)
+{
+    m_trashTable->setRowCount(0);
+    int row = 0;
+    for (const auto &v : arr) {
+        if (!v.isObject())
+            continue;
+        const auto o = v.toObject();
+        const TrashEntry t = TrashEntry::fromJson(o);
+        m_trashTable->insertRow(row);
+        m_trashTable->setItem(row, 0, new QTableWidgetItem(QString::number(t.id)));
+        m_trashTable->setItem(row, 1, new QTableWidgetItem(t.kind));
+        m_trashTable->setItem(row, 2, new QTableWidgetItem(t.logicalKey));
+        m_trashTable->setItem(row, 3, new QTableWidgetItem(t.reason));
+        m_trashTable->setItem(row, 4, new QTableWidgetItem(t.sourceDevice));
+        m_trashTable->setItem(row, 5, new QTableWidgetItem(formatLocal(t.archivedAt)));
+        ++row;
+    }
+}
+
 void SyncDetailsPage::onClearTrash()
 {
     if (!m_api)
+        return;
+    QMessageBox box(this);
+    box.setWindowTitle(QStringLiteral("清空回收站"));
+    box.setText(QStringLiteral("确定永久删除回收站中的全部归档？此操作不可恢复。"));
+    box.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+    if (box.exec() != QMessageBox::Yes)
         return;
     QNetworkReply *r = m_api->clearAllTrash();
     connect(r, &QNetworkReply::finished, this, [this, r] {
@@ -490,14 +648,12 @@ void SyncDetailsPage::onClearTrash()
 
 void SyncDetailsPage::onRestoreTrashRow()
 {
+    const int row = m_trashTable->currentRow();
+    if (row < 0)
+        return;
+    const qint64 id = m_trashTable->item(row, 0)->text().toLongLong();
     if (!m_api)
         return;
-    const int row = m_trashTable->currentRow();
-    if (row < 0 || m_trashTable->item(row, 0) == nullptr) {
-        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请先选择回收站条目"));
-        return;
-    }
-    const qint64 id = m_trashTable->item(row, 0)->text().toLongLong();
     QNetworkReply *r = m_api->restoreTrash(id);
     connect(r, &QNetworkReply::finished, this, [this, r] {
         QJsonDocument doc;
@@ -506,22 +662,25 @@ void SyncDetailsPage::onRestoreTrashRow()
             log(QStringLiteral("恢复失败：%1").arg(err));
             return;
         }
-        log(QStringLiteral("已恢复回收站条目 #%1").arg(
-            doc.object().value(QStringLiteral("id")).toVariant().toLongLong()));
+        log(QStringLiteral("已恢复归档项"));
         refreshTrash();
     });
 }
 
 void SyncDetailsPage::onDeleteTrashRow()
 {
+    const int row = m_trashTable->currentRow();
+    if (row < 0)
+        return;
+    const qint64 id = m_trashTable->item(row, 0)->text().toLongLong();
     if (!m_api)
         return;
-    const int row = m_trashTable->currentRow();
-    if (row < 0 || m_trashTable->item(row, 0) == nullptr) {
-        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请先选择回收站条目"));
+    QMessageBox box(this);
+    box.setWindowTitle(QStringLiteral("永久删除"));
+    box.setText(QStringLiteral("确定永久删除此归档项？此操作不可恢复。"));
+    box.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+    if (box.exec() != QMessageBox::Yes)
         return;
-    }
-    const qint64 id = m_trashTable->item(row, 0)->text().toLongLong();
     QNetworkReply *r = m_api->deleteTrash(id);
     connect(r, &QNetworkReply::finished, this, [this, r] {
         QJsonDocument doc;
@@ -530,8 +689,7 @@ void SyncDetailsPage::onDeleteTrashRow()
             log(QStringLiteral("删除失败：%1").arg(err));
             return;
         }
-        log(QStringLiteral("已永久删除回收站条目 #%1").arg(
-            doc.object().value(QStringLiteral("id")).toVariant().toLongLong()));
+        log(QStringLiteral("已永久删除"));
         refreshTrash();
     });
 }
@@ -544,7 +702,6 @@ void SyncDetailsPage::onBack()
 void SyncDetailsPage::log(const QString &line)
 {
     emit logMessage(line);
-    m_statusLabel->setText(line);
 }
 
 } // namespace awqtui

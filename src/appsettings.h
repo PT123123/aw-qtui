@@ -39,6 +39,11 @@ QString loadThemeId();
 // 持久化主题 ID
 void saveThemeId(const QString &id);
 
+// 读取程序图标 ID（默认 "amber"，见 theme.h kAppIconVariants）
+QString loadAppIconId();
+// 持久化程序图标 ID
+void saveAppIconId(const QString &id);
+
 // 界面效果配置（阴影 / 玻璃 / 动画 / DWM 背景 + 边缘修复开关），供「设置 → 界面效果」控制
 struct UiEffects {
     // 阴影强度：0=关, 1=弱, 2=中, 3=强
