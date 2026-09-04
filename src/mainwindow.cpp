@@ -19,6 +19,7 @@
 #include "statspage.h"
 #include "syncpage.h"
 #include "syncdetailspage.h"
+#include "cloudbackuppage.h"
 #include "stopwatchpage.h"
 #include "querypage.h"
 #include "d1syncpage.h"
@@ -27,7 +28,6 @@
 #include "timelinepage.h"
 #include "todopage.h"
 #include "todostore.h"
-#include "trashpage.h"
 #include "watcher.h"
 
 #include <QApplication>
@@ -51,6 +51,7 @@
 #include <QSizePolicy>
 #include <QSpinBox>
 #include <QSystemTrayIcon>
+#include <QTabWidget>
 #include <QTextEdit>
 #include <QTimer>
 #include <QToolButton>
@@ -156,7 +157,7 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     // 窗口显示后应用 DWM 系统背景（Mica/Acrylic），需 HWND 就绪
     QTimer::singleShot(0, this, &MainWindow::applyDwmBackdrop);
 
-    // 系统托盘：emoji 图标（复用主题 emoji，无外部资源），左键切换显示/隐藏，右键菜单
+    // 系统托盘：程序图标（makeAppIcon，无外部资源），左键切换显示/隐藏，右键菜单
     setupTray();
 }
 
@@ -166,14 +167,15 @@ MainWindow::~MainWindow()
     delete m_localStore;
 }
 
-// 系统托盘：图标用固定 kAppEmoji(🌿) + 白色圆形背景（makeEmojiIcon 默认 WhiteCircle，已含 16/32px 托盘尺寸），零外部资源。
+// 系统托盘：图标用 makeAppIcon()（对齐 aw-android-native 启动图标：白底圆 + 琥珀黄盘 + 青绿时钟），
+// 已含 16/32px 托盘尺寸，零外部资源。
 // 交互：左键/双击切换显示隐藏；右键菜单「显示/隐藏主窗口」「退出」；关窗默认最小化到托盘。
 void MainWindow::setupTray()
 {
     if (!QSystemTrayIcon::isSystemTrayAvailable())
         return;
     m_tray = new QSystemTrayIcon(this);
-    m_tray->setIcon(makeEmojiIcon(QString::fromUtf8(kAppEmoji)));
+    m_tray->setIcon(makeAppIcon());
     m_tray->setToolTip(QStringLiteral("aw-qtui · %1").arg(QString::fromUtf8(gTheme->name)));
 
     auto *menu = new QMenu(this);
@@ -290,58 +292,38 @@ void MainWindow::buildUi()
     };
 
     // ---- 分组 1：Inbox ----
+    // 回收站收纳进「收件箱设置」页内子标签，侧边栏只保留设置入口
     NavSection inboxSec = makeSection(QStringLiteral("收件箱"), true);
     m_navInbox = makeNavBtn("📥", "收件箱");
     m_navInboxSettings = makeNavBtn("⚙", "收件箱设置");
-    m_navTrash = makeNavBtn("🗑", "回收站");
     inboxSec.layout->addWidget(m_navInbox);
     inboxSec.layout->addWidget(m_navInboxSettings);
-    inboxSec.layout->addWidget(m_navTrash);
 
     // ---- 分组 2：任务 ----
+    // 统计类视图合并为单个「专注统计」入口（页内子标签切换），减少侧边栏图标数量
     NavSection todoSec = makeSection(QStringLiteral("任务"), true);
     m_navTodo = makeNavBtn("☑", "收集箱");
     m_navTimer = makeNavBtn("⏱", "计时专注");
-    m_navOverview = makeNavBtn("☰", "记录专注");
-    m_navDetail = makeNavBtn("≡", "记录详情");
-    m_navWeek = makeNavBtn("📊", "时间线");
-    m_navHeatmap = makeNavBtn("▦", "日历图");
-    m_navBest = makeNavBtn("⭐", "最佳专注时间");
-    m_navCalendar = makeNavBtn("📅", "日历");
-    m_navMemorial = makeNavBtn("🏷", "倒数纪念日");
+    m_navFocusStats = makeNavBtn("📊", "专注统计");
     todoSec.layout->addWidget(m_navTodo);
     todoSec.layout->addWidget(m_navTimer);
-    todoSec.layout->addWidget(m_navOverview);
-    todoSec.layout->addWidget(m_navDetail);
-    todoSec.layout->addWidget(m_navWeek);
-    todoSec.layout->addWidget(m_navHeatmap);
-    todoSec.layout->addWidget(m_navBest);
-    todoSec.layout->addWidget(m_navCalendar);
-    todoSec.layout->addWidget(m_navMemorial);
+    todoSec.layout->addWidget(m_navFocusStats);
 
     // ---- 分组 3：Activity Watch ----
+    // 6 个视图合并为单个「ActivityWatch」入口（页内子标签切换）
     NavSection awSec = makeSection(QStringLiteral("ACTIVITYWATCH"), false);
-    m_navActivity = makeNavBtn("📊", "Activity");
-    m_navTimeline = makeNavBtn("⏱", "Timeline");
-    m_navDay = makeNavBtn("🏷", "标签 Day");
-    m_navStats = makeNavBtn("📈", "统计");
-    m_navStopwatch = makeNavBtn("⏱", "秒表");
-    m_navQuery = makeNavBtn("🔍", "Query");
+    m_navActivity = makeNavBtn("📊", "ActivityWatch");
     awSec.layout->addWidget(m_navActivity);
-    awSec.layout->addWidget(m_navTimeline);
-    awSec.layout->addWidget(m_navDay);
-    awSec.layout->addWidget(m_navStats);
-    awSec.layout->addWidget(m_navStopwatch);
-    awSec.layout->addWidget(m_navQuery);
 
     // ---- 分组 4：同步 ----
+    // 同步详情并入局域网同步页内子标签
     NavSection syncSec = makeSection(QStringLiteral("同步"), false);
     m_navSync = makeNavBtn("⇄", "局域网同步");
     m_navD1Sync = makeNavBtn("☁", "D1 云同步");
-    m_navSyncDetails = makeNavBtn("📋", "同步详情");
+    m_navCloudBackup = makeNavBtn("❄", "云备份（冷备）");
     syncSec.layout->addWidget(m_navSync);
     syncSec.layout->addWidget(m_navD1Sync);
-    syncSec.layout->addWidget(m_navSyncDetails);
+    syncSec.layout->addWidget(m_navCloudBackup);
 
     // 窄栏模式：隐藏分组标题，图标平铺
     m_navSectionHeaders = {inboxSec.header, todoSec.header, awSec.header, syncSec.header};
@@ -359,25 +341,13 @@ void MainWindow::buildUi()
     // 连接信号
     connect(m_navInbox, &QPushButton::clicked, this, [this] { switchPage(PAGE_INBOX); });
     connect(m_navInboxSettings, &QPushButton::clicked, this, [this] { switchPage(PAGE_INBOX_SETTINGS); });
-    connect(m_navTrash, &QPushButton::clicked, this, [this] { switchPage(PAGE_TRASH); });
     connect(m_navTodo, &QPushButton::clicked, this, [this] { switchPage(PAGE_TODO); });
     connect(m_navTimer, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_TIMER); });
-    connect(m_navOverview, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_OVERVIEW); });
-    connect(m_navDetail, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_DETAIL); });
-    connect(m_navWeek, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_WEEK); });
-    connect(m_navHeatmap, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_HEATMAP); });
-    connect(m_navBest, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_BEST); });
-    connect(m_navCalendar, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_CALENDAR); });
-    connect(m_navMemorial, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_MEMORIAL); });
+    connect(m_navFocusStats, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_STATS); });
     connect(m_navActivity, &QPushButton::clicked, this, [this] { switchPage(PAGE_ACTIVITY); });
-    connect(m_navTimeline, &QPushButton::clicked, this, [this] { switchPage(PAGE_TIMELINE); });
-    connect(m_navDay, &QPushButton::clicked, this, [this] { switchPage(PAGE_DAY); });
-    connect(m_navStats, &QPushButton::clicked, this, [this] { switchPage(PAGE_STATS); });
     connect(m_navSync, &QPushButton::clicked, this, [this] { switchPage(PAGE_SYNC); });
     connect(m_navD1Sync, &QPushButton::clicked, this, [this] { switchPage(PAGE_D1_SYNC); });
-    connect(m_navSyncDetails, &QPushButton::clicked, this, [this] { switchPage(PAGE_SYNC_DETAILS); });
-    connect(m_navStopwatch, &QPushButton::clicked, this, [this] { switchPage(PAGE_STOPWATCH); });
-    connect(m_navQuery, &QPushButton::clicked, this, [this] { switchPage(PAGE_QUERY); });
+    connect(m_navCloudBackup, &QPushButton::clicked, this, [this] { switchPage(PAGE_CLOUD_BACKUP); });
 
     navLay->addStretch(1);
     root->addWidget(nav);
@@ -387,8 +357,7 @@ void MainWindow::buildUi()
 
     // 创建页面
     m_inbox = new InboxPage(m_api);
-    m_inboxSettings = new InboxSettingsPage;
-    m_trash = new TrashPage(m_localStore);
+    m_inboxSettings = new InboxSettingsPage(m_localStore);
     m_todo = new TodoPage(m_todoStore);
     m_timerPage = new FocusTimerPage(m_focusStore, m_todoStore);
     m_overviewPage = new FocusOverviewPage(m_focusStore);
@@ -398,6 +367,24 @@ void MainWindow::buildUi()
     m_bestPage = new FocusBestPage(m_focusStore);
     m_calendarPage = new FocusCalendarPage(m_focusStore, m_todoStore);
     m_memorialPage = new FocusMemorialPage(m_focusStore);
+
+    // 专注统计容器页：7 个统计视图收纳进一个带子标签的页面，
+    // 侧边栏只保留一个「专注统计」入口
+    QWidget *focusStatsPage = new QWidget;
+    auto *focusLay = new QVBoxLayout(focusStatsPage);
+    focusLay->setContentsMargins(0, 0, 0, 0);
+    m_focusTabs = new QTabWidget;
+    m_focusTabs->setDocumentMode(true);
+    m_focusTabs->addTab(m_overviewPage, QStringLiteral("☰ 记录"));
+    m_focusTabs->addTab(m_detailPage, QStringLiteral("≡ 详情"));
+    m_focusTabs->addTab(m_weekPage, QStringLiteral("📊 时间线"));
+    m_focusTabs->addTab(m_heatmapPage, QStringLiteral("▦ 日历图"));
+    m_focusTabs->addTab(m_bestPage, QStringLiteral("⭐ 最佳时段"));
+    m_focusTabs->addTab(m_calendarPage, QStringLiteral("📅 日历"));
+    m_focusTabs->addTab(m_memorialPage, QStringLiteral("🏷 纪念日"));
+    focusLay->addWidget(m_focusTabs, 1);
+    styleSubTabs(m_focusTabs);
+
     m_activity = new ActivityPage(m_api);
     m_timeline = new TimelinePage(m_api);
     m_day = new DayPage(m_api, m_tagStore);
@@ -405,38 +392,55 @@ void MainWindow::buildUi()
     m_sync = new SyncPage(m_api, m_mdns);
     m_d1Sync = new D1SyncPage(m_api);
     m_syncDetails = new SyncDetailsPage(m_api);
+    m_cloudBackup = new CloudBackupPage(m_api);
     m_stopwatch = new StopwatchPage(m_api);
     m_query = new QueryPage(m_api);
 
+    // 同步容器页：局域网同步 + 同步详情收进一个带子标签的页面，
+    // 侧边栏只保留一个「局域网同步」入口
+    QWidget *syncContainer = new QWidget;
+    auto *syncLay = new QVBoxLayout(syncContainer);
+    syncLay->setContentsMargins(0, 0, 0, 0);
+    m_syncTabs = new QTabWidget;
+    m_syncTabs->setDocumentMode(true);
+    m_syncTabs->addTab(m_sync, QStringLiteral("⇄ 局域网同步"));
+    m_syncTabs->addTab(m_syncDetails, QStringLiteral("📋 同步详情"));
+    syncLay->addWidget(m_syncTabs, 1);
+    styleSubTabs(m_syncTabs);
+
+    // ActivityWatch 容器页：6 个视图收纳进一个带子标签的页面，
+    // 侧边栏只保留一个「ActivityWatch」入口
+    QWidget *awPage = new QWidget;
+    auto *awLay = new QVBoxLayout(awPage);
+    awLay->setContentsMargins(0, 0, 0, 0);
+    m_awTabs = new QTabWidget;
+    m_awTabs->setDocumentMode(true);
+    m_awTabs->addTab(m_activity, QStringLiteral("📊 Activity"));
+    m_awTabs->addTab(m_timeline, QStringLiteral("⏱ Timeline"));
+    m_awTabs->addTab(m_day, QStringLiteral("🏷 Day 标签"));
+    m_awTabs->addTab(m_stats, QStringLiteral("📈 统计"));
+    m_awTabs->addTab(m_stopwatch, QStringLiteral("⏱ 秒表"));
+    m_awTabs->addTab(m_query, QStringLiteral("🔍 Query"));
+    awLay->addWidget(m_awTabs, 1);
+    styleSubTabs(m_awTabs);
+
     // 添加到堆栈（顺序必须与 switchPage 的索引一致）
     m_stack->addWidget(m_inbox);             // PAGE_INBOX = 0
-    m_stack->addWidget(m_inboxSettings);     // PAGE_INBOX_SETTINGS = 1
-    m_stack->addWidget(m_trash);             // PAGE_TRASH = 2
-    m_stack->addWidget(m_todo);              // PAGE_TODO = 3
-    m_stack->addWidget(m_timerPage);         // PAGE_FOCUS_TIMER = 4
-    m_stack->addWidget(m_overviewPage);      // PAGE_FOCUS_OVERVIEW = 5
-    m_stack->addWidget(m_detailPage);        // PAGE_FOCUS_DETAIL = 6
-    m_stack->addWidget(m_weekPage);          // PAGE_FOCUS_WEEK = 7
-    m_stack->addWidget(m_heatmapPage);       // PAGE_FOCUS_HEATMAP = 8
-    m_stack->addWidget(m_bestPage);          // PAGE_FOCUS_BEST = 9
-    m_stack->addWidget(m_calendarPage);      // PAGE_FOCUS_CALENDAR = 10
-    m_stack->addWidget(m_memorialPage);      // PAGE_FOCUS_MEMORIAL = 11
-    m_stack->addWidget(m_activity);          // PAGE_ACTIVITY = 12
-    m_stack->addWidget(m_timeline);          // PAGE_TIMELINE = 13
-    m_stack->addWidget(m_day);               // PAGE_DAY = 14
-    m_stack->addWidget(m_stats);             // PAGE_STATS = 15
-    m_stack->addWidget(m_sync);              // PAGE_SYNC = 16
-    m_stack->addWidget(m_d1Sync);            // PAGE_D1_SYNC = 17
-    m_stack->addWidget(m_stopwatch);         // PAGE_STOPWATCH = 18
-    m_stack->addWidget(m_query);             // PAGE_QUERY = 19
-    m_stack->addWidget(m_syncDetails);       // PAGE_SYNC_DETAILS = 20
+    m_stack->addWidget(m_inboxSettings);     // PAGE_INBOX_SETTINGS = 1（含回收站子标签）
+    m_stack->addWidget(m_todo);              // PAGE_TODO = 2
+    m_stack->addWidget(m_timerPage);         // PAGE_FOCUS_TIMER = 3
+    m_stack->addWidget(focusStatsPage);      // PAGE_FOCUS_STATS = 4（7 个统计视图子标签）
+    m_stack->addWidget(awPage);              // PAGE_ACTIVITY = 5（6 个视图子标签）
+    m_stack->addWidget(syncContainer);       // PAGE_SYNC = 6（局域网同步 + 同步详情子标签）
+    m_stack->addWidget(m_d1Sync);            // PAGE_D1_SYNC = 7
+    m_stack->addWidget(m_cloudBackup);       // PAGE_CLOUD_BACKUP = 8
 
     root->addWidget(m_stack, 1);
 
     connect(m_inbox, &InboxPage::settingsRequested, this, &MainWindow::openSettings);
 
-    // SyncDetailsPage：返回同步页 + 转发日志信号
-    connect(m_syncDetails, &SyncDetailsPage::backToSync, this, [this] { switchPage(PAGE_SYNC); });
+    // SyncDetailsPage：「返回同步」切到容器内第一个子标签 + 转发日志信号
+    connect(m_syncDetails, &SyncDetailsPage::backToSync, this, [this] { m_syncTabs->setCurrentIndex(0); });
     connect(m_syncDetails, &SyncDetailsPage::logMessage, m_sync, &SyncPage::logMessage);
 
     // 默认显示收件箱
@@ -507,33 +511,19 @@ void MainWindow::switchPage(int index)
     // 更新导航按钮状态
     m_navInbox->setChecked(index == PAGE_INBOX);
     m_navInboxSettings->setChecked(index == PAGE_INBOX_SETTINGS);
-    m_navTrash->setChecked(index == PAGE_TRASH);
     m_navTodo->setChecked(index == PAGE_TODO);
     m_navTimer->setChecked(index == PAGE_FOCUS_TIMER);
-    m_navOverview->setChecked(index == PAGE_FOCUS_OVERVIEW);
-    m_navDetail->setChecked(index == PAGE_FOCUS_DETAIL);
-    m_navWeek->setChecked(index == PAGE_FOCUS_WEEK);
-    m_navHeatmap->setChecked(index == PAGE_FOCUS_HEATMAP);
-    m_navBest->setChecked(index == PAGE_FOCUS_BEST);
-    m_navCalendar->setChecked(index == PAGE_FOCUS_CALENDAR);
-    m_navMemorial->setChecked(index == PAGE_FOCUS_MEMORIAL);
+    m_navFocusStats->setChecked(index == PAGE_FOCUS_STATS);
     m_navActivity->setChecked(index == PAGE_ACTIVITY);
-    m_navTimeline->setChecked(index == PAGE_TIMELINE);
-    m_navDay->setChecked(index == PAGE_DAY);
-    m_navStats->setChecked(index == PAGE_STATS);
     m_navSync->setChecked(index == PAGE_SYNC);
     m_navD1Sync->setChecked(index == PAGE_D1_SYNC);
-    m_navSyncDetails->setChecked(index == PAGE_SYNC_DETAILS);
-    m_navStopwatch->setChecked(index == PAGE_STOPWATCH);
-    m_navQuery->setChecked(index == PAGE_QUERY);
+    m_navCloudBackup->setChecked(index == PAGE_CLOUD_BACKUP);
 
     // 页面特定处理
     if (index == PAGE_SYNC)
         m_sync->refreshDevices();
     if (index == PAGE_TODO)
         m_todo->refresh();
-    if (index == PAGE_TRASH)
-        m_trash->refresh();
 
     // 淡入动画
     if (gFxAnimations) {
@@ -552,6 +542,29 @@ void MainWindow::switchPage(int index)
             anim->start(QAbstractAnimation::DeleteWhenStopped);
         }
     }
+}
+
+// 容器页子标签样式：随主题/缩放重建（专注统计与 ActivityWatch 容器共用）
+void MainWindow::styleSubTabs(QTabWidget *tabs)
+{
+    if (!tabs)
+        return;
+    tabs->setStyleSheet(QStringLiteral(
+        "QTabWidget::pane { border: 1px solid %1; border-radius: %5px; background: %2; top: -1px; }"
+        "QTabBar::tab { padding: %6px %7px; margin-right: %8px; color: %3;"
+        "  border: 1px solid transparent; border-radius: %5px; font-size: %9px; }"
+        "QTabBar::tab:selected { color: %4; border: 1px solid %1; background: %10; }"
+        "QTabBar::tab:hover:!selected { color: %4; }")
+        .arg(kColorBorder)
+        .arg(kColorBgElev)
+        .arg(kColorFgMuted)
+        .arg(kColorAccent)
+        .arg(si(8))
+        .arg(si(6))
+        .arg(si(12))
+        .arg(si(4))
+        .arg(si(13))
+        .arg(kColorBgElev2));
 }
 
 void MainWindow::updateStatus()
@@ -587,8 +600,9 @@ void MainWindow::openSettings()
     m_hotkey->suspendAll();
 
     const QString curTheme = gTheme ? QString::fromLatin1(gTheme->id) : QStringLiteral("midnight");
+    const QString curIconId = gAppIcon ? QLatin1String(gAppIcon->id) : QStringLiteral("amber");
     const UiEffects curFx = loadUiEffects();
-    SettingsDialog dlg(loadShortcuts(), curTheme, curFx, this);
+    SettingsDialog dlg(loadShortcuts(), curTheme, curFx, curIconId, this);
     if (dlg.exec() != QDialog::Accepted) {
         applyShortcuts(); // 取消：恢复原注册
         return;
@@ -604,6 +618,15 @@ void MainWindow::openSettings()
                            || newFx.fixShadowAdaptive != gFixShadowAdaptive;
     if (newTheme != curTheme)
         saveThemeId(newTheme);
+    // 程序图标变更：更新全局变体并持久化，窗口 / 托盘图标立即切换
+    const QString newIconId = dlg.appIconId();
+    if (newIconId != curIconId) {
+        gAppIcon = findAppIcon(newIconId);
+        saveAppIconId(newIconId);
+        setWindowIcon(makeAppIcon());
+        if (m_tray)
+            m_tray->setIcon(makeAppIcon());
+    }
     if (fxChanged) {
         // 界面效果变更：更新全局配置并持久化
         gShadowLevel = newFx.shadowLevel;
@@ -663,6 +686,9 @@ void MainWindow::applyTheme(const QString &themeId)
     gTheme = t;
     applyThemeColors(*t);
     applyUiScale(); // 重建全局 QSS（按缩放）+ 缩放字体 + 导航 + inbox/todo 页面
+    styleSubTabs(m_focusTabs); // 专注统计子标签按新主题重建
+    styleSubTabs(m_awTabs);    // ActivityWatch 子标签按新主题重建
+    styleSubTabs(m_syncTabs);  // 同步子标签按新主题重建
 
     // 页面级内联样式按新主题重建
     if (m_activity)
@@ -695,9 +721,9 @@ void MainWindow::applyTheme(const QString &themeId)
     // 强制顶层窗口重绘，刷新自绘的图表 / 时间轴等控件
     for (QWidget *w : QApplication::topLevelWidgets())
         w->update();
-    // 托盘图标随主题刷新（固定 kAppEmoji + 白底圆，与主题无关）
+    // 托盘图标随主题刷新（makeAppIcon 固定设计，与主题无关）
     if (m_tray) {
-        m_tray->setIcon(makeEmojiIcon(QString::fromUtf8(kAppEmoji)));
+        m_tray->setIcon(makeAppIcon());
         m_tray->setToolTip(QStringLiteral("aw-qtui · %1").arg(QString::fromUtf8(gTheme->name)));
     }
     qDebug() << "[MainWindow] theme applied:" << t->id;
@@ -756,24 +782,36 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     switch (event->key()) {
     case Qt::Key_1: switchPage(PAGE_INBOX); return;
     case Qt::Key_2: switchPage(PAGE_INBOX_SETTINGS); return;
-    case Qt::Key_3: switchPage(PAGE_TRASH); return;
-    case Qt::Key_4: switchPage(PAGE_TODO); return;
-    case Qt::Key_5: switchPage(PAGE_FOCUS_TIMER); return;
-    case Qt::Key_6: switchPage(PAGE_FOCUS_OVERVIEW); return;
-    case Qt::Key_7: switchPage(PAGE_FOCUS_DETAIL); return;
-    case Qt::Key_8: switchPage(PAGE_FOCUS_WEEK); return;
-    case Qt::Key_9: switchPage(PAGE_FOCUS_HEATMAP); return;
+    case Qt::Key_3: switchPage(PAGE_TODO); return;
+    case Qt::Key_4: switchPage(PAGE_FOCUS_TIMER); return;
+    case Qt::Key_5: switchPage(PAGE_FOCUS_STATS); return;
+    case Qt::Key_6: switchPage(PAGE_ACTIVITY); return;
+    case Qt::Key_7: switchPage(PAGE_SYNC); return;
+    case Qt::Key_8: switchPage(PAGE_D1_SYNC); return;
+    case Qt::Key_9: switchPage(PAGE_CLOUD_BACKUP); return;
     case Qt::Key_F5:
-        if (m_stack->currentIndex() == PAGE_ACTIVITY) m_activity->refresh();
-        else if (m_stack->currentIndex() == PAGE_TIMELINE) m_timeline->refresh();
-        else if (m_stack->currentIndex() == PAGE_INBOX) m_inbox->refreshAll();
+        // AW 容器页：刷新当前子标签
+        if (m_stack->currentIndex() == PAGE_ACTIVITY) {
+            switch (m_awTabs->currentIndex()) {
+            case 0: m_activity->refresh(); break;
+            case 1: m_timeline->refresh(); break;
+            case 2: m_day->refresh(); break;
+            case 3: m_stats->refresh(); break;
+            case 4: m_stopwatch->refresh(); break;
+            case 5: m_query->refresh(); break;
+            }
+            return;
+        }
+        if (m_stack->currentIndex() == PAGE_SYNC) {
+            // 同步容器页：按当前子标签分发刷新
+            if (m_syncTabs->currentIndex() == 0)
+                m_sync->refreshDevices();
+            else
+                m_syncDetails->refreshLogs();
+            return;
+        }
+        if (m_stack->currentIndex() == PAGE_INBOX) m_inbox->refreshAll();
         else if (m_stack->currentIndex() == PAGE_TODO) m_todo->refresh();
-        else if (m_stack->currentIndex() == PAGE_SYNC) m_sync->refreshDevices();
-        else if (m_stack->currentIndex() == PAGE_SYNC_DETAILS) m_syncDetails->refreshLogs();
-        else if (m_stack->currentIndex() == PAGE_STOPWATCH) m_stopwatch->refresh();
-        else if (m_stack->currentIndex() == PAGE_QUERY) m_query->refresh();
-        else if (m_stack->currentIndex() == PAGE_DAY) m_day->refresh();
-        else if (m_stack->currentIndex() == PAGE_STATS) m_stats->refresh();
         return;
     default: break;
     }

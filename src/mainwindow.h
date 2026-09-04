@@ -11,6 +11,7 @@ class QKeyEvent;
 class QLabel;
 class QPushButton;
 class QSystemTrayIcon;
+class QTabWidget;
 class QToolButton;
 class QWheelEvent;
 
@@ -29,12 +30,12 @@ class DayPage;
 class StatsPage;
 class InboxPage;
 class InboxSettingsPage;
-class TrashPage;
 class SyncPage;
 class D1SyncPage;
 class StopwatchPage;
 class QueryPage;
 class SyncDetailsPage;
+class CloudBackupPage;
 class TodoPage;
 class FocusTimerPage;
 class FocusOverviewPage;
@@ -54,12 +55,12 @@ public:
 
     InboxPage *inboxPage() const { return m_inbox; }
     InboxSettingsPage *inboxSettingsPage() const { return m_inboxSettings; }
-    TrashPage *trashPage() const { return m_trash; }
     SyncPage *syncPage() const { return m_sync; }
     D1SyncPage *d1SyncPage() const { return m_d1Sync; }
     StopwatchPage *stopwatchPage() const { return m_stopwatch; }
     QueryPage *queryPage() const { return m_query; }
     SyncDetailsPage *syncDetailsPage() const { return m_syncDetails; }
+    CloudBackupPage *cloudBackupPage() const { return m_cloudBackup; }
     ActivityPage *activityPage() const { return m_activity; }
     TimelinePage *timelinePage() const { return m_timeline; }
     DayPage *dayPage() const { return m_day; }
@@ -123,25 +124,13 @@ private:
     enum {
         PAGE_INBOX = 0,
         PAGE_INBOX_SETTINGS,
-        PAGE_TRASH,
         PAGE_TODO,
         PAGE_FOCUS_TIMER,
-        PAGE_FOCUS_OVERVIEW,
-        PAGE_FOCUS_DETAIL,
-        PAGE_FOCUS_WEEK,
-        PAGE_FOCUS_HEATMAP,
-        PAGE_FOCUS_BEST,
-        PAGE_FOCUS_CALENDAR,
-        PAGE_FOCUS_MEMORIAL,
-        PAGE_ACTIVITY,
-        PAGE_TIMELINE,
-        PAGE_DAY,
-        PAGE_STATS,
+        PAGE_FOCUS_STATS, // 专注统计：7 个统计视图的子标签容器
+        PAGE_ACTIVITY,    // ActivityWatch：6 个视图的子标签容器
         PAGE_SYNC,
         PAGE_D1_SYNC,
-        PAGE_STOPWATCH,
-        PAGE_QUERY,
-        PAGE_SYNC_DETAILS,
+        PAGE_CLOUD_BACKUP,
         PAGE_COUNT
     };
 
@@ -154,7 +143,6 @@ private:
     LocalStore *m_localStore = nullptr;
     InboxPage *m_inbox = nullptr;
     InboxSettingsPage *m_inboxSettings = nullptr;
-    TrashPage *m_trash = nullptr;
     ActivityPage *m_activity = nullptr;
     TimelinePage *m_timeline = nullptr;
     SyncPage *m_sync = nullptr;
@@ -165,6 +153,7 @@ private:
     StopwatchPage *m_stopwatch = nullptr;
     QueryPage *m_query = nullptr;
     SyncDetailsPage *m_syncDetails = nullptr;
+    CloudBackupPage *m_cloudBackup = nullptr;
     QStackedWidget *m_stack = nullptr;
     // 左侧导航栏（缩放时按比例调整宽度）
     QWidget *m_nav = nullptr;
@@ -180,25 +169,21 @@ private:
     // 左侧导航按钮
     QPushButton *m_navInbox = nullptr;
     QPushButton *m_navInboxSettings = nullptr;
-    QPushButton *m_navTrash = nullptr;
     QPushButton *m_navTodo = nullptr;
     QPushButton *m_navTimer = nullptr;
-    QPushButton *m_navOverview = nullptr;
-    QPushButton *m_navDetail = nullptr;
-    QPushButton *m_navWeek = nullptr;
-    QPushButton *m_navHeatmap = nullptr;
-    QPushButton *m_navBest = nullptr;
-    QPushButton *m_navCalendar = nullptr;
-    QPushButton *m_navMemorial = nullptr;
+    QPushButton *m_navFocusStats = nullptr;
     QPushButton *m_navActivity = nullptr;
-    QPushButton *m_navTimeline = nullptr;
-    QPushButton *m_navDay = nullptr;
-    QPushButton *m_navStats = nullptr;
     QPushButton *m_navSync = nullptr;
     QPushButton *m_navD1Sync = nullptr;
-    QPushButton *m_navSyncDetails = nullptr;
-    QPushButton *m_navStopwatch = nullptr;
-    QPushButton *m_navQuery = nullptr;
+    QPushButton *m_navCloudBackup = nullptr;
+    // 专注统计页内部的子标签容器（7 个统计视图共用一个导航入口）
+    QTabWidget *m_focusTabs = nullptr;
+    // ActivityWatch 容器页内部的子标签容器（6 个视图共用一个导航入口）
+    QTabWidget *m_awTabs = nullptr;
+    // 同步容器页内部的子标签容器（局域网同步 / 同步详情共用一个导航入口）
+    QTabWidget *m_syncTabs = nullptr;
+    // 子标签样式（随主题/缩放重建），专注统计与 ActivityWatch 容器共用
+    void styleSubTabs(QTabWidget *tabs);
     // 专注模块页面指针（Todo 内部持有，这里也存一份供快捷键/刷新用）
     FocusTimerPage *m_timerPage = nullptr;
     FocusOverviewPage *m_overviewPage = nullptr;

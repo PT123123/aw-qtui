@@ -134,7 +134,7 @@ static QComboBox *buildThemeCombo(const QString &currentTheme, int &currentIndex
 }
 
 SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId,
-                               const UiEffects &fx, QWidget *parent)
+                               const UiEffects &fx, const QString &appIconId, QWidget *parent)
     : QDialog(parent)
 {
     setWindowTitle(QStringLiteral("设置"));
@@ -204,6 +204,36 @@ SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId
     connect(m_themeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             [updateThemeDesc](int) { updateThemeDesc(); });
     updateThemeDesc();
+
+    // 程序图标（对齐 aw-android-native 可选启动图标：窗口 / 托盘同步生效）
+    auto *iconTitle = new QLabel(QStringLiteral("程序图标"));
+    iconTitle->setStyleSheet(sectionTitleStyle);
+    appearanceLayout->addWidget(iconTitle);
+
+    auto *iconRow = new QHBoxLayout;
+    iconRow->setSpacing(12);
+    auto *iconLabel = new QLabel(QStringLiteral("图标"));
+    iconLabel->setStyleSheet(rowLabelStyle);
+    m_iconCombo = new QComboBox;
+    m_iconCombo->setMinimumWidth(260);
+    m_iconCombo->setIconSize(QSize(24, 24));
+    m_iconCombo->setStyleSheet(comboStyle);
+    for (int i = 0; i < (int)std::size(kAppIconVariants); ++i) {
+        const AppIconVariant &v = kAppIconVariants[i];
+        m_iconCombo->addItem(makeAppIcon(&v),
+                             QString::fromUtf8(v.name));
+        if (QLatin1String(v.id) == appIconId)
+            m_iconCombo->setCurrentIndex(i);
+    }
+    iconRow->addWidget(iconLabel);
+    iconRow->addWidget(m_iconCombo, 1);
+    appearanceLayout->addLayout(iconRow);
+
+    auto *iconHint = new QLabel(
+        QStringLiteral("窗口 / 任务栏 / 托盘图标同步生效，保存后立即应用。配色与 Android 端可选启动图标一致。"));
+    iconHint->setWordWrap(true);
+    iconHint->setStyleSheet(hintStyle);
+    appearanceLayout->addWidget(iconHint);
 
     // 界面效果
     auto *fxTitle = new QLabel(QStringLiteral("界面效果"));
@@ -552,6 +582,14 @@ QString SettingsDialog::themeId() const
     if (i >= 0 && i < (int)std::size(kThemes))
         return QLatin1String(kThemes[i].id);
     return QStringLiteral("midnight");
+}
+
+QString SettingsDialog::appIconId() const
+{
+    const int i = m_iconCombo->currentIndex();
+    if (i >= 0 && i < (int)std::size(kAppIconVariants))
+        return QLatin1String(kAppIconVariants[i].id);
+    return QStringLiteral("amber");
 }
 
 UiEffects SettingsDialog::uiEffects() const
