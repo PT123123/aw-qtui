@@ -3,14 +3,13 @@
 """
 make_zip.py —— aw-qtui 发布打包（取代原 release.ps1 的打包段）。
 
-从 build/ 组装 dist/aw-qtui-<ver>-win64，剔除 CMake/Ninja 中间产物，
+从 build/ 组装 build/release/aw-qtui-<ver>-win64，剔除 CMake/Ninja 中间产物，
 用标准库 zipfile 打成同名 .zip。版本号默认在 CMakeLists.txt 当前版本上
 patch +0.01 自动递增并写回；也可用 --version 指定（不自动加、不写回）。
 
-用法（由 Makefile 的 dist 目标调用）：
-    python tools/make_zip.py                 # 默认：版本 +0.01 自动递增并写回
-    python tools/make_zip.py --version 0.2.0 # 指定版本号，不写回
-    python tools/make_zip.py --skip-server   # 打包不含服务端（server/ 不被纳入）
+用法（由 justfile 的 dist 目标调用）：
+    python tools/make_zip.py --root build/release   # 默认：版本 +0.01 自动递增并写回
+    python tools/make_zip.py --root build/release --version 0.2.0 --skip-server
 
 依赖：仅 Python 标准库（无第三方包，无需 zip.exe / 7z）。
 """
@@ -37,6 +36,7 @@ EXCLUDE_NAMES = {
     "awqtui_autogen",
     "server-src",          # cargo 暂存，非发布内容
     ".qt",                 # windeployqt 部署支撑 cmake，非发布内容
+    "release",             # 发布包自身（避免递归）
 }
 EXCLUDE_SUFFIXES = (".obj", ".ilk", ".pdb")
 EXCLUDE_PREFIXES = (".ninja",)
@@ -60,7 +60,6 @@ def bump_patch(ver: str) -> str:
 def write_back_version(old: str, new: str) -> None:
     with open(CMAKE_LISTS, "r", encoding="utf-8-sig") as f:
         text = f.read()
-    # 仅替换 project(aw-qtui VERSION <old> 这一处，避免误伤其他行
     pat = re.compile(r'(project\(\s*aw-qtui\s+VERSION\s+)' + re.escape(old) + r'(\b)')
     new_text, n = pat.subn(lambda mm: mm.group(1) + new + mm.group(2), text, count=1)
     if n == 0:
@@ -81,37 +80,34 @@ def should_exclude(name: str) -> bool:
     return False
 
 
-def assemble(dist_dir: str, skip_server: bool) -> None:
-    if not os.path.isdir(BUILD_DIR):
-        raise SystemExit(f"build/ 不存在，请先执行 make release：{BUILD_DIR}")
-    # 客户端是必带产物
-    if not os.path.isfile(os.path.join(BUILD_DIR, "awqtui.exe")):
-        raise SystemExit("build/awqtui.exe 缺失，请先执行 make release")
-    # 服务端默认必带；缺则明确报错，绝不静默产出不带服务端的包
-    server_exe = os.path.join(BUILD_DIR, "server", "aw-server.exe")
+def assemble(src_dir: str, dist_dir: str, skip_server: bool) -> None:
+    if not os.path.isdir(src_dir):
+        raise SystemExit(f"源目录不存在：{src_dir}\n请先执行 just release")
+    if not os.path.isfile(os.path.join(src_dir, "awqtui.exe")):
+        raise SystemExit(f"{src_dir}/awqtui.exe 缺失，请先执行 just release")
+    server_exe = os.path.join(src_dir, "server", "aw-server.exe")
     if not skip_server and not os.path.isfile(server_exe):
         raise SystemExit(
             "默认 release 必须包含服务端（build/server/aw-server.exe 缺失）。\n"
-            "请先执行 make release（默认带服务端），或显式传 --skip-server 发布纯客户端包。"
+            "请先执行 just release（默认带服务端），或显式传 --skip-server 发布纯客户端包。"
         )
 
     if os.path.isdir(dist_dir):
         shutil.rmtree(dist_dir)
     os.makedirs(dist_dir)
 
-    for entry in sorted(os.listdir(BUILD_DIR)):
+    for entry in sorted(os.listdir(src_dir)):
         if should_exclude(entry):
             continue
         if skip_server and entry == "server":
             continue
-        src = os.path.join(BUILD_DIR, entry)
+        src = os.path.join(src_dir, entry)
         dst = os.path.join(dist_dir, entry)
         if os.path.isdir(src):
             shutil.copytree(src, dst)
         else:
             shutil.copy2(src, dst)
 
-    # 附带 README
     if os.path.isfile(README):
         shutil.copy2(README, os.path.join(dist_dir, "README.md"))
 
@@ -132,9 +128,12 @@ def zip_dir(dist_dir: str, zip_path: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="aw-qtui 发布打包")
+    ap.add_argument("--root", default="build", help="源构建目录（默认 build）")
     ap.add_argument("--version", help="指定版本号（不自动 +0.01、不写回 CMakeLists.txt）")
     ap.add_argument("--skip-server", action="store_true", help="打包不含服务端")
     args = ap.parse_args()
+
+    src_dir = os.path.join(ROOT, args.root)
 
     base_ver = parse_version_from_cmake()
     if args.version:
@@ -147,14 +146,15 @@ def main() -> None:
         print(f"[ver] 版本号: {base_ver} -> {ver}（打包成功后写回 CMakeLists.txt）")
 
     dist_name = f"aw-qtui-{ver}-win64"
-    dist_dir = os.path.join(ROOT, "dist", dist_name)
-    zip_path = os.path.join(ROOT, "dist", dist_name + ".zip")
+    release_dir = os.path.join(BUILD_DIR, "release")
+    dist_dir = os.path.join(release_dir, dist_name)
+    zip_path = os.path.join(release_dir, dist_name + ".zip")
 
-    assemble(dist_dir, args.skip_server)
+    os.makedirs(release_dir, exist_ok=True)
+    assemble(src_dir, dist_dir, args.skip_server)
     zip_dir(dist_dir, zip_path)
 
     if not args.version:
-        # 打包成功才消耗版本号；失败在上面已 SystemExit，不会走到这里
         write_back_version(base_ver, ver)
 
     print("[done] 发布完成:")
