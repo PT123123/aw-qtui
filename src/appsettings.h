@@ -34,6 +34,11 @@ bool loadNavCollapsed();
 // 持久化左侧导航收起状态
 void saveNavCollapsed(bool collapsed);
 
+// 读取任务页排序模式（0=默认 1=最近添加 2=倒序 3=按优先级 4=按截止日期，默认 0）
+int loadTodoSortMode();
+// 持久化任务页排序模式
+void saveTodoSortMode(int mode);
+
 // 读取主题 ID（默认 "midnight" 暗夜蓝）
 QString loadThemeId();
 // 持久化主题 ID

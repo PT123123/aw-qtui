@@ -56,6 +56,9 @@ class TodoPage : public QWidget
 {
     Q_OBJECT
 public:
+    // 任务排序模式（对齐 Android menu_todo 排序子菜单，持久化到 awqtui.ini todo/sortMode）
+    enum class SortMode { Default = 0, NewestFirst = 1, Reverse = 2, ByPriority = 3, ByDue = 4 };
+
     explicit TodoPage(TodoSource *source, QWidget *parent = nullptr);
     void refresh();
     void applyUiScale();
@@ -88,7 +91,7 @@ private:
     QString viewTitle() const;
 
     QList<TodoTask> visibleTasks() const;
-    static bool taskLessThan(const TodoTask &a, const TodoTask &b);
+    static bool taskLessThan(const TodoTask &a, const TodoTask &b, SortMode mode);
     QWidget *makeRow(const TodoTask &task);
     QWidget *makeSubtaskRow(const TodoSubtask &s);
 
@@ -98,6 +101,7 @@ private:
     QHash<qint64, QString> m_listColors;
     ViewKind m_view = ViewInbox;
     qint64 m_viewList = 0;
+    SortMode m_sort = SortMode::Default;
     qint64 m_selectedTask = 0;
     bool m_showCompleted = false;
 
@@ -116,6 +120,7 @@ private:
     // 列表区
     QLabel *m_viewTitle;
     QLabel *m_viewCount;
+    QComboBox *m_sortBox = nullptr;   // 排序模式（默认/最近添加/倒序/按优先级/按截止日期）
     QLineEdit *m_quickAdd;
     QListWidget *m_list;
     QPushButton *m_completedBtn;

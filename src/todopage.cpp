@@ -1,6 +1,7 @@
 // todopage.cpp —— Todo 页实现（参照 TickTick / Super Productivity）
 #include "todopage.h"
 
+#include "appsettings.h"
 #include "theme.h"
 #include "mockdata.h"
 #include "todostore.h"
@@ -281,6 +282,25 @@ void TodoPage::buildUi()
     m_viewCount->setObjectName(QStringLiteral("TodoViewCount"));
     head->addWidget(m_viewTitle);
     head->addStretch(1);
+    // 排序模式（对齐 Android ⋮ 排序子菜单；选择持久化到 awqtui.ini）
+    m_sortBox = new QComboBox;
+    m_sortBox->setToolTip(QStringLiteral("排序方式"));
+    m_sortBox->addItem(QStringLiteral("默认排序"), static_cast<int>(SortMode::Default));
+    m_sortBox->addItem(QStringLiteral("最近添加"), static_cast<int>(SortMode::NewestFirst));
+    m_sortBox->addItem(QStringLiteral("倒序"), static_cast<int>(SortMode::Reverse));
+    m_sortBox->addItem(QStringLiteral("按优先级"), static_cast<int>(SortMode::ByPriority));
+    m_sortBox->addItem(QStringLiteral("按截止日期"), static_cast<int>(SortMode::ByDue));
+    m_sort = static_cast<SortMode>(loadTodoSortMode());
+    connect(m_sortBox, &QComboBox::currentIndexChanged, this, [this](int idx) {
+        const int mode = m_sortBox->itemData(idx).toInt();
+        m_sort = static_cast<SortMode>(mode);
+        saveTodoSortMode(mode);
+        rebuildList();
+    });
+    const int sortIdx = m_sortBox->findData(static_cast<int>(m_sort));
+    if (sortIdx >= 0)
+        m_sortBox->setCurrentIndex(sortIdx);
+    head->addWidget(m_sortBox);
     head->addWidget(m_viewCount);
     ll->addLayout(head);
 
@@ -664,19 +684,42 @@ QString TodoPage::viewTitle() const
     return QString();
 }
 
-bool TodoPage::taskLessThan(const TodoTask &a, const TodoTask &b)
+bool TodoPage::taskLessThan(const TodoTask &a, const TodoTask &b, SortMode mode)
 {
+    const bool ad = a.hasDue(), bd = b.hasDue();
+    const QDate da = ad ? QDate::fromString(a.dueDate, Qt::ISODate) : QDate();
+    const QDate db = bd ? QDate::fromString(b.dueDate, Qt::ISODate) : QDate();
+    switch (mode) {
+    case SortMode::NewestFirst:
+        // 最近添加：createdAt 降序（ISO 字符串同格式字典序即时间序），id 决胜
+        if (a.createdAt != b.createdAt)
+            return a.createdAt > b.createdAt;
+        return a.id > b.id;
+    case SortMode::ByDue:
+        // 按截止日期：有期限优先、日期升序，其余按默认
+        if (ad != bd)
+            return ad;
+        if (ad && bd && da.isValid() && db.isValid() && da != db)
+            return da < db;
+        break;
+    case SortMode::ByPriority:
+        // 按优先级：高在前，同优先级按默认
+        if (a.priority != b.priority)
+            return a.priority > b.priority;
+        break;
+    case SortMode::Reverse:
+        // 倒序：默认排序的完全反转
+        return taskLessThan(b, a, SortMode::Default);
+    case SortMode::Default:
+        break;
+    }
+    // 默认：优先级降序 → 有期限在前 → due 升序 → sortOrder
     if (a.priority != b.priority)
         return a.priority > b.priority;
-    const bool ad = a.hasDue(), bd = b.hasDue();
     if (ad != bd)
         return ad;
-    if (ad && bd) {
-        const QDate da = QDate::fromString(a.dueDate, Qt::ISODate);
-        const QDate db = QDate::fromString(b.dueDate, Qt::ISODate);
-        if (da.isValid() && db.isValid() && da != db)
-            return da < db;
-    }
+    if (ad && bd && da.isValid() && db.isValid() && da != db)
+        return da < db;
     return a.sortOrder < b.sortOrder;
 }
 
@@ -708,7 +751,10 @@ QList<TodoTask> TodoPage::visibleTasks() const
         else
             open.append(t);
     }
-    std::sort(open.begin(), open.end(), TodoPage::taskLessThan);
+    std::sort(open.begin(), open.end(),
+              [this](const TodoTask &a, const TodoTask &b) {
+                  return taskLessThan(a, b, m_sort);
+              });
     std::sort(done.begin(), done.end(), [](const TodoTask &a, const TodoTask &b) {
         return a.completedAt > b.completedAt;
     });
