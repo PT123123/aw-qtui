@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QList>
+#include <QPointer>
 #include <QSet>
 #include <QWidget>
 
@@ -21,6 +22,7 @@ namespace awqtui {
 
 class ApiClient;
 class StatusBadge;
+class NoteEditorDialog;
 
 class InboxPage : public QWidget
 {
@@ -58,7 +60,7 @@ private slots:
     void onDeleteNote(qint64 id);
     void onComment(qint64 id);
     void onTogglePinned(qint64 id);
-    void onNoteHistory(qint64 id);
+    void onNoteDetails(qint64 id);
     void onTaskToggled(qint64 id, const QString &content);
     void onParentReferenceClicked(qint64 parentId);
     void onScroll();
@@ -129,6 +131,8 @@ private:
     QStackedLayout *m_stack;
     // 悬浮 + 按钮的投影阴影（受全局阴影开关控制，运行时增删）
     QGraphicsDropShadowEffect *m_fabShadow = nullptr;
+    // 新建笔记对话框的单例指针：避免全局热键重复触发时弹出多个窗口
+    QPointer<NoteEditorDialog> m_newNoteDialog;
     // 是否给本次重建的卡片列表加入场淡入（仅刷新/初次加载时置真，过滤/翻页时不加）
     bool m_animateCards = false;
 

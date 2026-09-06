@@ -9,6 +9,7 @@
 #include <QClipboard>
 #include <QColor>
 #include <QComboBox>
+#include <QCursor>
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QJsonArray>
@@ -22,6 +23,7 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScreen>
 #include <QScrollBar>
 #include <QSignalBlocker>
 #include <QStackedLayout>
@@ -80,7 +82,7 @@ void InboxPage::buildUi()
     m_tagPanel->setObjectName(QStringLiteral("TagPanel"));
     m_tagPanel->setStyleSheet(scaleQss(QStringLiteral(
         "QWidget#TagPanel { background: %1; border-right: 1px solid %2; }")
-                                          .arg(glassBg(kColorBgElev), glassBorder())));
+                                          .arg(glassBg(kColorBgElev), withAlpha(kColorBorder, 0.45))));
     m_tagPanel->setFixedWidth(si(m_sidebarWidth));
     auto *tagLay = new QVBoxLayout(m_tagPanel);
     tagLay->setContentsMargins(si(10), si(12), si(10), si(12));
@@ -199,6 +201,9 @@ void InboxPage::buildUi()
     m_list->setSelectionMode(QAbstractItemView::NoSelection);
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this, &InboxPage::onScroll);
+    // 视口变窄（退出全屏/还原窗口/收起标签侧栏）时行控件不会跟着变窄，
+    // 卡片右侧「⋯」菜单按钮会被顶出可视区 —— 挂过滤器跟随重排
+    new ItemWidgetRelayoutFilter(m_list, 60, m_list);
     m_stack->addWidget(m_list);
 
     auto *empty = new QWidget;
@@ -263,7 +268,7 @@ void InboxPage::applyUiScale()
     if (m_tagPanel) {
         m_tagPanel->setStyleSheet(scaleQss(QStringLiteral(
             "QWidget#TagPanel { background: %1; border-right: 1px solid %2; }")
-                                               .arg(glassBg(kColorBgElev), glassBorder())));
+                                               .arg(glassBg(kColorBgElev), withAlpha(kColorBorder, 0.45))));
         m_tagPanel->setFixedWidth(si(m_sidebarWidth));
     }
     if (m_tagTitle)
@@ -817,7 +822,7 @@ QWidget *InboxPage::makeCard(const Note &n)
     connect(card, &NoteCard::deleteRequested, this, &InboxPage::onDeleteNote);
     connect(card, &NoteCard::commentRequested, this, &InboxPage::onComment);
     connect(card, &NoteCard::togglePinnedRequested, this, &InboxPage::onTogglePinned);
-    connect(card, &NoteCard::historyRequested, this, &InboxPage::onNoteHistory);
+    connect(card, &NoteCard::detailsRequested, this, &InboxPage::onNoteDetails);
     connect(card, &NoteCard::taskToggled, this, &InboxPage::onTaskToggled);
     connect(card, &NoteCard::parentReferenceClicked, this, &InboxPage::onParentReferenceClicked);
     // 评论笔记：在内容下方展示被评论笔记的引用预览
@@ -911,13 +916,36 @@ void InboxPage::onRefresh()
 
 void InboxPage::onNewNote()
 {
+    // 单例：已有新建笔记窗口时，直接置前并返回，不重复创建
+    if (m_newNoteDialog && m_newNoteDialog->isVisible()) {
+        m_newNoteDialog->raise();
+        m_newNoteDialog->activateWindow();
+        return;
+    }
+
     QStringList existing;
     for (const DetailedTag &t : m_tags)
         existing << t.name;
-    NoteEditorDialog dlg(QString(), existing, QStringLiteral("新建笔记"), this);
-    if (dlg.exec() != QDialog::Accepted)
+    m_newNoteDialog = new NoteEditorDialog(QString(), existing, QStringLiteral("新建笔记"), this);
+
+    // 把对话框定位到鼠标所在的屏幕
+    const QPoint cursorPos = QCursor::pos();
+    if (QScreen *screen = QGuiApplication::screenAt(cursorPos)) {
+        const QRect avail = screen->availableGeometry();
+        const QSize dlgSize = m_newNoteDialog->size();
+        const int x = avail.x() + (avail.width() - dlgSize.width()) / 2;
+        const int y = avail.y() + (avail.height() - dlgSize.height()) / 2;
+        m_newNoteDialog->move(x, y);
+    }
+
+    if (m_newNoteDialog->exec() != QDialog::Accepted) {
+        m_newNoteDialog->deleteLater();
+        m_newNoteDialog.clear();
         return;
-    const QString text = dlg.text();
+    }
+    const QString text = m_newNoteDialog->text();
+    m_newNoteDialog->deleteLater();
+    m_newNoteDialog.clear();
     if (text.isEmpty())
         return;
     const QStringList tags = extractTags(text);
@@ -981,37 +1009,85 @@ void InboxPage::onTogglePinned(qint64 id)
     applyClientFilter();
 }
 
-void InboxPage::onNoteHistory(qint64 id)
+void InboxPage::onNoteDetails(qint64 id)
 {
-    // 历史版本由服务端维护：离线或本地尚未同步的新建（负 id）都没有可查的历史
-    if (id < 0 || isOffline()) {
-        QMessageBox::information(this, QStringLiteral("历史版本"),
-                                 id < 0 ? QStringLiteral("本地新建的笔记尚未同步到服务端，暂无历史版本。")
-                                        : QStringLiteral("当前离线，无法获取服务端的历史版本。"));
-        return;
-    }
-    QNetworkReply *r = m_api->getNoteHistory(id);
-    connect(r, &QNetworkReply::finished, this, [this, r, id] {
-        QJsonDocument doc;
-        QString err;
-        if (!ApiClient::parseReply(r, &doc, &err)) {
-            QMessageBox::warning(this, QStringLiteral("历史版本"),
-                                 QStringLiteral("获取历史版本失败：%1").arg(err));
-            return;
+    // 元信息来自本地镜像/内存列表（含 createdAt/deviceId 等），立即可显示
+    Note note;
+    bool found = false;
+    for (const Note &n : m_notes) {
+        if (n.id == id) {
+            note = n;
+            found = true;
+            break;
         }
-        QList<NoteHistory> items;
-        const auto arr = doc.isArray() ? doc.array() : QJsonArray();
-        for (const auto &v : arr)
-            items << NoteHistory::fromJson(v.toObject());
+    }
+    if (!found) {
+        if (const Note *p = m_store.find(id))
+            note = *p;
+        else
+            return;
+    }
 
-        auto *dlg = new NoteHistoryDialog(id, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        dlg->setHistory(items);
-        // 恢复 = 把历史版本内容当作一次普通编辑提交（走 applyContent，离线也能兜底）
-        connect(dlg, &NoteHistoryDialog::restoreRequested, this,
-                [this](qint64 noteId, const QString &content) { applyContent(noteId, content); });
-        dlg->show();
-    });
+    auto *dlg = new NoteDetailsDialog(note, this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    // 恢复 = 把历史版本内容当作一次普通编辑提交（走 applyContent，离线也能兜底）
+    connect(dlg, &NoteDetailsDialog::restoreRequested, this,
+            [this](qint64 noteId, const QString &content) { applyContent(noteId, content); });
+    dlg->show();
+
+    // 对话框先弹出（元信息立即可见），历史版本异步回填；QPointer 防止提前关闭后悬空访问
+    QPointer<NoteDetailsDialog> guard(dlg);
+
+    // 历史版本由服务端维护：离线或本地尚未同步的新建（负 id）没有可查的历史
+    if (id < 0 || isOffline()) {
+        dlg->setHistoryUnavailable(id < 0
+                                       ? QStringLiteral("本地新建的笔记尚未同步到服务端，暂无历史版本。")
+                                       : QStringLiteral("当前离线，无法获取服务端的历史版本。"));
+    } else {
+        QNetworkReply *r = m_api->getNoteHistory(id);
+        connect(r, &QNetworkReply::finished, this, [r, guard] {
+            QJsonDocument doc;
+            QString err;
+            if (!ApiClient::parseReply(r, &doc, &err)) {
+                if (guard)
+                    guard->setHistoryUnavailable(QStringLiteral("获取历史版本失败：%1").arg(err));
+                return;
+            }
+            QList<NoteHistory> items;
+            const auto arr = doc.isArray() ? doc.array() : QJsonArray();
+            for (const auto &v : arr)
+                items << NoteHistory::fromJson(v.toObject());
+            if (guard)
+                guard->setHistory(items);
+        });
+    }
+
+    // 来源设备名解析（best-effort）：device_id → 已配对设备的别名/名称；失败则保留原始 id
+    if (id >= 0 && !isOffline() && !note.deviceId.isEmpty()) {
+        QNetworkReply *rd = m_api->getSyncDevices();
+        connect(rd, &QNetworkReply::finished, this, [rd, guard, note] {
+            QJsonDocument doc;
+            QString err;
+            if (!ApiClient::parseReply(rd, &doc, &err))
+                return;
+            const auto arr = doc.isArray() ? doc.array() : QJsonArray();
+            for (const auto &v : arr) {
+                if (!v.isObject())
+                    continue;
+                const SyncDevice d = SyncDevice::fromJson(v.toObject());
+                if (d.id != note.deviceId)
+                    continue;
+                QString name = d.alias;
+                if (name.isEmpty())
+                    name = d.name;
+                if (d.isSelf)
+                    name += QStringLiteral("（本机）");
+                if (!name.isEmpty() && guard)
+                    guard->setDeviceName(name);
+                break;
+            }
+        });
+    }
 }
 
 void InboxPage::onTaskToggled(qint64 id, const QString &content)
