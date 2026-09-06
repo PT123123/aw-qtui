@@ -430,8 +430,68 @@ void InboxPage::refreshAll()
         startReconnect();
         return;
     }
+    // 后台静默触发局域网拉取（与列表加载并行，成功后追加一轮加载，远端变更即刷即现）
+    triggerLanPull();
     loadTagTree();
     loadNotes(true);
+}
+
+// 对齐 Android 8a2d694 LanPull.syncAllPairedNow：GET /devices → 逐台
+// paired && 非本机 → POST /devices/<id>/sync（双向拉合推）；单台失败不影响其余；
+// 有成功台数时再 loadNotes(true) 重载一次。全程静默，10 秒节流防 F5 连打。
+void InboxPage::triggerLanPull()
+{
+    if (isOffline() || m_lanPullInflight)
+        return;
+    if (m_lanPullThrottle.isValid() && m_lanPullThrottle.elapsed() < 10000)
+        return;
+    m_lanPullThrottle.start();
+    m_lanPullInflight = true;
+    QNetworkReply *r = m_api->getSyncDevices();
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            m_lanPullInflight = false;
+            return;
+        }
+        QList<SyncDevice> targets;
+        const auto arr = doc.array();
+        for (const auto &v : arr) {
+            if (!v.isObject())
+                continue;
+            const SyncDevice d = SyncDevice::fromJson(v.toObject());
+            if (d.paired && !d.isSelf)
+                targets << d;
+        }
+        if (targets.isEmpty()) {
+            m_lanPullInflight = false;
+            return;
+        }
+        auto remaining = new int(targets.size());
+        auto okCount = new int(0);
+        for (const SyncDevice &d : targets) {
+            QNetworkReply *rs = m_api->triggerSync(d.id);
+            connect(rs, &QNetworkReply::finished, this, [this, rs, remaining, okCount] {
+                QJsonDocument dd;
+                QString e2;
+                if (ApiClient::parseReply(rs, &dd, &e2))
+                    ++(*okCount);
+                if (--(*remaining) > 0)
+                    return;
+                const int ok = *okCount;
+                delete remaining;
+                delete okCount;
+                m_lanPullInflight = false;
+                if (ok > 0 && m_online) {
+                    setStatus(StatusBadge::State::Syncing,
+                              QStringLiteral("已从局域网 %1 台设备拉取变更…").arg(ok));
+                    // 用 loadNotes 而非 refreshAll：不递归触发下一轮局域网拉取
+                    loadNotes(true);
+                }
+            });
+        }
+    });
 }
 
 // ------------------------------------------------------------------ //
