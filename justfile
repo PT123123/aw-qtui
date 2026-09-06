@@ -50,6 +50,7 @@ help:
     @echo "  just server        build & deploy aw-server.exe (full /api/0 + /inbox + /todo) to build/server/"
     @echo "  just server-aw-server  alias of server (backward compat)"
     @echo "  just deploy        deploy Qt runtimes (windeployqt)"
+    @echo "  just stage-dist     暂存正式版到 build/dist/"
     @echo "  just dist          package dist/aw-qtui-<ver>-win64.zip (bump +0.01)"
     @echo "  just install       copy deployed build/ into install dir"
     @echo "  just asan          AddressSanitizer build"
@@ -96,11 +97,34 @@ server:
 # ---------- 服务端（完整）：与 server 等价（backward compat 别名） ----------
 server-aw-server: server
 
+# ---------- 暂存正式版到 build/dist/ ----------
+stage-dist:
+    #!C:/Progra~1/Git/bin/bash.exe
+    echo "[stage-dist] 暂存正式版到 build/dist/"
+    rm -rf build/dist
+    mkdir -p build/dist
+    # 可执行文件 + DLL
+    cp -f build/awqtui.exe build/dist/ 2>/dev/null || true
+    for f in build/*.dll; do [ -f "$f" ] && cp -f "$f" build/dist/; done
+    # Qt 插件目录
+    for d in platforms styles imageformats iconengines networkinformation tls; do
+        [ -d "build/$d" ] && cp -r "build/$d" build/dist/
+    done
+    # 服务端
+    if [ -f build/server/aw-server.exe ]; then
+        mkdir -p build/dist/server
+        cp -f build/server/aw-server.exe build/dist/server/
+    fi
+    # README
+    [ -f README.md ] && cp -f README.md build/dist/
+    echo "[stage-dist] 完成: build/dist/"
+
 # ---------- 聚合：release / debug ----------
 release:
     just build
     just deploy
     if [ -n "{{SERVER}}" ]; then just server; fi
+    just stage-dist
     just notify "aw-qtui" "release build complete"
 
 debug:
@@ -119,7 +143,7 @@ dist version="" skip_server="":
     args=""
     [ -n "$ver" ] && args="$args --version $ver"
     [ -n "{{skip_server}}" ] && args="$args --skip-server"
-    python tools/make_zip.py --root build/release $args
+    python tools/make_zip.py --root build/dist $args
 
 # ---------- 安装（把已部署的 build/ 拷贝到安装目录） ----------
 install install_dir="":
@@ -151,11 +175,7 @@ selftest:
 # ---------- 运行 ----------
 run port="":
     #!C:/Progra~1/Git/bin/bash.exe
-    if [ -n "{{port}}" ]; then
-    cmd //c start "" "{{BUILD}}/awqtui.exe" --url http://127.0.0.1:{{port}}
-    else
-    cmd //c start "" "{{BUILD}}/awqtui.exe"
-    fi
+    if [ -n "{{port}}" ]; then cmd //c start "" "$(cygpath -w "$(pwd)/build/awqtui.exe")" --url http://127.0.0.1:{{port}}; else cmd //c start "" "$(cygpath -w "$(pwd)/build/awqtui.exe")"; fi
 
 # ---------- 通知（Windows Toast；未装 BurntToast 时降级为控制台输出） ----------
 notify title="aw-qtui" message="build complete":
