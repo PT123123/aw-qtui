@@ -28,6 +28,7 @@ private slots:
     void onSave();
     void onTest();
     void onSyncNow();
+    void onFullSync();
 
 private:
     void buildUi();
@@ -44,6 +45,7 @@ private:
     QPushButton *m_btnSave;
     QPushButton *m_btnTest;
     QPushButton *m_btnSyncNow;
+    QPushButton *m_btnFullSync;
 
     QLabel *m_lblStatus;
     QPlainTextEdit *m_log;

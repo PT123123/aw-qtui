@@ -324,6 +324,11 @@ QNetworkReply *ApiClient::d1SyncNow()
     return sendJson("POST", QStringLiteral("/api/0/sync/d1/sync"), QJsonObject());
 }
 
+QNetworkReply *ApiClient::d1FullSync()
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/d1/full_sync"), QJsonObject());
+}
+
 QNetworkReply *ApiClient::d1Status()
 {
     return get(QStringLiteral("/api/0/sync/d1/status"));
