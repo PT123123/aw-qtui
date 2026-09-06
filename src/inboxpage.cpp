@@ -55,6 +55,38 @@ bool isConnectionError(QNetworkReply *r)
 }
 } // namespace
 
+// 笔记转待办的标题提取（对齐 Android NoteTodoConverter.extractTitle）：
+// 取首个非空行，剥掉标题井号/列表/引用/有序列表与行内强调标记，截 50 字
+static QString extractTodoTitle(const QString &content)
+{
+    QString line;
+    for (const QString &l : content.split(QLatin1Char('\n'))) {
+        if (!l.trimmed().isEmpty()) {
+            line = l;
+            break;
+        }
+    }
+    line = line.trimmed();
+    static const QRegularExpression heading(QStringLiteral("^#{1,6}\\s+"));
+    static const QRegularExpression bullet(QStringLiteral("^[-*+>]\\s+"));
+    static const QRegularExpression ordered(QStringLiteral("^\\d+\\.\\s+"));
+    line.remove(heading);
+    line.remove(bullet);
+    line.remove(ordered);
+    line.remove(QLatin1String("**"));
+    line.remove(QLatin1String("~~"));
+    line.remove(QLatin1Char('`'));
+    line.remove(QLatin1Char('*'));
+    line = line.trimmed();
+    if (line.isEmpty())
+        line = content.trimmed();
+    if (line.isEmpty())
+        return QStringLiteral("（无标题）");
+    if (line.size() > 50)
+        line = line.left(50).trimmed() + QStringLiteral("…");
+    return line;
+}
+
 InboxPage::InboxPage(ApiClient *api, QWidget *parent) : QWidget(parent), m_api(api)
 {
     // 先加载本地缓存：即使服务端没起，历史数据也在
@@ -959,6 +991,7 @@ QWidget *InboxPage::makeCard(const Note &n)
     connect(card, &NoteCard::commentRequested, this, &InboxPage::onComment);
     connect(card, &NoteCard::togglePinnedRequested, this, &InboxPage::onTogglePinned);
     connect(card, &NoteCard::detailsRequested, this, &InboxPage::onNoteDetails);
+    connect(card, &NoteCard::convertToTodoRequested, this, &InboxPage::onConvertToTodo);
     connect(card, &NoteCard::taskToggled, this, &InboxPage::onTaskToggled);
     connect(card, &NoteCard::parentReferenceClicked, this, &InboxPage::onParentReferenceClicked);
     // 点击正文里的 #标签（层级 tag 每段可点）→ 按路径筛选；再点同路径取消
@@ -1172,6 +1205,11 @@ void InboxPage::onNoteDetails(qint64 id)
         dlg->close();
         applyTagFilterPath(path == m_currentTag ? QString() : path);
     });
+    // 「转为待办」：关闭详情后执行（先建 Todo 再删原笔记）
+    connect(dlg, &NoteDetailsDialog::convertRequested, this, [this, dlg](qint64 noteId) {
+        dlg->close();
+        onConvertToTodo(noteId);
+    });
     dlg->show();
 
     // 对话框先弹出（元信息立即可见），历史版本异步回填；QPointer 防止提前关闭后悬空访问
@@ -1227,6 +1265,75 @@ void InboxPage::onNoteDetails(qint64 id)
             }
         });
     }
+}
+
+void InboxPage::onConvertToTodo(qint64 id)
+{
+    // 找到笔记（内存列表 → 本地镜像）
+    Note note;
+    bool found = false;
+    for (const Note &n : m_notes) {
+        if (n.id == id) {
+            note = n;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        if (const Note *p = m_store.find(id)) {
+            note = *p;
+            found = true;
+        }
+    }
+    if (!found)
+        return;
+
+    // 转换走服务端两步调用（先建 Todo 再删笔记），离线/本地未同步无法执行
+    if (isOffline() || id < 0) {
+        QMessageBox::information(this, QStringLiteral("转为待办"),
+                                 QStringLiteral("当前离线（或笔记尚未同步），暂不支持转为待办。"));
+        return;
+    }
+
+    const auto ret = QMessageBox::question(
+        this, QStringLiteral("转为待办"),
+        QStringLiteral("把该笔记原样转为一条待办，并删除原笔记？"),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (ret != QMessageBox::Yes)
+        return;
+
+    const QStringList tags = note.tags;
+    QNetworkReply *r = m_api->createTodo(extractTodoTitle(note.content), note.content, tags);
+    connect(r, &QNetworkReply::finished, this, [this, r, id] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            // 步骤 1 失败：不删笔记（防数据丢失），保留原文
+            if (isConnectionError(r)) {
+                m_online = false;
+                startReconnect();
+                updateOfflineBadge();
+            }
+            QMessageBox::warning(this, QStringLiteral("转为待办"),
+                                 QStringLiteral("转换失败：%1").arg(err));
+            return;
+        }
+        // 步骤 2：Todo 已建，删除原笔记；删除失败则保留笔记并提示
+        QNetworkReply *rd = m_api->deleteNote(id);
+        connect(rd, &QNetworkReply::finished, this, [this, rd] {
+            QJsonDocument doc2;
+            QString err2;
+            if (!ApiClient::parseReply(rd, &doc2, &err2)) {
+                setStatus(StatusBadge::State::Connected);
+                QMessageBox::warning(this, QStringLiteral("转为待办"),
+                                     QStringLiteral("已转为待办，原笔记删除失败（%1）").arg(err2));
+            } else {
+                setStatus(StatusBadge::State::Connected);
+            }
+            // 保留当前筛选上下文整体刷新（loadNotes 自带 m_currentTag / 搜索）
+            refreshAll();
+        });
+    });
 }
 
 void InboxPage::onTaskToggled(qint64 id, const QString &content)
