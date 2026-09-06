@@ -60,6 +60,8 @@ signals:
     void parentReferenceClicked(qint64 parentId);
     // 查看详细信息（元信息 + 历史版本，服务端 GET /inbox/notes/<id>/history）
     void detailsRequested(qint64 id);
+    // 点击正文里的 #标签（层级 tag 的每段可点，参数为「到该段为止的路径」）
+    void tagClicked(const QString &path);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -139,6 +141,8 @@ public:
 signals:
     // 请求把选中历史版本的内容恢复到笔记正文
     void restoreRequested(qint64 noteId, const QString &content);
+    // 点击标签面包屑的某一段（层级 tag，参数为「到该段为止的路径」）
+    void tagClicked(const QString &path);
 
 private slots:
     void onCurrentRowChanged(int row);
@@ -147,6 +151,7 @@ private slots:
 
 private:
     QLabel *m_deviceValue = nullptr;  // 来源设备值控件（setDeviceName 回填目标）
+    QLabel *m_tagsValue = nullptr;    // 标签面包屑（每段可点，按路径筛选）
     QString m_deviceId;               // 原始 device_id（tooltip 展示）
     QListWidget *m_list = nullptr;
     QPlainTextEdit *m_preview = nullptr;
