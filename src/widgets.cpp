@@ -1,6 +1,7 @@
 // widgets.cpp
 #include "widgets.h"
 
+#include "config.h"
 #include "mdrender.h"
 #include "theme.h"
 
@@ -211,7 +212,7 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
         QAction *actCopy = menu.addAction(QStringLiteral("复制内容"));
         QAction *actEdit = menu.addAction(QStringLiteral("编辑"));
         QAction *actCmt = menu.addAction(QStringLiteral("评论"));
-        QAction *actHistory = menu.addAction(QStringLiteral("历史版本"));
+        QAction *actDetails = menu.addAction(QStringLiteral("详细信息"));
         QAction *actDel = menu.addAction(QStringLiteral("删除"));
         actDel->setIcon(QApplication::style()->standardIcon(QStyle::SP_TrashIcon));
         QAction *chosen = menu.exec(menuBtn->mapToGlobal(QPoint(0, menuBtn->height())));
@@ -223,8 +224,8 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
             emit editRequested(m_note.id);
         else if (chosen == actCmt)
             emit commentRequested(m_note.id);
-        else if (chosen == actHistory)
-            emit historyRequested(m_note.id);
+        else if (chosen == actDetails)
+            emit detailsRequested(m_note.id);
         else if (chosen == actDel)
             emit deleteRequested(m_note.id);
     });
@@ -576,17 +577,110 @@ QString CommentsDialog::commentText() const
 }
 
 // ------------------------------------------------------------------ //
-// 笔记历史版本对话框
-
-NoteHistoryDialog::NoteHistoryDialog(qint64 noteId, QWidget *parent)
-    : QDialog(parent), m_noteId(noteId)
+// 笔记详细信息对话框：元信息区（添加/更新/同步时间、来源设备、版本等）+ 历史版本区
+NoteDetailsDialog::NoteDetailsDialog(const Note &note, QWidget *parent)
+    : QDialog(parent), m_noteId(note.id)
 {
-    setWindowTitle(QStringLiteral("历史版本 · 笔记 #%1").arg(noteId));
+    setWindowTitle(QStringLiteral("笔记详情 · #%1").arg(note.id));
     setModal(true);
-    resize(620, 460);
+    resize(640, 620);
 
     auto *lay = new QVBoxLayout(this);
     lay->setSpacing(si(8));
+
+    // ---- 元信息区 ----
+    auto *infoBox = new QFrame;
+    infoBox->setObjectName(QStringLiteral("DetailsBox"));
+    infoBox->setStyleSheet(scaleQss(QStringLiteral(
+        "QFrame#DetailsBox { background: %1; border: 1px solid %2; border-radius: 8px; }")
+        .arg(kColorBgElev, kColorBorder)));
+    auto *grid = new QGridLayout(infoBox);
+    grid->setContentsMargins(si(12), si(10), si(12), si(10));
+    grid->setHorizontalSpacing(si(14));
+    grid->setVerticalSpacing(si(6));
+    grid->setColumnStretch(1, 1);
+
+    auto addRow = [&grid](int row, const QString &label, const QString &value, const char *color) {
+        auto *l = new QLabel(label);
+        l->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 12px; background: transparent; border: none;")
+            .arg(kColorFgMuted)));
+        auto *v = new QLabel(value);
+        v->setWordWrap(true);
+        v->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        v->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 12px; background: transparent; border: none;")
+            .arg(color)));
+        grid->addWidget(l, row, 0, Qt::AlignTop);
+        grid->addWidget(v, row, 1);
+        return v;
+    };
+
+    static const QString kTimeFmt = QStringLiteral("yyyy-MM-dd HH:mm:ss");
+    addRow(0, QStringLiteral("笔记 ID"), QStringLiteral("#%1").arg(note.id), kColorFg);
+    addRow(1, QStringLiteral("添加时间"), formatLocal(note.createdAt, kTimeFmt), kColorFg);
+    addRow(2, QStringLiteral("更新时间"), formatLocal(note.updatedAt, kTimeFmt), kColorFg);
+    if (note.syncedAt.isEmpty())
+        addRow(3, QStringLiteral("最后同步"), QStringLiteral("未同步"), kColorWarn);
+    else
+        addRow(3, QStringLiteral("最后同步"), formatLocal(note.syncedAt, kTimeFmt), kColorFg);
+
+    // 来源设备：本机笔记显示「本机」，其余显示原始 device_id（可被 setDeviceName 回填）
+    m_deviceId = note.deviceId;
+    m_deviceValue = new QLabel;
+    if (m_deviceId.isEmpty())
+        m_deviceValue->setText(QStringLiteral("未知"));
+    else if (m_deviceId == deviceId())
+        m_deviceValue->setText(QStringLiteral("本机"));
+    else
+        m_deviceValue->setText(m_deviceId);
+    if (!m_deviceId.isEmpty())
+        m_deviceValue->setToolTip(QStringLiteral("device_id: %1").arg(m_deviceId));
+    m_deviceValue->setWordWrap(true);
+    m_deviceValue->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_deviceValue->setStyleSheet(scaleQss(QStringLiteral(
+        "color: %1; font-size: 12px; background: transparent; border: none;")
+        .arg(kColorFg)));
+    auto *devLabel = new QLabel(QStringLiteral("来源设备"));
+    devLabel->setStyleSheet(scaleQss(QStringLiteral(
+        "color: %1; font-size: 12px; background: transparent; border: none;")
+        .arg(kColorFgMuted)));
+    grid->addWidget(devLabel, 4, 0, Qt::AlignTop);
+    grid->addWidget(m_deviceValue, 4, 1);
+
+    addRow(5, QStringLiteral("当前版本"), QStringLiteral("v%1").arg(note.version), kColorFg);
+    const QString tags = note.tags.isEmpty()
+                             ? QStringLiteral("无")
+                             : QStringLiteral("#") + note.tags.join(QStringLiteral(" #"));
+    addRow(6, QStringLiteral("标签"), tags, kColorFg);
+
+    QString status = QStringLiteral("正常");
+    const char *statusColor = kColorOk;
+    if (note.conflict) {
+        status = QStringLiteral("存在同步冲突");
+        statusColor = kColorDanger;
+    } else if (note.pendingOp == QLatin1String("create")) {
+        status = QStringLiteral("待同步（新建）");
+        statusColor = kColorWarn;
+    } else if (note.pendingOp == QLatin1String("update")) {
+        status = QStringLiteral("待同步（修改）");
+        statusColor = kColorWarn;
+    } else if (note.pendingOp == QLatin1String("delete")) {
+        status = QStringLiteral("待同步（删除）");
+        statusColor = kColorWarn;
+    }
+    addRow(7, QStringLiteral("状态"), status, statusColor);
+    addRow(8, QStringLiteral("内容长度"),
+           QStringLiteral("%1 字符").arg(note.content.length()), kColorFg);
+
+    lay->addWidget(infoBox);
+
+    // ---- 历史版本区（自原「历史版本」对话框迁移）----
+    auto *histLabel = new QLabel(QStringLiteral("历史版本"));
+    histLabel->setStyleSheet(scaleQss(QStringLiteral(
+        "color: %1; font-size: 13px; font-weight: 600; background: transparent; border: none;")
+        .arg(kColorFg)));
+    lay->addWidget(histLabel);
 
     auto *split = new QHBoxLayout;
 
@@ -609,7 +703,7 @@ NoteHistoryDialog::NoteHistoryDialog(qint64 noteId, QWidget *parent)
 
     auto *row = new QHBoxLayout;
     auto *btnCopy = new QPushButton(QStringLiteral("复制内容"));
-    connect(btnCopy, &QPushButton::clicked, this, &NoteHistoryDialog::onCopyClicked);
+    connect(btnCopy, &QPushButton::clicked, this, &NoteDetailsDialog::onCopyClicked);
     row->addWidget(btnCopy);
 
     m_btnRestore = new QPushButton(QStringLiteral("恢复此版本"));
@@ -618,7 +712,7 @@ NoteHistoryDialog::NoteHistoryDialog(qint64 noteId, QWidget *parent)
         "QPushButton { background: %1; color: white; border: none;"
         " border-radius: 6px; padding: 6px 16px; }")
                                     .arg(kColorAccent)));
-    connect(m_btnRestore, &QPushButton::clicked, this, &NoteHistoryDialog::onRestoreClicked);
+    connect(m_btnRestore, &QPushButton::clicked, this, &NoteDetailsDialog::onRestoreClicked);
     row->addWidget(m_btnRestore);
 
     auto *btnClose = new QPushButton(QStringLiteral("关闭"));
@@ -627,10 +721,10 @@ NoteHistoryDialog::NoteHistoryDialog(qint64 noteId, QWidget *parent)
     row->addStretch(1);
     lay->addLayout(row);
 
-    connect(m_list, &QListWidget::currentRowChanged, this, &NoteHistoryDialog::onCurrentRowChanged);
+    connect(m_list, &QListWidget::currentRowChanged, this, &NoteDetailsDialog::onCurrentRowChanged);
 }
 
-void NoteHistoryDialog::setHistory(const QList<NoteHistory> &items)
+void NoteDetailsDialog::setHistory(const QList<NoteHistory> &items)
 {
     m_items = items;
     m_list->clear();
@@ -643,13 +737,32 @@ void NoteHistoryDialog::setHistory(const QList<NoteHistory> &items)
     for (const NoteHistory &h : items) {
         const QString ts = formatLocal(h.snapshotAt.isEmpty() ? h.updatedAt : h.snapshotAt);
         auto *item = new QListWidgetItem(QStringLiteral("v%1  %2").arg(h.version).arg(ts));
-        item->setToolTip(h.content);
+        item->setToolTip(h.deviceId.isEmpty()
+                             ? h.content
+                             : QStringLiteral("设备 %1\n──────\n%2").arg(h.deviceId, h.content));
         m_list->addItem(item);
     }
     m_list->setCurrentRow(0);
 }
 
-void NoteHistoryDialog::onCurrentRowChanged(int row)
+void NoteDetailsDialog::setHistoryUnavailable(const QString &reason)
+{
+    m_items.clear();
+    m_list->clear();
+    m_list->addItem(reason);
+    m_preview->clear();
+    m_preview->setPlaceholderText(QStringLiteral("（暂无可查看的历史版本）"));
+    m_btnRestore->setEnabled(false);
+}
+
+void NoteDetailsDialog::setDeviceName(const QString &name)
+{
+    if (!m_deviceValue || name.isEmpty())
+        return;
+    m_deviceValue->setText(name);
+}
+
+void NoteDetailsDialog::onCurrentRowChanged(int row)
 {
     if (row < 0 || row >= m_items.size()) {
         m_preview->clear();
@@ -660,7 +773,7 @@ void NoteHistoryDialog::onCurrentRowChanged(int row)
     m_btnRestore->setEnabled(true);
 }
 
-void NoteHistoryDialog::onCopyClicked()
+void NoteDetailsDialog::onCopyClicked()
 {
     const int row = m_list->currentRow();
     if (row < 0 || row >= m_items.size())
@@ -668,7 +781,7 @@ void NoteHistoryDialog::onCopyClicked()
     QApplication::clipboard()->setText(m_items.at(row).content);
 }
 
-void NoteHistoryDialog::onRestoreClicked()
+void NoteDetailsDialog::onRestoreClicked()
 {
     const int row = m_list->currentRow();
     if (row < 0 || row >= m_items.size())
