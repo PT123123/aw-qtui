@@ -1,6 +1,7 @@
 // inboxpage.h —— 收件箱页
 #pragma once
 
+#include <QElapsedTimer>
 #include <QList>
 #include <QPointer>
 #include <QSet>
@@ -107,6 +108,7 @@ private:
     void submitComment(qint64 noteId, const QString &text); // 评论提交（离线落本地+入队）
     void tryReconnect();              // 定时探测服务端是否恢复
     void startReconnect();
+    void triggerLanPull();            // 刷新时后台静默逐台触发局域网同步（成功后追加一轮加载）
     void updateOfflineBadge();
     bool isOffline() const { return !m_online; }
 
@@ -117,6 +119,9 @@ private:
     int m_pendingPush = 0;            // 正在补推的数量（并发计数）
     int m_reqGen = 0;                 // 请求代际：切离线/重置时递增，丢弃迟到回包
     QSet<QString> m_inflightComments; // 正在由 submitComment 直接推送的评论时间戳，避免补推重复 POST
+    // 局域网拉取（刷新顺带触发）：在途标志 + 节流（连续 F5 不重复打同步）
+    bool m_lanPullInflight = false;
+    QElapsedTimer m_lanPullThrottle;
     QList<Note> m_notes;
     QList<DetailedTag> m_tags;        // 扁平标签（编辑器联想用）
     QList<TagNode> m_tagRoots;        // 层级标签树（服务端 /tags/tree 或本地构建）
