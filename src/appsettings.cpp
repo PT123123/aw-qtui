@@ -62,6 +62,22 @@ bool loadNavCollapsed()
     return s.value(QStringLiteral("ui/navCollapsed"), true).toBool();
 }
 
+int loadTodoSortMode()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    bool ok = false;
+    const int v = s.value(QStringLiteral("todo/sortMode"), 0).toInt(&ok);
+    return (ok && v >= 0 && v <= 4) ? v : 0;
+}
+
+void saveTodoSortMode(int mode)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("todo/sortMode"), mode);
+    s.sync();
+}
+
+
 void saveNavCollapsed(bool collapsed)
 {
     QSettings s(settingsFilePath(), QSettings::IniFormat);
