@@ -572,8 +572,16 @@ void MainWindow::switchPage(int index)
     m_navCloudBackup->setChecked(index == PAGE_CLOUD_BACKUP);
 
     // 页面特定处理
-    if (index == PAGE_SYNC)
+    if (index == PAGE_SYNC) {
         m_sync->refreshDevices();
+        // 进入局域网同步界面时启动发现广播，离开时停止（aw-server-rust 9bcbc01）
+        if (m_api)
+            m_api->discoveryStart();
+    } else {
+        // 从同步页切走时停止广播（避免后台偷偷广播）
+        if (m_api && m_stack->currentIndex() == PAGE_SYNC)
+            m_api->discoveryStop();
+    }
     if (index == PAGE_TODO)
         m_todo->refresh();
 

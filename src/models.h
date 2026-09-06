@@ -182,9 +182,10 @@ struct DeviceInfo {
 //     · ActivityWatch（活动记录）→ 局域网同步 aw-sync-rust（通过 SyncPage 配置）
 //   - 低频率冷备（长期定期备份）→ S3 / WebDAV（通过 CloudBackupPage 配置）
 //
-// SyncConfig: enabled, http_enabled, discovery_method, listen_port, udp_port, sync_inbox, sync_activity, sync_todo, self_alias, probe_interval
+// SyncConfig: enabled, http_enabled, discovery_method, listen_port, udp_port, sync_inbox, sync_activity, sync_todo, self_alias, probe_interval, sync_interval
 //  + D1 云同步字段：d1_enabled / d1_account_id / d1_database_id / d1_api_token / d1_sync_interval
 //  + 冷备配置：通过 CloudBackupPage 的 QSettings("cloud") 存储（不在 SyncConfig 中）
+//  sync_interval：局域网自动同步间隔（秒），默认 10（狂暴档），三档预设：狂暴 10 / 平和 300 / 静默 1800
 struct SyncConfig {
     bool enabled = false;
     bool httpEnabled = true;
@@ -196,6 +197,7 @@ struct SyncConfig {
     bool syncTodo = true;
     QString selfAlias;
     quint16 probeInterval = 10;
+    quint64 syncInterval = 10;
 
     // Cloudflare D1 云同步（服务端 aw-sync-rust 维护；前端只读写这些字段）
     bool d1Enabled = false;
@@ -217,6 +219,9 @@ struct SyncConfig {
         c.syncTodo = o.value(QLatin1String("sync_todo")).toBool(true);
         c.selfAlias = o.value(QLatin1String("self_alias")).toString();
         c.probeInterval = o.value(QLatin1String("probe_interval")).toInt(10);
+        c.syncInterval = o.value(QLatin1String("sync_interval")).toVariant().toULongLong();
+        if (c.syncInterval == 0)
+            c.syncInterval = 10;
         c.d1Enabled = o.value(QLatin1String("d1_enabled")).toBool();
         c.d1AccountId = o.value(QLatin1String("d1_account_id")).toString();
         c.d1DatabaseId = o.value(QLatin1String("d1_database_id")).toString();
@@ -238,6 +243,7 @@ struct SyncConfig {
         o.insert(QStringLiteral("sync_todo"), syncTodo);
         o.insert(QStringLiteral("self_alias"), selfAlias);
         o.insert(QStringLiteral("probe_interval"), probeInterval);
+        o.insert(QStringLiteral("sync_interval"), static_cast<qint64>(syncInterval));
         o.insert(QStringLiteral("d1_enabled"), d1Enabled);
         o.insert(QStringLiteral("d1_account_id"), d1AccountId);
         o.insert(QStringLiteral("d1_database_id"), d1DatabaseId);

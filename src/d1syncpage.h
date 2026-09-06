@@ -29,6 +29,8 @@ private slots:
     void onTest();
     void onSyncNow();
     void onFullSync();
+    void onResetCheckpoint();
+    void onRefreshD1Logs();
 
 private:
     void buildUi();
@@ -46,6 +48,8 @@ private:
     QPushButton *m_btnTest;
     QPushButton *m_btnSyncNow;
     QPushButton *m_btnFullSync;
+    QPushButton *m_btnResetCheckpoint;
+    QPushButton *m_btnRefreshD1Logs;
 
     QLabel *m_lblStatus;
     QPlainTextEdit *m_log;

@@ -98,6 +98,7 @@ private:
     QLineEdit *m_editAlias;
     QLineEdit *m_editListenPort;
     QLineEdit *m_editUdpPort;
+    QComboBox *m_cmbSyncInterval = nullptr;    // 三档自动同步频率（狂暴/平和/静默）
     QPushButton *m_btnSaveConfig;
 
     // 配对

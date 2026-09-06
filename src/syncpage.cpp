@@ -228,6 +228,15 @@ void SyncPage::buildUi()
     fl->addRow(QStringLiteral("本机别名"), m_editAlias = new QLineEdit);
     fl->addRow(QStringLiteral("监听端口"), m_editListenPort = new QLineEdit);
     fl->addRow(QStringLiteral("UDP 端口"), m_editUdpPort = new QLineEdit);
+    // 自动同步频率：三档预设（狂暴 10s / 平和 5min / 静默 30min），自定义即手动改秒数
+    m_cmbSyncInterval = new QComboBox;
+    m_cmbSyncInterval->addItem(QStringLiteral("狂暴（每 10 秒）"), 10);
+    m_cmbSyncInterval->addItem(QStringLiteral("平和（每 5 分钟）"), 300);
+    m_cmbSyncInterval->addItem(QStringLiteral("静默（每 30 分钟）"), 1800);
+    m_cmbSyncInterval->setToolTip(QStringLiteral(
+        "局域网自动同步间隔：已配对设备间按该频率自动双向同步。\n"
+        "狂暴 10 秒适合实时协作；平和 5 分钟为日常使用；静默 30 分钟节省电量。"));
+    fl->addRow(QStringLiteral("自动同步频率"), m_cmbSyncInterval);
     m_btnSaveConfig = new QPushButton(QStringLiteral("保存配置"));
     m_btnSaveConfig->setObjectName(QStringLiteral("PrimaryBtn"));
     connect(m_btnSaveConfig, &QPushButton::clicked, this, &SyncPage::onSaveConfig);
@@ -618,6 +627,20 @@ void SyncPage::refreshSyncConfig()
         m_editAlias->setText(cfg.selfAlias);
         m_editListenPort->setText(QString::number(cfg.listenPort));
         m_editUdpPort->setText(QString::number(cfg.udpPort));
+        // 自动同步频率：匹配三档预设值，未匹配时默认选中「狂暴」
+        {
+            int idx = m_cmbSyncInterval->findData(static_cast<quint64>(cfg.syncInterval));
+            if (idx < 0) {
+                // 自定义值：狂暴(10) / 平和(300) / 静默(1800) 之外的选择最近一档
+                if (cfg.syncInterval <= 60)
+                    idx = 0;
+                else if (cfg.syncInterval <= 900)
+                    idx = 1;
+                else
+                    idx = 2;
+            }
+            m_cmbSyncInterval->setCurrentIndex(idx);
+        }
         log(QStringLiteral("同步配置已刷新（同步范围请在「设置 → 同步」中查看）"));
     });
 }
@@ -634,6 +657,7 @@ void SyncPage::onSaveConfig()
     cfg.listenPort = m_editListenPort->text().toInt();
     cfg.udpPort = m_editUdpPort->text().toInt();
     cfg.discoveryMethod = QStringLiteral("broadcast");
+    cfg.syncInterval = m_cmbSyncInterval->currentData().toULongLong();
 
     QNetworkReply *r = m_api->setSyncConfig(cfg.toJson());
     connect(r, &QNetworkReply::finished, this, [this, r] {
