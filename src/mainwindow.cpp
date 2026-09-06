@@ -38,7 +38,9 @@
 #include <QEvent>
 #include <QFont>
 #include <QFontMetrics>
+#include <QFrame>
 #include <QGraphicsOpacityEffect>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QKeySequence>
@@ -48,6 +50,7 @@
 #include <QPlainTextEdit>
 #include <QPropertyAnimation>
 #include <QPushButton>
+#include <QScreen>
 #include <QSizePolicy>
 #include <QSpinBox>
 #include <QSystemTrayIcon>
@@ -71,6 +74,18 @@ namespace awqtui {
 // 左侧导航宽度（缩放前基准 px）：窄栏仅图标 / 展开显示图标+文字
 static const int kNavCollapsedPx = 56;
 static const int kNavExpandedPx = 148;
+
+// 最小窗口尺寸：保证收件箱工具栏（搜索框 240 + 排序 108 + 按钮组）与卡片
+// 头部「⋯」菜单按钮不被压出可视区；数值随 UI 缩放（si），并按当前屏幕钳制
+// （高倍缩放或小屏时不超过屏幕可用区域，避免窗口大于屏幕无法完整显示）。
+static void applyWindowMinimumSize(QMainWindow *win)
+{
+    QSize sz(si(980), si(600));
+    if (const QScreen *s = win->screen())
+        sz = sz.boundedTo(s->availableGeometry().size());
+    win->setMinimumSize(sz);
+}
+
 
 // 缩放吸附档位：仅 gFixSnapZoom 开启时使用，把缩放吸附到"干净"倍率，
 // 避免非整数缩放导致控件落在亚像素位置、1px 边框发虚。关闭时保留自由缩放（1.15 倍步进）。
@@ -234,6 +249,19 @@ void MainWindow::buildUi()
     navLay->setContentsMargins(0, si(12), 0, si(12));
     navLay->setSpacing(si(2));
 
+    // 顶部应用图标
+    m_navIcon = new QLabel(QStringLiteral("🕐"));
+    m_navIcon->setAlignment(Qt::AlignCenter);
+    m_navIcon->setStyleSheet(scaleQss(QStringLiteral("font-size: 20px; padding: 4px 0 8px;")));
+    m_navIcon->setFixedSize(si(28), si(28));
+    navLay->addWidget(m_navIcon, 0, Qt::AlignCenter);
+
+    // 顶部分隔线
+    auto *topSep = new QFrame;
+    topSep->setFrameShape(QFrame::HLine);
+    topSep->setStyleSheet(scaleQss(QStringLiteral("background: %1; max-height: 1px;").arg(kColorBorder)));
+    navLay->addWidget(topSep);
+
     // 展开/收起切换按钮
     m_navToggle = new QToolButton;
     m_navToggle->setObjectName(QStringLiteral("NavToggle"));
@@ -254,10 +282,10 @@ void MainWindow::buildUi()
         auto *header = new QToolButton;
         header->setObjectName(QStringLiteral("NavSection"));
         header->setText(title);
-        header->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        header->setToolButtonStyle(Qt::ToolButtonTextOnly);
         header->setCheckable(true);
         header->setChecked(expanded);
-        header->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+        header->setText(expanded ? QStringLiteral("▼ ") + title : QStringLiteral("▶ ") + title);
         header->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
         auto *box = new QWidget;
@@ -266,8 +294,8 @@ void MainWindow::buildUi()
         lay->setSpacing(4);
 
         QObject::connect(header, &QToolButton::toggled, box, &QWidget::setVisible);
-        QObject::connect(header, &QToolButton::toggled, header, [header](bool on) {
-            header->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
+        QObject::connect(header, &QToolButton::toggled, header, [header, title](bool on) {
+            header->setText(on ? QStringLiteral("▼ ") + title : QStringLiteral("▶ ") + title);
         });
 
         navLay->addWidget(header);
@@ -309,10 +337,10 @@ void MainWindow::buildUi()
     todoSec.layout->addWidget(m_navTimer);
     todoSec.layout->addWidget(m_navFocusStats);
 
-    // ---- 分组 3：Activity Watch ----
-    // 6 个视图合并为单个「ActivityWatch」入口（页内子标签切换）
-    NavSection awSec = makeSection(QStringLiteral("ACTIVITYWATCH"), false);
-    m_navActivity = makeNavBtn("📊", "ActivityWatch");
+    // ---- 分组 3：活动 ----
+    // 6 个视图合并为单个「活动」入口（页内子标签切换）
+    NavSection awSec = makeSection(QStringLiteral("活动"), false);
+    m_navActivity = makeNavBtn("📊", "活动");
     awSec.layout->addWidget(m_navActivity);
 
     // ---- 分组 4：同步 ----
@@ -458,6 +486,7 @@ void MainWindow::buildUi()
 
     setWindowTitle(QStringLiteral("aw-qtui — ActivityWatch 客户端"));
     resize(1280, 820);
+    applyWindowMinimumSize(this);
 }
 
 // 左侧导航在「窄栏（仅图标）」与「展开（图标+文字）」之间切换：
@@ -492,13 +521,36 @@ void MainWindow::setNavExpanded(bool expanded)
     }
 
     if (m_nav) {
-        m_nav->setFixedWidth(si(expanded ? kNavExpandedPx : kNavCollapsedPx));
-        if (auto *nl = qobject_cast<QVBoxLayout *>(m_nav->layout())) {
-            nl->setContentsMargins(0, si(expanded ? 16 : 12), 0, si(12));
-            nl->setSpacing(si(expanded ? 4 : 2));
+        const int target = si(expanded ? kNavExpandedPx : kNavCollapsedPx);
+        if (gFxAnimations && m_nav->isVisible() && m_nav->width() != target) {
+            // 展开/收起动画：先解除 fixedWidth 约束，再动画 maximumWidth
+            const int start = m_nav->width();
+            m_nav->setMinimumWidth(0);
+            m_nav->setMaximumWidth(QWIDGETSIZE_MAX);
+            auto *anim = new QPropertyAnimation(m_nav, "maximumWidth", m_nav);
+            anim->setDuration(200);
+            anim->setStartValue(start);
+            anim->setEndValue(target);
+            anim->setEasingCurve(QEasingCurve::OutCubic);
+            connect(anim, &QPropertyAnimation::finished, this, [this, expanded, target] {
+                m_nav->setFixedWidth(target);
+                if (auto *nl = qobject_cast<QVBoxLayout *>(m_nav->layout())) {
+                    nl->setContentsMargins(0, si(expanded ? 16 : 12), 0, si(12));
+                    nl->setSpacing(si(expanded ? 4 : 2));
+                }
+                m_nav->layout()->activate();
+                m_nav->update();
+            });
+            anim->start(QAbstractAnimation::DeleteWhenStopped);
+        } else {
+            m_nav->setFixedWidth(target);
+            if (auto *nl = qobject_cast<QVBoxLayout *>(m_nav->layout())) {
+                nl->setContentsMargins(0, si(expanded ? 16 : 12), 0, si(12));
+                nl->setSpacing(si(expanded ? 4 : 2));
+            }
+            m_nav->layout()->activate();
+            m_nav->update();
         }
-        m_nav->layout()->activate();
-        m_nav->update();
     }
 }
 
@@ -766,6 +818,26 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
         if (result)
             *result = 0;
         return true;
+    }
+    // 最大化时把窗口尺寸钳制到屏幕可用区域，避免无边框/细边框窗口的右侧与底部
+    // 被 Windows 最大化边框延伸到屏幕外（导致笔记卡片「⋯」按钮切出可视区）。
+    if (eventType == QByteArrayLiteral("windows_generic_MSG")) {
+        const auto *msg = static_cast<const MSG *>(message);
+        if (msg->message == WM_GETMINMAXINFO) {
+            if (const QScreen *s = screen()) {
+                const QRect avail = s->availableGeometry();
+                auto *mmi = reinterpret_cast<MINMAXINFO *>(msg->lParam);
+                mmi->ptMaxPosition.x = avail.x();
+                mmi->ptMaxPosition.y = avail.y();
+                mmi->ptMaxSize.x = avail.width();
+                mmi->ptMaxSize.y = avail.height();
+                mmi->ptMaxTrackSize.x = avail.width();
+                mmi->ptMaxTrackSize.y = avail.height();
+                if (result)
+                    *result = 0;
+                return true;
+            }
+        }
     }
     Q_UNUSED(eventType);
 #else
