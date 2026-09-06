@@ -71,6 +71,7 @@ private slots:
     void onComment(qint64 id);
     void onTogglePinned(qint64 id);
     void onNoteDetails(qint64 id);
+    void onConvertToTodo(qint64 id);
     void onTaskToggled(qint64 id, const QString &content);
     void onParentReferenceClicked(qint64 parentId);
     void onScroll();

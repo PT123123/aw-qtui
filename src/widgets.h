@@ -62,6 +62,8 @@ signals:
     void detailsRequested(qint64 id);
     // 点击正文里的 #标签（层级 tag 的每段可点，参数为「到该段为止的路径」）
     void tagClicked(const QString &path);
+    // ⋯ 菜单「转为待办」：先建 Todo 再删原笔记（NoteTodoConverter 语义）
+    void convertToTodoRequested(qint64 id);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -141,6 +143,8 @@ public:
 signals:
     // 请求把选中历史版本的内容恢复到笔记正文
     void restoreRequested(qint64 noteId, const QString &content);
+    // 「转为待办」：先建 Todo 再删原笔记
+    void convertRequested(qint64 noteId);
     // 点击标签面包屑的某一段（层级 tag，参数为「到该段为止的路径」）
     void tagClicked(const QString &path);
 
