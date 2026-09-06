@@ -265,19 +265,36 @@ void D1SyncPage::onTest()
     }
     log(QStringLiteral("正在测试 D1 连接..."));
     m_btnTest->setEnabled(false);
+    m_btnTest->setText(QStringLiteral("测试中..."));
     QNetworkReply *r = m_api->d1Test();
     connect(r, &QNetworkReply::finished, this, [this, r] {
         m_btnTest->setEnabled(true);
+        m_btnTest->setText(QStringLiteral("测试连接"));
         QJsonDocument doc;
         QString err;
         if (!ApiClient::parseReply(r, &doc, &err)) {
             log(QStringLiteral("测试失败：%1").arg(err));
             setStatus(QStringLiteral("测试失败：%1").arg(err), false);
+            // 结果弹窗（对齐 Android 5eb8970：❌ + 服务端 message）
+            QMessageBox::warning(this, QStringLiteral("D1 连接测试"),
+                                 QStringLiteral("❌ 连接失败\n\n%1").arg(err));
         } else {
             const QJsonObject o = doc.object();
+            const bool ok = o.value(QStringLiteral("ok")).toBool(true);
             const QString msg = o.value(QStringLiteral("message")).toString(QStringLiteral("D1 连接成功"));
-            log(QStringLiteral("测试成功：%1").arg(msg));
-            setStatus(msg, true);
+            log(QStringLiteral("测试%1：%2")
+                    .arg(ok ? QStringLiteral("成功") : QStringLiteral("失败"), msg));
+            setStatus(msg, ok);
+            // 结果弹窗（对齐 Android 5eb8970）：成功回显 Account/Database 输入值
+            if (ok) {
+                QMessageBox::information(this, QStringLiteral("D1 连接测试"),
+                                         QStringLiteral("✅ D1 连接成功\n\nAccount: %1\nDatabase: %2")
+                                             .arg(m_accountId->text().trimmed(),
+                                                  m_databaseId->text().trimmed()));
+            } else {
+                QMessageBox::warning(this, QStringLiteral("D1 连接测试"),
+                                     QStringLiteral("❌ 连接失败\n\n%1").arg(msg));
+            }
         }
         r->deleteLater();
     });
