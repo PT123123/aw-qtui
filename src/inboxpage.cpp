@@ -503,8 +503,10 @@ void InboxPage::rebuildTagsFromLocal()
 
 void InboxPage::createLocal(const QString &content, const QStringList &tags)
 {
-    m_store.insertLocal(content, tags, m_api->deviceId());
+    const qint64 id = m_store.insertLocal(content, tags, m_api->deviceId());
     m_store.save();
+    // 渲染完成后定位并高亮新笔记（离线路径与在线创建后的定位一致）
+    m_pendingJumpId = id;
     rebuildTagsFromLocal();
     renderLocal();
 }
@@ -513,6 +515,7 @@ void InboxPage::updateLocal(qint64 id, const QString &content, const QStringList
 {
     m_store.updateLocal(id, content, tags);
     m_store.save();
+    m_pendingJumpId = id;
     rebuildTagsFromLocal();
     renderLocal();
 }
@@ -1135,6 +1138,9 @@ void InboxPage::onNewNote()
         }
         m_store.applyServerNotes({Note::fromJson(doc.object())});
         m_store.save();
+        // 新建完成：刷新后定位并高亮新笔记（Android refreshAndScrollToNote 语义；
+        // 若新笔记不属于当前筛选/搜索，refreshAll 重载后不在列表里则静默跳过）
+        m_pendingJumpId = Note::fromJson(doc.object()).id;
         refreshAll();
     });
 }
@@ -1360,6 +1366,8 @@ void InboxPage::applyContent(qint64 id, const QString &text)
             updateLocal(id, text, tags);
             return;
         }
+        // 编辑保存（含详情页版本恢复、任务清单勾选）成功：刷新后定位并高亮该笔记
+        m_pendingJumpId = id;
         refreshAll();
     });
 }
@@ -1468,6 +1476,8 @@ void InboxPage::submitComment(qint64 noteId, const QString &text)
         m_store.confirmComment(noteId, text, ts, serverNoteId);
         m_store.save();
         setStatus(StatusBadge::State::Connected, QStringLiteral("评论已发表"));
+        // 刷新后定位并高亮新评论笔记（Android 快速发送后跳转定位语义）
+        m_pendingJumpId = serverNoteId;
         QTimer::singleShot(2000, this, [this] { updateOfflineBadge(); });
         refreshAll();
     });
