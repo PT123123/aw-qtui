@@ -213,6 +213,7 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
         QAction *actEdit = menu.addAction(QStringLiteral("编辑"));
         QAction *actCmt = menu.addAction(QStringLiteral("评论"));
         QAction *actDetails = menu.addAction(QStringLiteral("详细信息"));
+        QAction *actConvert = menu.addAction(QStringLiteral("转为待办"));
         QAction *actDel = menu.addAction(QStringLiteral("删除"));
         actDel->setIcon(QApplication::style()->standardIcon(QStyle::SP_TrashIcon));
         QAction *chosen = menu.exec(menuBtn->mapToGlobal(QPoint(0, menuBtn->height())));
@@ -226,6 +227,8 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
             emit commentRequested(m_note.id);
         else if (chosen == actDetails)
             emit detailsRequested(m_note.id);
+        else if (chosen == actConvert)
+            emit convertToTodoRequested(m_note.id);
         else if (chosen == actDel)
             emit deleteRequested(m_note.id);
     });
@@ -741,6 +744,10 @@ NoteDetailsDialog::NoteDetailsDialog(const Note &note, QWidget *parent)
     auto *btnCopy = new QPushButton(QStringLiteral("复制内容"));
     connect(btnCopy, &QPushButton::clicked, this, &NoteDetailsDialog::onCopyClicked);
     row->addWidget(btnCopy);
+
+    auto *btnConvert = new QPushButton(QStringLiteral("转为待办"));
+    connect(btnConvert, &QPushButton::clicked, this, [this] { emit convertRequested(m_noteId); });
+    row->addWidget(btnConvert);
 
     m_btnRestore = new QPushButton(QStringLiteral("恢复此版本"));
     m_btnRestore->setEnabled(false);
