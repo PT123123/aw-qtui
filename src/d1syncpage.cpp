@@ -84,9 +84,12 @@ void D1SyncPage::buildUi()
     m_btnTest->setObjectName(QStringLiteral("PrimaryBtn"));
     m_btnSave = new QPushButton(QStringLiteral("保存配置"));
     m_btnSyncNow = new QPushButton(QStringLiteral("立即同步"));
+    m_btnFullSync = new QPushButton(QStringLiteral("强制全量同步"));
+    m_btnFullSync->setToolTip(QStringLiteral("清空云端 checkpoint 后从 D1 全量拉取，用于重装软件后恢复数据"));
     btnRow->addWidget(m_btnTest);
     btnRow->addWidget(m_btnSave);
     btnRow->addWidget(m_btnSyncNow);
+    btnRow->addWidget(m_btnFullSync);
     btnRow->addStretch(1);
     cfgForm->addRow(btnRow);
 
@@ -107,6 +110,7 @@ void D1SyncPage::buildUi()
         "• Account ID：Cloudflare 账户的 32 位十六进制 ID（在账户首页右侧可见）。\n"
         "• Database ID：D1 数据库 UUID（wrangler d1 list 或控制台可见）。\n"
         "• API Token：在 Cloudflare 控制台创建，需授予 D1:Edit 权限。\n"
+        "• 强制全量同步：清空云端 checkpoint 后全量拉取，用于重装软件后恢复数据。\n"
         "保存后请先点「测试连接」验证凭据与 D1 初始化状态，再点「立即同步」触发一次。"));
     help->setWordWrap(true);
     help->setStyleSheet(QStringLiteral("color: %1;").arg(kColorFgMuted));
@@ -126,6 +130,7 @@ void D1SyncPage::buildUi()
     connect(m_btnSave, &QPushButton::clicked, this, &D1SyncPage::onSave);
     connect(m_btnTest, &QPushButton::clicked, this, &D1SyncPage::onTest);
     connect(m_btnSyncNow, &QPushButton::clicked, this, &D1SyncPage::onSyncNow);
+    connect(m_btnFullSync, &QPushButton::clicked, this, &D1SyncPage::onFullSync);
 }
 
 void D1SyncPage::applyUiScale()
@@ -295,6 +300,47 @@ void D1SyncPage::onSyncNow()
         log(QStringLiteral("同步完成：推送笔记 %1 条 / Todo %2 条，拉取笔记 %3 条 / Todo %4 条，冲突 %5，错误 %6")
                 .arg(pushedNotes).arg(pushedTodos).arg(pulledNotes).arg(pulledTodos).arg(conflicts).arg(errors));
         setStatus(QStringLiteral("同步完成 · 上次同步：%1")
+                      .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))),
+                  errors == 0);
+        r->deleteLater();
+    });
+}
+
+void D1SyncPage::onFullSync()
+{
+    if (!m_api)
+        return;
+    auto ret = QMessageBox::warning(this, QStringLiteral("强制全量同步"),
+        QStringLiteral("此操作将清空本机云端 checkpoint 并从 D1 全量拉取数据。\n"
+                       "适用于重装软件后从云端恢复数据的场景。\n\n"
+                       "确定继续？"),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (ret != QMessageBox::Yes)
+        return;
+
+    log(QStringLiteral("触发强制全量同步（清空 checkpoint + 全量拉取）..."));
+    m_btnFullSync->setEnabled(false);
+    QNetworkReply *r = m_api->d1FullSync();
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        m_btnFullSync->setEnabled(true);
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            log(QStringLiteral("强制全量同步失败：%1").arg(err));
+            setStatus(QStringLiteral("强制全量同步失败：%1").arg(err), false);
+            r->deleteLater();
+            return;
+        }
+        const QJsonObject o = doc.object();
+        const int pushedNotes = o.value(QStringLiteral("pushed_notes")).toInt();
+        const int pushedTodos = o.value(QStringLiteral("pushed_todos")).toInt();
+        const int pulledNotes = o.value(QStringLiteral("pulled_notes")).toInt();
+        const int pulledTodos = o.value(QStringLiteral("pulled_todos")).toInt();
+        const int conflicts = o.value(QStringLiteral("conflicts")).toInt();
+        const int errors = o.value(QStringLiteral("errors")).toInt();
+        log(QStringLiteral("强制全量同步完成：推送笔记 %1 条 / Todo %2 条，拉取笔记 %3 条 / Todo %4 条，冲突 %5，错误 %6")
+                .arg(pushedNotes).arg(pushedTodos).arg(pulledNotes).arg(pulledTodos).arg(conflicts).arg(errors));
+        setStatus(QStringLiteral("强制全量同步完成 · 上次同步：%1")
                       .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))),
                   errors == 0);
         r->deleteLater();

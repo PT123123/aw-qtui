@@ -78,6 +78,7 @@ public:
 
     // D1 云同步 (aw-sync-rust /api/0/sync/d1/*)
     QNetworkReply *d1SyncNow();                                           // POST /d1/sync
+    QNetworkReply *d1FullSync();                                          // POST /d1/full_sync (强制全量)
     QNetworkReply *d1Status();                                            // GET  /d1/status
     QNetworkReply *d1Test();                                              // POST /d1/test
 
