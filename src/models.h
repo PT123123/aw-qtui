@@ -99,6 +99,40 @@ struct DetailedTag {
     }
 };
 
+// 层级标签树节点（GET /inbox/tags/tree）：path 为完整路径（如 项目/工作），
+// count 为含子孙的前缀匹配计数；children 按路径排序
+struct TagNode {
+    QString path;
+    qint64 count = 0;
+    QList<TagNode> children;
+
+    static TagNode fromJson(const QJsonObject &o)
+    {
+        TagNode n;
+        n.path = o.value(QLatin1String("path")).toString();
+        n.count = o.value(QLatin1String("count")).toVariant().toLongLong();
+        const auto arr = o.value(QLatin1String("children")).toArray();
+        for (const auto &v : arr) {
+            if (v.isObject())
+                n.children << TagNode::fromJson(v.toObject());
+        }
+        return n;
+    }
+};
+
+// 层级标签工具：按「段边界」前缀匹配（路径 p 命中 p 本身与 p/ 开头的所有子孙）
+inline bool tagPathMatches(const QStringList &tags, const QString &path)
+{
+    if (path.isEmpty())
+        return true;
+    const QString prefix = path + QLatin1Char('/');
+    for (const QString &t : tags) {
+        if (t == path || t.startsWith(prefix))
+            return true;
+    }
+    return false;
+}
+
 // 评论（服务端把评论也按 Note 返回）
 struct Comment {
     qint64 id = 0;

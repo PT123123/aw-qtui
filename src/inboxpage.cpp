@@ -28,9 +28,11 @@
 #include <QSignalBlocker>
 #include <QStackedLayout>
 #include <QTimer>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <functional>
 
 namespace awqtui {
 
@@ -92,14 +94,19 @@ void InboxPage::buildUi()
                                                        "padding: 0 2px 2px;")
                                            .arg(kColorFgMuted)));
     tagLay->addWidget(m_tagTitle);
-    m_tagList = new QListWidget;
-    m_tagList->setStyleSheet(scaleQss(QStringLiteral(
-        "QListWidget { background: transparent; border: none; outline: none; }"
-        "QListWidget::item { padding: 6px 8px; border: none; border-radius: 6px; color: %1; }"
-        "QListWidget::item:hover { background: %2; color: %3; }")
+    m_tagTree = new QTreeWidget;
+    m_tagTree->setHeaderHidden(true);
+    m_tagTree->setColumnCount(1);
+    m_tagTree->setRootIsDecorated(true);
+    m_tagTree->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_tagTree->setStyleSheet(scaleQss(QStringLiteral(
+        "QTreeWidget { background: transparent; border: none; outline: none; }"
+        "QTreeWidget::item { padding: 4px 6px; border: none; border-radius: 6px; color: %1; }"
+        "QTreeWidget::item:hover { background: %2; color: %3; }"
+        "QTreeWidget::item:selected { background: %2; color: %3; }")
                                          .arg(kColorFg, kColorBgElev2, kColorFg)));
-    connect(m_tagList, &QListWidget::itemChanged, this, [this](QListWidgetItem *) { onTagToggled(); });
-    tagLay->addWidget(m_tagList, 1);
+    connect(m_tagTree, &QTreeWidget::itemClicked, this, &InboxPage::onTagTreeItemClicked);
+    tagLay->addWidget(m_tagTree, 1);
     auto *btnClear = new QPushButton(QStringLiteral("清除过滤"));
     m_btnClear = btnClear;
     btnClear->setStyleSheet(scaleQss(QStringLiteral(
@@ -107,12 +114,7 @@ void InboxPage::buildUi()
         " text-align: left; padding: 2px; }"
         "QPushButton:hover { color: %2; }")
                                         .arg(kColorFgMuted, kColorAccent)));
-    connect(btnClear, &QPushButton::clicked, this, [this] {
-        for (int i = 0; i < m_tagList->count(); ++i)
-            m_tagList->item(i)->setCheckState(Qt::Unchecked);
-        m_selectedTags.clear();
-        loadNotes(true);
-    });
+    connect(btnClear, &QPushButton::clicked, this, [this] { applyTagFilterPath(QString()); });
     tagLay->addWidget(btnClear);
 
     // ---- 设置入口（放在最左栏底部，不在收件箱主体工具栏） ----
@@ -189,6 +191,32 @@ void InboxPage::buildUi()
     m_badge = new StatusBadge;
     toolbar->addWidget(m_badge);
     mainLay->addLayout(toolbar);
+
+    // 层级标签筛选面包屑条：仅显示 #项目 / 工作   [↑ 返回上级] [✕]
+    m_filterBar = new QWidget;
+    m_filterBar->setVisible(false);
+    auto *filterLay = new QHBoxLayout(m_filterBar);
+    filterLay->setContentsMargins(si(20), 0, si(16), si(6));
+    filterLay->setSpacing(si(6));
+    m_filterText = new QLabel;
+    m_filterText->setStyleSheet(scaleQss(QStringLiteral(
+        "color: %1; font-size: 12px; background: %2; border: 1px solid %3;"
+        " border-radius: 6px; padding: 3px 8px;")
+                                           .arg(kColorAccent, glassBg(kColorBgElev), withAlpha(kColorBorder, 0.45))));
+    filterLay->addWidget(m_filterText);
+    filterLay->addStretch(1);
+    m_btnFilterUp = new QPushButton(QStringLiteral("↑ 返回上级"));
+    m_btnFilterUp->setStyleSheet(scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg)));
+    connect(m_btnFilterUp, &QPushButton::clicked, this, [this] {
+        const int slash = m_currentTag.lastIndexOf(QLatin1Char('/'));
+        applyTagFilterPath(slash > 0 ? m_currentTag.left(slash) : QString());
+    });
+    filterLay->addWidget(m_btnFilterUp);
+    m_btnFilterClear = new QPushButton(QStringLiteral("✕ 清除"));
+    m_btnFilterClear->setStyleSheet(scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg)));
+    connect(m_btnFilterClear, &QPushButton::clicked, this, [this] { applyTagFilterPath(QString()); });
+    filterLay->addWidget(m_btnFilterClear);
+    mainLay->addWidget(m_filterBar);
 
     // 列表 + 悬浮新建
     auto *stackHost = new QWidget;
@@ -275,12 +303,27 @@ void InboxPage::applyUiScale()
         m_tagTitle->setStyleSheet(scaleQss(QStringLiteral(
             "color: %1; font-size: 11px; font-weight: 700; padding: 0 2px 2px;")
                                                .arg(kColorFgMuted)));
-    if (m_tagList)
-        m_tagList->setStyleSheet(scaleQss(QStringLiteral(
-            "QListWidget { background: transparent; border: none; outline: none; }"
-            "QListWidget::item { padding: 6px 8px; border: none; border-radius: 6px; color: %1; }"
-            "QListWidget::item:hover { background: %2; color: %3; }")
+    if (m_tagTree)
+        m_tagTree->setStyleSheet(scaleQss(QStringLiteral(
+            "QTreeWidget { background: transparent; border: none; outline: none; }"
+            "QTreeWidget::item { padding: 4px 6px; border: none; border-radius: 6px; color: %1; }"
+            "QTreeWidget::item:hover { background: %2; color: %3; }"
+            "QTreeWidget::item:selected { background: %2; color: %3; }")
                                              .arg(kColorFg, kColorBgElev2, kColorFg)));
+    if (m_filterText)
+        m_filterText->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 12px; background: %2; border: 1px solid %3;"
+            " border-radius: 6px; padding: 3px 8px;")
+                                               .arg(kColorAccent, glassBg(kColorBgElev), withAlpha(kColorBorder, 0.45))));
+    {   // 筛选条按钮复用 subtleBtn 样式
+        const QString subtleBtn2 = QStringLiteral(
+            "QPushButton { background: transparent; border: none; border-radius: 6px;"
+            " color: %1; padding: 5px 10px; font-size: 12px; }"
+            "QPushButton:hover { background: %2; color: %3; }");
+        for (QPushButton *b : {m_btnFilterUp, m_btnFilterClear})
+            if (b)
+                b->setStyleSheet(scaleQss(subtleBtn2.arg(kColorFgMuted, kColorBgElev2, kColorFg)));
+    }
     if (m_btnClear)
         m_btnClear->setStyleSheet(scaleQss(QStringLiteral(
             "QPushButton { background: transparent; border: none; color: %1; font-size: 11px;"
@@ -355,7 +398,7 @@ void InboxPage::refreshAll()
         startReconnect();
         return;
     }
-    loadTags();
+    loadTagTree();
     loadNotes(true);
 }
 
@@ -371,22 +414,13 @@ void InboxPage::renderLocal()
     const QString search = m_search->text().trimmed().toLower();
     const QString sortBy = m_sort ? m_sort->currentData().toString() : QStringLiteral("created");
 
-    // 客户端过滤：搜索 + 标签（单/多标签统一 OR）
+    // 客户端过滤：搜索 + 层级标签路径（段边界前缀匹配，与服务的 ?tag= 语义一致）
     QList<Note> visible;
     for (const Note &n : all) {
         if (!search.isEmpty() && !n.content.toLower().contains(search))
             continue;
-        if (!m_selectedTags.isEmpty()) {
-            bool any = false;
-            for (const QString &t : m_selectedTags) {
-                if (n.tags.contains(t)) {
-                    any = true;
-                    break;
-                }
-            }
-            if (!any)
-                continue;
-        }
+        if (!tagPathMatches(n.tags, m_currentTag))
+            continue;
         visible << n;
     }
 
@@ -427,7 +461,12 @@ void InboxPage::rebuildTagsFromLocal()
     m_tags.clear();
     for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
         m_tags << DetailedTag{it.key(), it.value(), last.value(it.key())};
-    rebuildTagSidebar();
+    // 层级标签树（本地构建：精确计数 → 前缀含子孙计数）
+    QMap<QString, qint64> exact;
+    for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
+        exact.insert(it.key(), it.value());
+    m_tagRoots = buildTagTreeFromExact(exact);
+    rebuildTagTree();
 }
 
 void InboxPage::createLocal(const QString &content, const QStringList &tags)
@@ -607,7 +646,37 @@ void InboxPage::loadDetailedTags()
             if (v.isObject())
                 m_tags << DetailedTag::fromJson(v.toObject());
         }
-        rebuildTagSidebar();
+        // 树端点不可用（旧服务端）时的回退：用扁平精确计数自建层级树
+        QMap<QString, qint64> exact;
+        for (const DetailedTag &t : m_tags)
+            exact.insert(t.name, t.count);
+        m_tagRoots = buildTagTreeFromExact(exact);
+        rebuildTagTree();
+    });
+}
+
+void InboxPage::loadTagTree()
+{
+    QNetworkReply *r = m_api->getTagTree();
+    if (!r) {
+        loadTags();
+        return;
+    }
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            // 服务端过旧（无 /inbox/tags/tree）：回退到 detailed 标签自建树
+            loadDetailedTags();
+            return;
+        }
+        m_tagRoots.clear();
+        const auto arr = doc.object().value(QLatin1String("tags")).toArray();
+        for (const auto &v : arr) {
+            if (v.isObject())
+                m_tagRoots << TagNode::fromJson(v.toObject());
+        }
+        rebuildTagTree();
     });
 }
 
@@ -627,27 +696,110 @@ void InboxPage::loadTags()
     });
 }
 
-void InboxPage::rebuildTagSidebar()
+// 与服务端 get_tag_tree_db 同构：按「/」分段累计每个前缀路径的含子孙计数；
+// 根节点取所有无「/」的前缀路径（纯中间节点也会出现）；children 按路径排序
+QList<TagNode> InboxPage::buildTagTreeFromExact(const QMap<QString, qint64> &exact)
 {
-    QSignalBlocker blocker(m_tagList);
-    m_tagList->clear();
-    for (const DetailedTag &t : m_tags) {
-        auto *item = new QListWidgetItem(QStringLiteral("#%1 (%2)").arg(t.name).arg(t.count));
-        item->setData(Qt::UserRole, t.name);
-        item->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
-        item->setCheckState(m_selectedTags.contains(t.name) ? Qt::Checked : Qt::Unchecked);
-        m_tagList->addItem(item);
+    QMap<QString, qint64> incl;                 // 前缀路径 → 含子孙计数
+    QMap<QString, QStringList> childrenMap;     // 父路径 → 直接子路径
+    for (auto it = exact.constBegin(); it != exact.constEnd(); ++it) {
+        const QString tag = it.key();
+        QString path;
+        const QStringList segs = tag.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        for (const QString &segRaw : segs) {
+            const QString seg = segRaw.trimmed();
+            if (seg.isEmpty())
+                continue;
+            const QString parent = path;
+            path = path.isEmpty() ? seg : path + QLatin1Char('/') + seg;
+            childrenMap[parent] << path;
+            incl[path] += it.value();
+        }
     }
+    std::function<QList<TagNode>(const QString &)> build =
+        [&build, &incl, &childrenMap](const QString &parent) -> QList<TagNode> {
+        QList<TagNode> out;
+        for (const QString &child : childrenMap.value(parent)) {
+            TagNode n;
+            n.path = child;
+            n.count = incl.value(child);
+            n.children = build(child);
+            out << n;
+        }
+        std::sort(out.begin(), out.end(), [](const TagNode &a, const TagNode &b) {
+            return a.path < b.path;
+        });
+        return out;
+    };
+    // 根节点：parent 为空串的 children（即无「/」的路径），从 childrenMap 里直接取
+    return build(QString());
 }
 
-void InboxPage::onTagToggled()
+void InboxPage::rebuildTagTree()
 {
-    m_selectedTags.clear();
-    for (int i = 0; i < m_tagList->count(); ++i) {
-        auto *item = m_tagList->item(i);
-        if (item->checkState() == Qt::Checked)
-            m_selectedTags << item->data(Qt::UserRole).toString();
+    m_tagTree->blockSignals(true);
+    m_tagTree->clear();
+    std::function<void(QTreeWidgetItem *, const QList<TagNode> &)> addNodes =
+        [this, &addNodes](QTreeWidgetItem *parentItem, const QList<TagNode> &nodes) {
+            for (const TagNode &n : nodes) {
+                // 顶层项必须以树为父（QTreeWidgetItem(nullptr) 是孤儿，不会出现在树里）
+                auto *item = parentItem ? new QTreeWidgetItem(parentItem) : new QTreeWidgetItem(m_tagTree);
+                const int slash = n.path.lastIndexOf(QLatin1Char('/'));
+                const QString lastSeg = slash >= 0 ? n.path.mid(slash + 1) : n.path;
+                item->setText(0, QStringLiteral("#%1 (%2)").arg(lastSeg).arg(n.count));
+                item->setToolTip(0, n.path);
+                item->setData(0, Qt::UserRole, n.path);
+                addNodes(item, n.children);
+            }
+        };
+    addNodes(nullptr, m_tagRoots);
+    m_tagTree->expandAll();
+    // 恢复当前筛选路径的选中态
+    if (!m_currentTag.isEmpty()) {
+        std::function<QTreeWidgetItem *(QTreeWidgetItem *, const QString &)> find =
+            [&find, this](QTreeWidgetItem *root, const QString &path) -> QTreeWidgetItem * {
+            const int count = root ? root->childCount() : m_tagTree->topLevelItemCount();
+            for (int i = 0; i < count; ++i) {
+                QTreeWidgetItem *it = root ? root->child(i) : m_tagTree->topLevelItem(i);
+                if (!it)
+                    continue;
+                if (it->data(0, Qt::UserRole).toString() == path)
+                    return it;
+                if (QTreeWidgetItem *sub = find(it, path))
+                    return sub;
+            }
+            return nullptr;
+        };
+        if (QTreeWidgetItem *cur = find(nullptr, m_currentTag))
+            m_tagTree->setCurrentItem(cur);
     }
+    m_tagTree->blockSignals(false);
+}
+
+void InboxPage::onTagTreeItemClicked(QTreeWidgetItem *item, int column)
+{
+    const QString path = item->data(column, Qt::UserRole).toString();
+    // 再点当前筛选中的标签 = 取消筛选（与 Android 再点同标签/✕ 取消一致）
+    applyTagFilterPath(path == m_currentTag ? QString() : path);
+}
+
+void InboxPage::updateFilterBar()
+{
+    if (!m_filterBar)
+        return;
+    m_filterBar->setVisible(!m_currentTag.isEmpty());
+    if (m_currentTag.isEmpty())
+        return;
+    const QStringList segs = m_currentTag.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    m_filterText->setText(QStringLiteral("仅显示 #%1").arg(segs.join(QStringLiteral(" / "))));
+    if (m_btnFilterUp)
+        m_btnFilterUp->setVisible(segs.size() > 1);
+}
+
+void InboxPage::applyTagFilterPath(const QString &path)
+{
+    m_currentTag = path;
+    updateFilterBar();
     loadNotes(true);
 }
 
@@ -671,12 +823,9 @@ void InboxPage::loadNotes(bool reset)
     m_loading = true;
     setStatus(StatusBadge::State::Syncing, QStringLiteral("加载中…"));
 
-    // 单标签：让服务端过滤；多标签：不传 tag，客户端 OR 过滤
-    QString serverTag;
-    if (m_selectedTags.size() == 1)
-        serverTag = m_selectedTags.first();
+    // 层级标签路径筛选：交给服务端 ?tag= 段边界前缀匹配（bc2647b）
     const QString sortBy = m_sort->currentData().toString();
-    QNetworkReply *r = m_api->getNotes(m_limit, m_offset, serverTag, m_search->text(), sortBy);
+    QNetworkReply *r = m_api->getNotes(m_limit, m_offset, m_currentTag, m_search->text(), sortBy);
     const int gen = m_reqGen;
 
     // 兜底：本机“连接被拒”可能要数秒才回报，超过阈值直接判离线，避免界面长时间卡在“加载中”
@@ -756,21 +905,8 @@ void InboxPage::applyClientFilter()
     if (m_rebuilding)
         return;
     m_rebuilding = true;
+    // 标签/搜索过滤已在数据源头完成（在线 ?tag= 服务端过滤、离线 renderLocal 客户端过滤）
     QList<Note> visible = m_notes;
-    if (m_selectedTags.size() > 1) {
-        visible.clear();
-        for (const Note &n : m_notes) {
-            bool any = false;
-            for (const QString &t : m_selectedTags) {
-                if (n.tags.contains(t)) {
-                    any = true;
-                    break;
-                }
-            }
-            if (any)
-                visible << n;
-        }
-    }
     // 置顶优先（稳定分区：置顶笔记排在最前，其余保持原顺序）
     QList<Note> ordered;
     for (const Note &n : visible)
@@ -825,6 +961,10 @@ QWidget *InboxPage::makeCard(const Note &n)
     connect(card, &NoteCard::detailsRequested, this, &InboxPage::onNoteDetails);
     connect(card, &NoteCard::taskToggled, this, &InboxPage::onTaskToggled);
     connect(card, &NoteCard::parentReferenceClicked, this, &InboxPage::onParentReferenceClicked);
+    // 点击正文里的 #标签（层级 tag 每段可点）→ 按路径筛选；再点同路径取消
+    connect(card, &NoteCard::tagClicked, this, [this](const QString &path) {
+        applyTagFilterPath(path == m_currentTag ? QString() : path);
+    });
     // 评论笔记：在内容下方展示被评论笔记的引用预览
     if (n.commentParentId != 0) {
         const QString preview = parentPreview(n.commentParentId);
@@ -874,19 +1014,13 @@ void InboxPage::onParentReferenceClicked(qint64 parentId)
     // 目标不在当前可见列表（被搜索/标签过滤，或尚未加载）：本地也不存在则无法跳转
     if (!m_store.find(parentId))
         return;
-    // 清除搜索与标签过滤并重载，重载完成后跳转
+    // 清除搜索与标签筛选并重载，重载完成后跳转
     m_pendingJumpId = parentId;
     {
         const QSignalBlocker bSearch(m_search);
         m_search->clear();
     }
-    {
-        const QSignalBlocker bTags(m_tagList);
-        for (int i = 0; i < m_tagList->count(); ++i)
-            m_tagList->item(i)->setCheckState(Qt::Unchecked);
-    }
-    m_selectedTags.clear();
-    loadNotes(true);
+    applyTagFilterPath(QString());
 }
 
 void InboxPage::onScroll()
@@ -1033,6 +1167,11 @@ void InboxPage::onNoteDetails(qint64 id)
     // 恢复 = 把历史版本内容当作一次普通编辑提交（走 applyContent，离线也能兜底）
     connect(dlg, &NoteDetailsDialog::restoreRequested, this,
             [this](qint64 noteId, const QString &content) { applyContent(noteId, content); });
+    // 点击标签面包屑某一段 → 关闭详情并按路径筛选
+    connect(dlg, &NoteDetailsDialog::tagClicked, this, [this, dlg](const QString &path) {
+        dlg->close();
+        applyTagFilterPath(path == m_currentTag ? QString() : path);
+    });
     dlg->show();
 
     // 对话框先弹出（元信息立即可见），历史版本异步回填；QPointer 防止提前关闭后悬空访问

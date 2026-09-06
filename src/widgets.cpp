@@ -274,6 +274,11 @@ void NoteCard::onLinkActivated(const QString &link)
         }
         return;
     }
+    // #标签（层级 tag 的段级点击，mdrender 渲染为 awtag:// 链接）
+    if (link.startsWith(QLatin1String("awtag://"))) {
+        emit tagClicked(link.mid(8));
+        return;
+    }
     const QUrl url(link);
     if (url.isValid())
         QDesktopServices::openUrl(url);
@@ -649,10 +654,41 @@ NoteDetailsDialog::NoteDetailsDialog(const Note &note, QWidget *parent)
     grid->addWidget(m_deviceValue, 4, 1);
 
     addRow(5, QStringLiteral("当前版本"), QStringLiteral("v%1").arg(note.version), kColorFg);
-    const QString tags = note.tags.isEmpty()
-                             ? QStringLiteral("无")
-                             : QStringLiteral("#") + note.tags.join(QStringLiteral(" #"));
-    addRow(6, QStringLiteral("标签"), tags, kColorFg);
+    // 标签：层级 tag 渲染为面包屑（每段独立可点，点击按「到该段为止的路径」筛选）
+    {
+        auto *tl = new QLabel(QStringLiteral("标签"));
+        tl->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 12px; background: transparent; border: none;")
+            .arg(kColorFgMuted)));
+        m_tagsValue = new QLabel;
+        m_tagsValue->setWordWrap(true);
+        m_tagsValue->setTextFormat(Qt::RichText);
+        m_tagsValue->setTextInteractionFlags(Qt::TextBrowserInteraction);
+        m_tagsValue->setOpenExternalLinks(false);
+        m_tagsValue->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 12px; background: transparent; border: none;")
+            .arg(kColorFg)));
+        if (note.tags.isEmpty()) {
+            m_tagsValue->setText(QStringLiteral("无"));
+        } else {
+            QStringList parts;
+            for (const QString &t : note.tags) {
+                const QStringList segs = t.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+                QString acc;
+                QStringList segLinks;
+                for (const QString &seg : segs) {
+                    acc = acc.isEmpty() ? seg : acc + QLatin1Char('/') + seg;
+                    segLinks << QStringLiteral("<a href='awtag://%1' style='color:#7fb3ff;text-decoration:none;'>%2</a>")
+                                    .arg(acc.toHtmlEscaped(), seg.toHtmlEscaped());
+                }
+                parts << segLinks.join(QStringLiteral("<span style='color:%1;'> / </span>").arg(kColorFgMuted));
+            }
+            m_tagsValue->setText(parts.join(QStringLiteral(",&nbsp; ")));
+        }
+        connect(m_tagsValue, &QLabel::linkActivated, this, &NoteDetailsDialog::tagClicked);
+        grid->addWidget(tl, 6, 0, Qt::AlignTop);
+        grid->addWidget(m_tagsValue, 6, 1);
+    }
 
     QString status = QStringLiteral("正常");
     const char *statusColor = kColorOk;

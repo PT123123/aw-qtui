@@ -112,14 +112,25 @@ QString inlineToHtml(const QString &text, int &taskNo)
             }
         }
         // #标签（# 前不是字母数字、# 后非空白/非 #，避免把标题或 C# 误伤）
+        // 层级 tag（如 #项目/工作）：每段独立可点，点击按「到该段为止的路径」筛选（awtag:// 链接）；
+        // 普通 tag 整体一个链接。# 与 / 分隔符不在链接内，保持正文文字不变
         if (c == QLatin1Char('#')
             && (i == 0 || !text.at(i - 1).isLetterOrNumber())) {
             int j = i + 1;
             while (j < n && !text.at(j).isSpace() && text.at(j) != QLatin1Char('#'))
                 ++j;
             if (j > i + 1) {
-                out += QStringLiteral("<span style='color:#7fb3ff;'>#")
-                       + escapeHtml(QStringView(text).mid(i + 1, j - i - 1)) + QStringLiteral("</span>");
+                const QString raw = text.mid(i + 1, j - i - 1);
+                const QStringList segs = raw.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+                out += QStringLiteral("<span style='color:#7fb3ff;'>#</span>");
+                QString acc;
+                for (int s = 0; s < segs.size(); ++s) {
+                    if (s > 0)
+                        out += QStringLiteral("<span style='color:#7fb3ff;'>/</span>");
+                    acc = acc.isEmpty() ? segs[s] : acc + QLatin1Char('/') + segs[s];
+                    out += QStringLiteral("<a href=\"awtag://%1\" style='color:#7fb3ff;text-decoration:none;'>%2</a>")
+                               .arg(escapeHtml(acc), escapeHtml(segs[s]));
+                }
                 i = j;
                 continue;
             }

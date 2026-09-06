@@ -37,6 +37,8 @@ public:
     // 标签
     QNetworkReply *getTags();
     QNetworkReply *getDetailedTags();
+    // 层级标签树：GET /inbox/tags/tree（bc2647b，含前缀计数；?tag= 同步改为段边界前缀匹配）
+    QNetworkReply *getTagTree();
 
     // 评论
     QNetworkReply *getComments(qint64 noteId);

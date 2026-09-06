@@ -110,6 +110,11 @@ QNetworkReply *ApiClient::getDetailedTags()
     return get(QStringLiteral("/inbox/tags/detailed"));
 }
 
+QNetworkReply *ApiClient::getTagTree()
+{
+    return get(QStringLiteral("/inbox/tags/tree"));
+}
+
 QNetworkReply *ApiClient::getComments(qint64 noteId)
 {
     return get(QStringLiteral("/inbox/notes/%1/comments").arg(noteId));

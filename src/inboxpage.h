@@ -13,9 +13,13 @@
 class QComboBox;
 class QGraphicsDropShadowEffect;
 class QLineEdit;
+class QLabel;
 class QListWidget;
+class QPushButton;
 class QStackedLayout;
 class QTimer;
+class QTreeWidget;
+class QTreeWidgetItem;
 class QVBoxLayout;
 
 namespace awqtui {
@@ -33,10 +37,16 @@ public:
     void loadNotes(bool reset = true);
     void loadTags();
     void loadDetailedTags();
+    void loadTagTree();
     void refreshAll();
 
     int noteCount() const { return m_notes.size(); }
-    QStringList selectedTags() const { return m_selectedTags; }
+    // 当前层级标签筛选路径（空 = 无筛选）；兼容旧接口：返回单元素列表
+    QStringList selectedTags() const
+    {
+        return m_currentTag.isEmpty() ? QStringList() : QStringList{ m_currentTag };
+    }
+    QString currentTagPath() const { return m_currentTag; }
     QString searchTerm() const;
     StatusBadge *badge() const { return m_badge; }
 
@@ -54,7 +64,7 @@ private slots:
     void onSearchChanged();
     void onSortChanged();
     void onRefresh();
-    void onTagToggled();
+    void onTagTreeItemClicked(QTreeWidgetItem *item, int column);
     void onNewNote();
     void onEditNote(qint64 id);
     void onDeleteNote(qint64 id);
@@ -68,7 +78,10 @@ private slots:
 
 private:
     void buildUi();
-    void rebuildTagSidebar();
+    void rebuildTagTree();            // 按 m_tagRoots 重建侧栏层级标签树并恢复当前选中
+    void updateFilterBar();           // 同步筛选面包屑条（显示/隐藏、文案、↑ 可用性）
+    void applyTagFilterPath(const QString &path); // 进入/切换/清除层级标签筛选（空 = 清除）
+    static QList<TagNode> buildTagTreeFromExact(const QMap<QString, qint64> &exact);
     void applyClientFilter();
     void appendNotes(const QList<Note> &notes, bool clear);
     void setStatus(StatusBadge::State s, const QString &text = QString());
@@ -104,8 +117,9 @@ private:
     int m_reqGen = 0;                 // 请求代际：切离线/重置时递增，丢弃迟到回包
     QSet<QString> m_inflightComments; // 正在由 submitComment 直接推送的评论时间戳，避免补推重复 POST
     QList<Note> m_notes;
-    QList<DetailedTag> m_tags;
-    QStringList m_selectedTags;
+    QList<DetailedTag> m_tags;        // 扁平标签（编辑器联想用）
+    QList<TagNode> m_tagRoots;        // 层级标签树（服务端 /tags/tree 或本地构建）
+    QString m_currentTag;             // 当前筛选路径（空 = 无筛选；?tag= 段边界前缀匹配）
     // 当前渲染列表的笔记 id 顺序（与 m_list 逐项对应），供「跳转到被评论笔记」定位
     QList<qint64> m_visibleIds;
     // 待跳转目标：目标笔记被过滤掉时先清过滤重载，渲染完成后消费
@@ -125,7 +139,12 @@ private:
     QLabel *m_emptyText;
     QLabel *m_emptyHint;
     QWidget *m_tagPanel;
-    QListWidget *m_tagList;
+    QTreeWidget *m_tagTree;
+    // 层级标签筛选面包屑条（仅筛选时显示）
+    QWidget *m_filterBar = nullptr;
+    QLabel *m_filterText = nullptr;
+    QPushButton *m_btnFilterUp = nullptr;
+    QPushButton *m_btnFilterClear = nullptr;
     QListWidget *m_list;
     QPushButton *m_fab;
     QStackedLayout *m_stack;
