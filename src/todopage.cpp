@@ -294,6 +294,8 @@ void TodoPage::buildUi()
     m_list->setObjectName(QStringLiteral("TodoList"));
     m_list->setSelectionMode(QAbstractItemView::NoSelection);
     m_list->setFocusPolicy(Qt::NoFocus);
+    // 行控件跟随视口宽度重排（退出全屏/还原窗口时避免行右侧控件被顶出可视区）
+    new ItemWidgetRelayoutFilter(m_list, 60, m_list);
     ll->addWidget(m_list, 1);
 
     m_completedBtn = new QPushButton;
@@ -438,6 +440,7 @@ void TodoPage::buildUi()
     m_dSubs->setSelectionMode(QAbstractItemView::NoSelection);
     m_dSubs->setFocusPolicy(Qt::NoFocus);
     m_dSubs->setFixedHeight(si(120));
+    new ItemWidgetRelayoutFilter(m_dSubs, 60, m_dSubs);
     db->addWidget(m_dSubs);
 
     m_dSubAdd = new QLineEdit;
