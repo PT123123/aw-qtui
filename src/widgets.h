@@ -58,8 +58,8 @@ signals:
     void togglePinnedRequested(qint64 id);
     void taskToggled(qint64 id, const QString &content);
     void parentReferenceClicked(qint64 parentId);
-    // 查看历史版本（服务端 GET /inbox/notes/<id>/history）
-    void historyRequested(qint64 id);
+    // 查看详细信息（元信息 + 历史版本，服务端 GET /inbox/notes/<id>/history）
+    void detailsRequested(qint64 id);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -120,14 +120,21 @@ private:
 };
 
 // ------------------------------------------------------------------ //
-// 笔记历史版本对话框（GET /inbox/notes/<id>/history）
-// 左侧版本列表，右侧只读预览；「恢复此版本」把选中版本的内容回填到笔记。
-class NoteHistoryDialog : public QDialog
+// 笔记详细信息对话框：上半部分为笔记元信息（ID / 添加时间 / 更新时间 / 同步时间 /
+// 来源设备 / 版本 / 标签 / 状态 / 内容长度），下半部分为历史版本列表
+// （自原「历史版本」对话框迁移而来，GET /inbox/notes/<id>/history）。
+// 「恢复此版本」把选中版本的内容回填到笔记正文。
+class NoteDetailsDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit NoteHistoryDialog(qint64 noteId, QWidget *parent = nullptr);
+    explicit NoteDetailsDialog(const Note &note, QWidget *parent = nullptr);
+    // 填充历史版本列表（在线拉取成功后回填）
     void setHistory(const QList<NoteHistory> &items);
+    // 历史版本不可用（离线 / 本地未同步 / 获取失败）时在版本列表区显示原因
+    void setHistoryUnavailable(const QString &reason);
+    // 回填「来源设备」的友好名称（异步从已配对设备列表解析后调用）
+    void setDeviceName(const QString &name);
 
 signals:
     // 请求把选中历史版本的内容恢复到笔记正文
@@ -139,6 +146,8 @@ private slots:
     void onCopyClicked();
 
 private:
+    QLabel *m_deviceValue = nullptr;  // 来源设备值控件（setDeviceName 回填目标）
+    QString m_deviceId;               // 原始 device_id（tooltip 展示）
     QListWidget *m_list = nullptr;
     QPlainTextEdit *m_preview = nullptr;
     QPushButton *m_btnRestore = nullptr;
