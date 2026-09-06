@@ -157,6 +157,8 @@ private:
     QStackedWidget *m_stack = nullptr;
     // 左侧导航栏（缩放时按比例调整宽度）
     QWidget *m_nav = nullptr;
+    // 左侧导航：顶部应用图标
+    QLabel *m_navIcon = nullptr;
     // 左侧导航：展开/收起切换按钮；全部导航按钮与分组标题（用于窄栏/展开两种状态切换）
     QToolButton *m_navToggle = nullptr;
     QList<QPushButton *> m_navButtons;

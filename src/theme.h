@@ -4,11 +4,13 @@
 #include <QAbstractAnimation>
 #include <QColor>
 #include <QEasingCurve>
+#include <QEvent>
 #include <QFont>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsOpacityEffect>
 #include <QIcon>
 #include <QLinearGradient>
+#include <QListWidget>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
@@ -16,6 +18,7 @@
 #include <QPropertyAnimation>
 #include <QRegularExpression>
 #include <QString>
+#include <QTimer>
 #include <QWidget>
 
 namespace awqtui {
@@ -55,6 +58,63 @@ inline int si(qreal px)
 {
     return qRound(px * gUiScale);
 }
+
+// ------------------------------------------------------------------ //
+// 列表行控件（setItemWidget）跟随视口宽度重排
+// ------------------------------------------------------------------ //
+// Qt 的已知行为：QListWidget::setItemWidget 的行控件只在视口变宽时跟着变宽；
+// 视口变窄（退出全屏 / 还原窗口 / 开关侧栏）时仍保持旧宽度，导致卡片右侧的
+// 控件（如笔记卡「⋯」菜单按钮）被顶出可视区，且水平滚动条被禁用时无法滚回。
+// 该过滤器监听视口 resize（防抖合并），按当前视口宽度重设每行 sizeHint 并
+// 触发重排；高度优先取 heightForWidth（wordWrap 内容在窄窗下需要更多行）。
+// 用法：创建列表后 new ItemWidgetRelayoutFilter(list, this 或 list) 即可。
+class ItemWidgetRelayoutFilter : public QObject {
+public:
+    explicit ItemWidgetRelayoutFilter(QListWidget *list, int debounceMs = 60,
+                                      QObject *parent = nullptr)
+        : QObject(parent), m_list(list)
+    {
+        m_timer.setSingleShot(true);
+        m_timer.setInterval(debounceMs);
+        m_timer.callOnTimeout(this, &ItemWidgetRelayoutFilter::relayout);
+        list->viewport()->installEventFilter(this);
+        // 首次布局：等列表显示、视口宽度确定后再排一次
+        QTimer::singleShot(0, this, &ItemWidgetRelayoutFilter::relayout);
+    }
+
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        auto *list = m_list.data();
+        if (list && watched == list->viewport() && event->type() == QEvent::Resize)
+            m_timer.start(); // 拖拽调整窗口大小时合并高频 resize
+        return QObject::eventFilter(watched, event);
+    }
+
+    void relayout()
+    {
+        auto *list = m_list.data();
+        if (!list)
+            return;
+        const int vw = list->viewport()->width();
+        if (vw <= 0)
+            return;
+        for (int i = 0; i < list->count(); ++i) {
+            QListWidgetItem *it = list->item(i);
+            QWidget *w = list->itemWidget(it);
+            if (!w)
+                continue;
+            const int h = w->hasHeightForWidth() ? w->heightForWidth(vw)
+                                                 : w->sizeHint().height();
+            it->setSizeHint(QSize(vw, h));
+        }
+        list->doItemsLayout();
+    }
+
+private:
+    QPointer<QListWidget> m_list;
+    QTimer m_timer;
+};
+
 
 // ---------------------------------------------------------------- //
 // 主题预设
@@ -457,7 +517,7 @@ inline QString themeQss(const Theme &t)
         QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color: @MUTED@; }
         QWidget#NavSidebar {
             background: @BGEL@;
-            border-right: 1px solid @BORDER@;
+            border-right: 1px solid rgba(255,255,255,0.06);
         }
         QPushButton {
             background: @BGL2@; border: 1px solid @BORDER@; border-radius: 6px;
@@ -478,34 +538,65 @@ inline QString themeQss(const Theme &t)
         QPushButton#DangerBtn { background: transparent; border: 1px solid @DANGER@; color: @DANGER@; }
         QPushButton#DangerBtn:hover { background: @DANGERA@; }
         QPushButton#NavBtn {
-            text-align: left; padding: 8px 12px; border: none; border-radius: 0;
-            background: transparent; color: @MUTED@; font-size: 14px;
+            text-align: left;
+            padding: 9px 14px;
+            border: 3px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            color: @MUTED@;
+            font-size: 14px;
+            font-weight: 500;
+            margin: 1px 6px;
         }
         QPushButton#NavBtn:hover { background: @BGL2@; color: @FG@; }
         QPushButton#NavBtn:checked {
-            background: @NAVSEL@; color: @NAVSELTXT@;
-            border-left: 3px solid @ACCENT@;
+            background: @NAVSEL@;
+            color: @NAVSELTXT@;
+            font-weight: 600;
+        }
+        QPushButton#NavBtn:checked {
+            border-left-color: @ACCENT@;
+            border-radius: 0 8px 8px 0;
+            margin-left: 0;
+            padding-left: 17px;
+        }
+        QPushButton#NavBtn[expanded="false"] {
+            text-align: center; font-size: 16px; padding: 9px 0; margin: 1px 0;
+            border-radius: 0; font-weight: 400;
+        }
+        QPushButton#NavBtn[expanded="false"]:checked {
+            border-left: none;
+            border-bottom: 3px solid @ACCENT@;
+            border-radius: 0;
+            padding-bottom: 6px;
+            margin-bottom: 0;
         }
         QToolButton#NavSection {
-            text-align: left; color: @MUTED2@; font-size: 10px; font-weight: 700;
-            letter-spacing: 0.5px; padding: 6px 12px 4px;
-            border: none; background: transparent;
+            text-align: left;
+            color: @MUTED2@;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            padding: 10px 12px 4px 12px;
+            border: none;
+            background: transparent;
         }
         QToolButton#NavSection:hover { color: @FGSOFT@; }
         QToolButton#NavSection:checked { background: transparent; }
         QToolButton#NavToggle {
-            border: none; border-radius: 0; background: transparent;
-            color: @MUTED@; font-size: 14px; text-align: left; padding: 8px 12px;
+            border: none; border-radius: 6px; background: transparent;
+            color: @MUTED@; font-size: 16px; text-align: center;
+            padding: 8px 0; margin: 2px 6px;
         }
-        QToolButton#NavToggle:hover { background: @BGL2@; color: @FG@; }
+        QToolButton#NavToggle:hover { background: @BGL2@; color: @FG@; border-radius: 6px; }
         QToolButton#NavToggle:pressed { background: @PRESSED@; }
-        QToolButton#NavToggle[expanded="false"] {
-            text-align: center; font-size: 16px; padding: 9px 0;
-        }
         QPushButton#NavBtn[expanded="false"] {
             text-align: center; font-size: 16px; padding: 9px 0;
         }
-        QPushButton#NavBtn[expanded="false"]:checked { border-left: none; }
+        QPushButton#NavBtn[expanded="false"]:checked {
+            border-left: none;
+            border-bottom: 3px solid @ACCENT@;
+        }
         QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox {
             background: @BGEL@; border: 1px solid @BORDER@; border-radius: 6px;
             padding: 6px 10px; selection-background-color: @ACCENT@; selection-color: white;

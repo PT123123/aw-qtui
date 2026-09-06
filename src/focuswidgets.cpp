@@ -535,6 +535,7 @@ FocusDetailPage::FocusDetailPage(FocusSource *focus, QWidget *parent)
     m_list = new QListWidget;
     m_list->setSelectionMode(QAbstractItemView::NoSelection);
     m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    new ItemWidgetRelayoutFilter(m_list, 60, m_list);
     root->addWidget(m_list, 1);
 
     connect(m_addBtn, &QPushButton::clicked, this, &FocusDetailPage::onAddManual);
@@ -595,7 +596,8 @@ void FocusDetailPage::refresh()
             m_focus->deleteSession(id);
         });
         auto *item = new QListWidgetItem;
-        item->setSizeHint(row->sizeHint());
+        // 宽度 hint 用 0（铺满视口），高度按内容；宽度变化由 ItemWidgetRelayoutFilter 处理
+        item->setSizeHint(QSize(0, row->sizeHint().height()));
         m_list->addItem(item);
         m_list->setItemWidget(item, row);
     }
@@ -669,6 +671,7 @@ FocusMemorialPage::FocusMemorialPage(FocusSource *focus, QWidget *parent)
 
     m_list = new QListWidget;
     m_list->setSelectionMode(QAbstractItemView::NoSelection);
+    new ItemWidgetRelayoutFilter(m_list, 60, m_list);
     root->addWidget(m_list, 1);
 
     connect(m_addBtn, &QPushButton::clicked, this, &FocusMemorialPage::onAdd);
