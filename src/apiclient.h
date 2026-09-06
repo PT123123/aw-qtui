@@ -79,8 +79,14 @@ public:
     // D1 云同步 (aw-sync-rust /api/0/sync/d1/*)
     QNetworkReply *d1SyncNow();                                           // POST /d1/sync
     QNetworkReply *d1FullSync();                                          // POST /d1/full_sync (强制全量)
+    QNetworkReply *d1Reset();                                             // POST /d1/reset (清除本机 checkpoint)
+    QNetworkReply *d1Logs(int limit = 50, int offset = 0);                // GET  /d1/logs
     QNetworkReply *d1Status();                                            // GET  /d1/status
     QNetworkReply *d1Test();                                              // POST /d1/test
+
+    // 发现广播开关 (aw-sync-rust a86ee18: 进入/离开局域网同步界面时调用)
+    QNetworkReply *discoveryStart();                                      // POST /discovery/start
+    QNetworkReply *discoveryStop();                                       // POST /discovery/stop
 
     // ActivityWatch /api/0
     QNetworkReply *getBuckets();

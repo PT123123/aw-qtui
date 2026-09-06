@@ -329,9 +329,33 @@ QNetworkReply *ApiClient::d1FullSync()
     return sendJson("POST", QStringLiteral("/api/0/sync/d1/full_sync"), QJsonObject());
 }
 
+QNetworkReply *ApiClient::d1Reset()
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/d1/reset"), QJsonObject());
+}
+
+QNetworkReply *ApiClient::d1Logs(int limit, int offset)
+{
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("limit"), QString::number(limit));
+    q.addQueryItem(QStringLiteral("offset"), QString::number(offset));
+    const QString query = q.toString(QUrl::FullyEncoded);
+    return get(QStringLiteral("/api/0/sync/d1/logs?%1").arg(query));
+}
+
 QNetworkReply *ApiClient::d1Status()
 {
     return get(QStringLiteral("/api/0/sync/d1/status"));
+}
+
+QNetworkReply *ApiClient::discoveryStart()
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/discovery/start"), QJsonObject());
+}
+
+QNetworkReply *ApiClient::discoveryStop()
+{
+    return sendJson("POST", QStringLiteral("/api/0/sync/discovery/stop"), QJsonObject());
 }
 
 QNetworkReply *ApiClient::d1Test()

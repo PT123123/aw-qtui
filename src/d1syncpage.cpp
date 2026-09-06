@@ -86,10 +86,13 @@ void D1SyncPage::buildUi()
     m_btnSyncNow = new QPushButton(QStringLiteral("立即同步"));
     m_btnFullSync = new QPushButton(QStringLiteral("强制全量同步"));
     m_btnFullSync->setToolTip(QStringLiteral("清空云端 checkpoint 后从 D1 全量拉取，用于重装软件后恢复数据"));
+    m_btnResetCheckpoint = new QPushButton(QStringLiteral("重置 checkpoint"));
+    m_btnResetCheckpoint->setToolTip(QStringLiteral("仅清除本机云端 checkpoint，不推不拉，下次同步从头开始"));
     btnRow->addWidget(m_btnTest);
     btnRow->addWidget(m_btnSave);
     btnRow->addWidget(m_btnSyncNow);
     btnRow->addWidget(m_btnFullSync);
+    btnRow->addWidget(m_btnResetCheckpoint);
     btnRow->addStretch(1);
     cfgForm->addRow(btnRow);
 
@@ -120,6 +123,11 @@ void D1SyncPage::buildUi()
     // 日志
     auto *logBox = new QGroupBox(QStringLiteral("日志"));
     auto *logLay = new QVBoxLayout(logBox);
+    auto *logBtns = new QHBoxLayout;
+    m_btnRefreshD1Logs = new QPushButton(QStringLiteral("刷新 D1 同步日志"));
+    logBtns->addWidget(m_btnRefreshD1Logs);
+    logBtns->addStretch(1);
+    logLay->addLayout(logBtns);
     m_log = new QPlainTextEdit;
     m_log->setReadOnly(true);
     m_log->setMaximumBlockCount(500);
@@ -131,6 +139,8 @@ void D1SyncPage::buildUi()
     connect(m_btnTest, &QPushButton::clicked, this, &D1SyncPage::onTest);
     connect(m_btnSyncNow, &QPushButton::clicked, this, &D1SyncPage::onSyncNow);
     connect(m_btnFullSync, &QPushButton::clicked, this, &D1SyncPage::onFullSync);
+    connect(m_btnResetCheckpoint, &QPushButton::clicked, this, &D1SyncPage::onResetCheckpoint);
+    connect(m_btnRefreshD1Logs, &QPushButton::clicked, this, &D1SyncPage::onRefreshD1Logs);
 }
 
 void D1SyncPage::applyUiScale()
@@ -343,6 +353,72 @@ void D1SyncPage::onFullSync()
         setStatus(QStringLiteral("强制全量同步完成 · 上次同步：%1")
                       .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))),
                   errors == 0);
+        r->deleteLater();
+    });
+}
+
+void D1SyncPage::onResetCheckpoint()
+{
+    if (!m_api)
+        return;
+    auto ret = QMessageBox::warning(this, QStringLiteral("重置 checkpoint"),
+        QStringLiteral("此操作仅清除本机云端 checkpoint（不推不拉），下次同步将从头开始。\n\n"
+                       "确定继续？"),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (ret != QMessageBox::Yes)
+        return;
+    log(QStringLiteral("正在重置 D1 checkpoint..."));
+    m_btnResetCheckpoint->setEnabled(false);
+    QNetworkReply *r = m_api->d1Reset();
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        m_btnResetCheckpoint->setEnabled(true);
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            log(QStringLiteral("重置 checkpoint 失败：%1").arg(err));
+            setStatus(QStringLiteral("重置 checkpoint 失败：%1").arg(err), false);
+            r->deleteLater();
+            return;
+        }
+        log(QStringLiteral("D1 checkpoint 已重置"));
+        setStatus(QStringLiteral("D1 checkpoint 已重置"), true);
+        r->deleteLater();
+    });
+}
+
+void D1SyncPage::onRefreshD1Logs()
+{
+    if (!m_api)
+        return;
+    log(QStringLiteral("刷新 D1 同步日志..."));
+    QNetworkReply *r = m_api->d1Logs(50);
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            log(QStringLiteral("获取 D1 日志失败：%1").arg(err));
+            r->deleteLater();
+            return;
+        }
+        const auto obj = doc.object();
+        const auto arr = obj.value(QStringLiteral("logs")).toArray();
+        m_log->clear();
+        for (const auto &v : arr) {
+            if (!v.isObject())
+                continue;
+            const SyncLogEntry e = SyncLogEntry::fromJson(v.toObject());
+            m_log->appendPlainText(QStringLiteral("[%1] %2 %3 %4")
+                .arg(formatLocal(e.timestamp), e.direction, e.eventType, e.message));
+            if (!e.hasDetails())
+                continue;
+            m_log->appendPlainText(QStringLiteral("    ── 传输明细 %1 条 ──").arg(e.details.size()));
+            for (const TransferRecord &rec : e.details) {
+                const QString label = rec.title.isEmpty() ? rec.logicalKey : rec.title;
+                m_log->appendPlainText(QStringLiteral("    • %1 %2 %3")
+                    .arg(TransferRecord::actionLabel(rec.action), label, rec.reason));
+            }
+        }
+        log(QStringLiteral("D1 同步日志已刷新（%1 条）").arg(arr.size()));
         r->deleteLater();
     });
 }
