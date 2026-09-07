@@ -65,10 +65,6 @@ private slots:
     void onDeleteTrashRow();
     void onExportSnapshot();
     void onImportSnapshot();
-    void onCloudKindChanged(int idx);
-    void onCloudTest();
-    void onCloudSave();
-    void onCloudSyncNow();
 
 private:
     void buildUi();
@@ -138,25 +134,6 @@ private:
     QPushButton *m_btnDeleteTrash;
     QPushButton *m_btnClearTrash;
 
-    // 云存储（实验性）
-    QComboBox *m_cloudKind;
-    QLineEdit *m_webdavUrl;
-    QLineEdit *m_webdavUser;
-    QLineEdit *m_webdavPass;
-    QLineEdit *m_webdavPath;
-    QLineEdit *m_s3Endpoint;
-    QLineEdit *m_s3AccessKey;
-    QLineEdit *m_s3SecretKey;
-    QLineEdit *m_s3Bucket;
-    QLineEdit *m_s3Region;
-    QLineEdit *m_s3Path;
-    QCheckBox *m_s3PathStyle;
-    QCheckBox *m_s3Tls;
-    QPushButton *m_btnCloudTest;
-    QPushButton *m_btnCloudSave;
-    QPushButton *m_btnCloudSync;
-    QLabel *m_lblCloudStatus;
-    CloudStorageConfig m_cloudCfg;
 };
 
 } // namespace awqtui
