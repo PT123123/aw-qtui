@@ -13,18 +13,13 @@ class QPlainTextEdit;
 class QPushButton;
 class QTableWidget;
 class QTabWidget;
+class QTimer;
 
 namespace awqtui {
 
 class ApiClient;
 class MdnsDiscovery;
 class StatusBadge;
-
-struct SyncPeer {
-    QString name;
-    QString host;
-    int port = 0;
-};
 
 class SyncPage : public QWidget
 {
@@ -41,18 +36,20 @@ public:
     void setServerUrl(const QString &url);
     QString serverUrl() const;
 
+    // 探测是否处于可局域网同步的网络环境（存在非 loopback 的 IPv4）
+    static bool onLocalNetwork();
+
+    // 进入同步页时调用（启动 UDP 广播发现 + 网络环境自动开启同步 + 定时刷新）
+    void onEnteredSyncPage();
+    // 离开同步页时停止定时刷新（由 MainWindow 调用）
+    void stopRefresh();
+
 signals:
     void logMessage(const QString &line);
 
 private slots:
-    void onDiscover();
-    void onPeerFound(const QString &name, const QString &host, int port);
-    void onPeerLost(const QString &name);
-    void onAddPeer();
     void onRefreshConfig();
     void onSaveConfig();
-    void onCreatePairCode();
-    void onJoinDevice();
     void onInitiatePair();
     void onAcceptPair();
     void onSyncNow();
@@ -65,21 +62,20 @@ private slots:
     void onDeleteTrashRow();
     void onExportSnapshot();
     void onImportSnapshot();
+    void onDiscoverNow();
+    void onRefreshTimer();
 
 private:
     void buildUi();
     void log(const QString &line);
-    void rebuildPeerTable();
     void syncComplete(const ApplyResult &r);
     void refreshSyncConfig();
     void refreshDeviceStats(const QString &deviceId);
     void refreshTrash();
 
     ApiClient *m_api;
-    MdnsDiscovery *m_mdns;
+    MdnsDiscovery *m_mdns; // 保留指针但不再作为发现源（服务端用 UDP 广播发现）
     QList<SyncDevice> m_devices;
-    QList<SyncPeer> m_peers;
-    QString m_currentPairCode;
 
     // 服务端地址
     QLineEdit *m_serverEdit;
@@ -97,11 +93,7 @@ private:
     QComboBox *m_cmbSyncInterval = nullptr;    // 三档自动同步频率（狂暴/平和/静默）
     QPushButton *m_btnSaveConfig;
 
-    // 配对
-    QLabel *m_lblPairCode;
-    QLineEdit *m_editPairCode;
-    QPushButton *m_btnCreatePairCode;
-    QPushButton *m_btnJoinDevice;
+    // 配对（对齐 Android：addDevice + pair/initiate + pair/accept，无配对码）
     QPushButton *m_btnInitiatePair;
     QPushButton *m_btnAcceptPair;
 
@@ -117,13 +109,6 @@ private:
     QPushButton *m_btnImportSnapshot;
     QLabel *m_lblSnapshot;
 
-    // mDNS 自动发现
-    QPushButton *m_btnBrowse;
-    QLineEdit *m_portEdit;
-    QTableWidget *m_peerTable;
-    QLineEdit *m_peerAdd;
-    bool m_browsing = false;
-
     // 日志
     QPlainTextEdit *m_log;
 
@@ -134,6 +119,8 @@ private:
     QPushButton *m_btnDeleteTrash;
     QPushButton *m_btnClearTrash;
 
+    // 定时刷新（进入页面后周期性拉取设备/状态，及时呈现 UDP 广播发现的设备）
+    QTimer *m_refreshTimer = nullptr;
 };
 
 } // namespace awqtui
