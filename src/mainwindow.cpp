@@ -829,21 +829,25 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
     }
     // 最大化时把窗口尺寸钳制到屏幕可用区域，避免无边框/细边框窗口的右侧与底部
     // 被 Windows 最大化边框延伸到屏幕外（导致笔记卡片「⋯」按钮切出可视区）。
+    // 用 MonitorFromWindow 获取窗口实际所在显示器（比 QWidget::screen() 更可靠，
+    // 副屏/DPI 差异时不会返回错误屏幕）。mi.rcWork 是排除任务栏的工作区。
     if (eventType == QByteArrayLiteral("windows_generic_MSG")) {
         const auto *msg = static_cast<const MSG *>(message);
         if (msg->message == WM_GETMINMAXINFO) {
-            if (const QScreen *s = screen()) {
-                const QRect avail = s->availableGeometry();
-                auto *mmi = reinterpret_cast<MINMAXINFO *>(msg->lParam);
-                mmi->ptMaxPosition.x = avail.x();
-                mmi->ptMaxPosition.y = avail.y();
-                mmi->ptMaxSize.x = avail.width();
-                mmi->ptMaxSize.y = avail.height();
-                mmi->ptMaxTrackSize.x = avail.width();
-                mmi->ptMaxTrackSize.y = avail.height();
-                if (result)
-                    *result = 0;
-                return true;
+            if (HWND hwnd = msg->hwnd) {
+                HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                MONITORINFO mi = { sizeof(mi) };
+                if (GetMonitorInfo(hMon, &mi)) {
+                    auto *mmi = reinterpret_cast<MINMAXINFO *>(msg->lParam);
+                    mmi->ptMaxPosition.x = mi.rcWork.left;
+                    mmi->ptMaxPosition.y = mi.rcWork.top;
+                    mmi->ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
+                    mmi->ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
+                    // 不钳制 ptMaxTrackSize：保留系统默认，允许用户手动拖拽跨屏
+                    if (result)
+                        *result = 0;
+                    return true;
+                }
             }
         }
     }
