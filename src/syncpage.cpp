@@ -176,11 +176,8 @@ void SyncPage::buildUi()
     connect(m_btnInitiatePair, &QPushButton::clicked, this, &SyncPage::onInitiatePair);
     m_btnAcceptPair = new QPushButton(QStringLiteral("接受配对"));
     connect(m_btnAcceptPair, &QPushButton::clicked, this, &SyncPage::onAcceptPair);
-    auto *btnAddDevice = new QPushButton(QStringLiteral("添加设备"));
-    connect(btnAddDevice, &QPushButton::clicked, this, &SyncPage::onDiscoverNow);
     pl->addWidget(m_btnInitiatePair);
     pl->addWidget(m_btnAcceptPair);
-    pl->addWidget(btnAddDevice);
     pl->addStretch(1);
     devLay->addWidget(pairBox);
 
@@ -210,15 +207,9 @@ void SyncPage::buildUi()
     // 发现的设备由服务端自动写入信任列表 paired=false，此处通过 GET /devices 呈现）
     auto *discoverBox = new QGroupBox(QStringLiteral("设备发现（UDP 广播，端口 46000）"));
     auto *ml = new QVBoxLayout(discoverBox);
-    auto *mlRow = new QHBoxLayout;
-    auto *btnAddPeer = new QPushButton(QStringLiteral("手动添加对端"));
-    connect(btnAddPeer, &QPushButton::clicked, this, &SyncPage::onDiscoverNow);
-    mlRow->addWidget(btnAddPeer);
-    mlRow->addStretch(1);
-    ml->addLayout(mlRow);
     auto *discoverHint = new QLabel(QStringLiteral(
         "进入本页面即开启服务端 UDP 广播与监听；同一局域网内的对端（如 Android）会自动出现在上方设备表中（状态「未配对」）。\n"
-        "也可通过「手动添加对端」输入 IP:端口 直接添加（无需广播）。"));
+        "选中未配对设备后，使用上方「发起配对」/「接受配对」完成配对即可同步。"));
     discoverHint->setWordWrap(true);
     discoverHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
     ml->addWidget(discoverHint);
@@ -959,48 +950,5 @@ void SyncPage::refreshDeviceStats(const QString &deviceId)
 
 // ------------------------------------------------------------------ //
 // 设备发现（UDP 广播，端口 46000）
-
-// 手动添加对端：直接 POST /devices 写入信任列表（不依赖广播）
-void SyncPage::onDiscoverNow()
-{
-    if (!m_api)
-        return;
-    bool ok = false;
-    const QString input = QInputDialog::getText(this, QStringLiteral("手动添加对端"),
-                                                QStringLiteral("格式：IP:端口（如 192.168.1.5:5600）"),
-                                                QLineEdit::Normal, QString(), &ok);
-    if (!ok || input.trimmed().isEmpty())
-        return;
-    const QStringList parts = input.trimmed().split(QLatin1Char(':'));
-    if (parts.size() != 2) {
-        log(QStringLiteral("地址格式错误：%1").arg(input));
-        return;
-    }
-    bool portOk = false;
-    const int port = parts[1].toInt(&portOk);
-    if (!portOk || port <= 0 || port > 65535) {
-        log(QStringLiteral("端口错误：%1").arg(input));
-        return;
-    }
-    QJsonObject device;
-    device.insert(QStringLiteral("id"), QString()); // 服务端会按 ip:端口 生成
-    device.insert(QStringLiteral("name"), parts[0]);
-    device.insert(QStringLiteral("device_kind"), QStringLiteral("unknown"));
-    device.insert(QStringLiteral("ip"), parts[0]);
-    device.insert(QStringLiteral("port"), port);
-    device.insert(QStringLiteral("paired"), false);
-
-    QNetworkReply *r = m_api->addDevice(device);
-    connect(r, &QNetworkReply::finished, this, [this, r, parts, port] {
-        QJsonDocument doc;
-        QString err;
-        if (!ApiClient::parseReply(r, &doc, &err)) {
-            log(QStringLiteral("添加设备失败：%1").arg(err));
-            return;
-        }
-        log(QStringLiteral("已手动添加对端 %1:%2").arg(parts[0]).arg(port));
-        refreshDevices();
-    });
-}
 
 } // namespace awqtui
