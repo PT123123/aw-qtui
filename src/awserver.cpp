@@ -163,14 +163,18 @@ bool ServerLauncher::autostartInstalled()
 bool ServerLauncher::firewallRuleExists()
 {
 #ifdef Q_OS_WIN
-    QProcess p;
-    p.start(QStringLiteral("netsh"),
-            {QStringLiteral("advfirewall"), QStringLiteral("firewall"), QStringLiteral("show"),
-             QStringLiteral("rule"), QStringLiteral("name=") + QLatin1String(kServerFirewallRule)});
-    if (!p.waitForFinished(3000))
-        return false;
-    // netsh show rule 对不存在的规则返回非 0 退出码
-    return p.exitCode() == 0;
+    // 两条规则都要就位：TCP 5600（HTTP 同步）+ UDP 46000（局域网发现广播）
+    auto checkOne = [](const QString &ruleName) -> bool {
+        QProcess p;
+        p.start(QStringLiteral("netsh"),
+                {QStringLiteral("advfirewall"), QStringLiteral("firewall"), QStringLiteral("show"),
+                 QStringLiteral("rule"), QStringLiteral("name=") + ruleName});
+        if (!p.waitForFinished(3000))
+            return false;
+        return p.exitCode() == 0;
+    };
+    return checkOne(QLatin1String(kServerFirewallRule))
+        && checkOne(QLatin1String(kServerFirewallRuleUdp));
 #else
     return true; // 非 Windows 不涉及系统防火墙
 #endif
@@ -212,14 +216,29 @@ bool ServerLauncher::requestFirewallAllow()
 int ServerLauncher::applyFirewallRule()
 {
 #ifdef Q_OS_WIN
-    const QStringList args{
+    // 两条规则：TCP 5600（HTTP 同步端口）+ UDP 46000（局域网设备发现广播端口）
+    // aw-sync-rust 的 discovery.rs 在 UDP 46000 收发广播，缺这条规则时 Windows 防火墙
+    // 会静默丢弃安卓端发来的发现包，导致两端都看不到对方。
+    const QStringList tcpArgs{
         QStringLiteral("advfirewall"), QStringLiteral("firewall"), QStringLiteral("add"),
         QStringLiteral("rule"),
         QStringLiteral("name=") + QLatin1String(kServerFirewallRule),
         QStringLiteral("dir=in"), QStringLiteral("action=allow"),
-        QStringLiteral("protocol=TCP"), QStringLiteral("localport=%1").arg(kServerPort),
+        QStringLiteral("protocol=TCP"),
+        QStringLiteral("localport=%1").arg(kServerPort),
         QStringLiteral("profile=private")};
-    return QProcess::execute(QStringLiteral("netsh"), args);
+    const QStringList udpArgs{
+        QStringLiteral("advfirewall"), QStringLiteral("firewall"), QStringLiteral("add"),
+        QStringLiteral("rule"),
+        QStringLiteral("name=") + QLatin1String(kServerFirewallRuleUdp),
+        QStringLiteral("dir=in"), QStringLiteral("action=allow"),
+        QStringLiteral("protocol=UDP"),
+        QStringLiteral("localport=%1").arg(kServerDiscoveryPort),
+        QStringLiteral("profile=private")};
+    const int tcpRc = QProcess::execute(QStringLiteral("netsh"), tcpArgs);
+    const int udpRc = QProcess::execute(QStringLiteral("netsh"), udpArgs);
+    // 任一条失败都返回非 0（外层 --firewall-allow 分支据此判定）
+    return (tcpRc == 0 && udpRc == 0) ? 0 : (tcpRc != 0 ? tcpRc : udpRc);
 #else
     return 0;
 #endif
