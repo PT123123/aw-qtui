@@ -10,9 +10,12 @@ namespace awqtui {
 
 // 本地服务端默认端口 / 局域网监听地址（多机互通，Syncthing 式）
 constexpr quint16 kServerPort = 5600;
+// 局域网设备发现（UDP 广播）端口：aw-sync-rust 固定 46000
+constexpr quint16 kServerDiscoveryPort = 46000;
 constexpr const char *kServerListenHost = "0.0.0.0";   // 监听所有网卡（局域网多机互通）
 constexpr const char *kServerProbeHost = "127.0.0.1";  // 探测始终用回环（0.0.0.0 监听时回环可连）
-constexpr const char *kServerFirewallRule = "aw-qtui-server"; // 防火墙规则名
+constexpr const char *kServerFirewallRule = "aw-qtui-server";         // 防火墙规则名（TCP 5600）
+constexpr const char *kServerFirewallRuleUdp = "aw-qtui-server-udp";  // 防火墙规则名（UDP 46000 发现）
 
 // 本地服务端管理（sidecar）。
 // 客户端通过相对路径定位打包的 aw-server.exe，端口探测确认未运行则拉起，
