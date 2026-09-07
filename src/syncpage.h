@@ -62,7 +62,6 @@ private slots:
     void onDeleteTrashRow();
     void onExportSnapshot();
     void onImportSnapshot();
-    void onDiscoverNow();
     void onRefreshTimer();
 
 private:
