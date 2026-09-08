@@ -20,6 +20,9 @@ class QTabWidget;
 class QTableWidget;
 class QTableWidgetItem;
 
+// Qt Designer 布局（daypage.ui），全局命名空间
+namespace Ui { class DayPage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -32,6 +35,7 @@ class DayPage : public QWidget
     Q_OBJECT
 public:
     explicit DayPage(ApiClient *api, TagStore *store, QWidget *parent = nullptr);
+    ~DayPage() override;
 
     void setDate(const QDate &date);
     QDate currentDate() const { return m_date; }
@@ -80,6 +84,8 @@ private:
         qint64 tagId = 0;
     };
 
+    // Qt Designer 生成的布局对象（daypage.ui -> ui_daypage.h）
+    Ui::DayPage *ui = nullptr;
     void buildUi();
     void reload();
     void rebuildTagsLane();
