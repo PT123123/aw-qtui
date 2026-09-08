@@ -1,5 +1,6 @@
 // daypage.cpp —— Day 视图实现
 #include "daypage.h"
+#include "ui_daypage.h"
 
 #include <QComboBox>
 #include <QDateTime>
@@ -95,6 +96,11 @@ DayPage::DayPage(ApiClient *api, TagStore *store, QWidget *parent)
     reload();
 }
 
+DayPage::~DayPage()
+{
+    delete ui;
+}
+
 void DayPage::applyTheme()
 {
     if (m_dateLabel)
@@ -114,132 +120,62 @@ void DayPage::applyTheme()
 
 void DayPage::buildUi()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(12, 10, 12, 10);
-    root->setSpacing(8);
+    // 静态布局来自 Qt Designer（daypage.ui -> ui_daypage.h）
+    ui = new Ui::DayPage;
+    ui->setupUi(this);
 
-    // ── 第一行：日期导航 + 状态 ──
-    auto *row1 = new QHBoxLayout;
-    m_prevBtn = new QPushButton(QStringLiteral("◀"));
-    m_prevBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_nextBtn = new QPushButton(QStringLiteral("▶"));
-    m_nextBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_todayBtn = new QPushButton(QStringLiteral("Today"));
-    m_todayBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_dateLabel = new QLabel;
+    // 主题样式角色（全局 QSS 按 objectName 选择器匹配；.ui 中名称保持唯一）
+    for (auto *b : {ui->prevBtn, ui->nextBtn, ui->todayBtn, ui->selectToggle,
+                    ui->tagEditorBtn, ui->autoTagBtn, ui->copyAutotagBtn,
+                    ui->untaggedBtn, ui->awayBtn, ui->timingBtn, ui->advSearchBtn})
+        b->setObjectName(QStringLiteral("ToolBtn"));
+    ui->addTagBtn->setObjectName(QStringLiteral("PrimaryBtn"));
+
+    // 主题色相关样式（kColor* 随主题切换，无法烘焙进 .ui）
+    m_dateLabel = ui->dateLabel;
     m_dateLabel->setStyleSheet(QStringLiteral("color:%1;font-size:15px;font-weight:600;").arg(kColorFg));
-    row1->addWidget(m_prevBtn);
-    row1->addWidget(m_nextBtn);
-    row1->addWidget(m_todayBtn);
-    row1->addSpacing(12);
-    row1->addWidget(m_dateLabel);
-    row1->addStretch(1);
-    m_statusLabel = new QLabel;
+    m_statusLabel = ui->statusLabel;
     m_statusLabel->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorMuted2));
-    row1->addWidget(m_statusLabel);
-    root->addLayout(row1);
+    m_bottomSummary = ui->bottomSummary;
+    m_bottomSummary->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
+    m_untaggedScroll = ui->untaggedScroll;
+    m_untaggedScroll->setStyleSheet(QStringLiteral("QScrollArea{background:%1;border:none;}").arg(kColorChartBg));
 
-    // ── 第二行：选择模式 + 操作 + 过滤 ──
-    auto *row2 = new QHBoxLayout;
-    m_selectToggle = new QPushButton(QStringLiteral("选择模式"));
-    m_selectToggle->setObjectName(QStringLiteral("ToolBtn"));
-    m_selectToggle->setCheckable(true);
-    m_selModeCombo = new QComboBox;
-    m_selModeCombo->addItems({QStringLiteral("Select all"), QStringLiteral("Select only untagged"),
-                              QStringLiteral("Show only untagged")});
-    m_addTagBtn = new QPushButton(QStringLiteral("＋ Add tag"));
-    m_addTagBtn->setObjectName(QStringLiteral("PrimaryBtn"));
-    m_tagEditorBtn = new QPushButton(QStringLiteral("Tag editor"));
-    m_tagEditorBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_autoTagBtn = new QPushButton(QStringLiteral("自动标签"));
-    m_autoTagBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_copyAutotagBtn = new QPushButton(QStringLiteral("复制 autotags"));
-    m_copyAutotagBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_untaggedBtn = new QPushButton(QStringLiteral("未标记"));
-    m_untaggedBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_awayBtn = new QPushButton(QStringLiteral("Tag away"));
-    m_awayBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_timingBtn = new QPushButton(QStringLiteral("⏱ 计时"));
-    m_timingBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_advSearchBtn = new QPushButton(QStringLiteral("高级搜索"));
-    m_advSearchBtn->setObjectName(QStringLiteral("ToolBtn"));
-    row2->addWidget(m_selectToggle);
-    row2->addWidget(m_selModeCombo);
-    row2->addSpacing(8);
-    row2->addWidget(m_addTagBtn);
-    row2->addWidget(m_tagEditorBtn);
-    row2->addWidget(m_autoTagBtn);
-    row2->addWidget(m_copyAutotagBtn);
-    row2->addWidget(m_untaggedBtn);
-    row2->addWidget(m_awayBtn);
-    row2->addWidget(m_timingBtn);
-    row2->addWidget(m_advSearchBtn);
-    row2->addStretch(1);
-    m_filterEdit = new QLineEdit;
-    m_filterEdit->setPlaceholderText(
-        QStringLiteral("Filter… group: / duration>1m / start>22:00 / -xxx / or / ? * / #\"regex\""));
-    m_filterEdit->setMaximumWidth(420);
-    row2->addWidget(m_filterEdit);
-    root->addLayout(row2);
+    // ── 成员别名：业务逻辑沿用 m_* 指针 ──
+    m_prevBtn = ui->prevBtn;
+    m_nextBtn = ui->nextBtn;
+    m_todayBtn = ui->todayBtn;
+    m_selectToggle = ui->selectToggle;
+    m_selModeCombo = ui->selModeCombo;
+    m_addTagBtn = ui->addTagBtn;
+    m_tagEditorBtn = ui->tagEditorBtn;
+    m_autoTagBtn = ui->autoTagBtn;
+    m_copyAutotagBtn = ui->copyAutotagBtn;
+    m_untaggedBtn = ui->untaggedBtn;
+    m_awayBtn = ui->awayBtn;
+    m_timingBtn = ui->timingBtn;
+    m_advSearchBtn = ui->advSearchBtn;
+    m_filterEdit = ui->filterEdit;
+    m_stack = ui->stack;
+    m_timeline = ui->timeline;
+    m_bottomTabs = ui->bottomTabs;
+    m_detailsTable = ui->detailsTable;
+    m_summaryTable = ui->summaryTable;
 
-    // ── 中部：时间线 / 未标记 切换 ──
-    m_stack = new QStackedWidget;
+    // ── 运行时行为：分割器拉伸、表格列宽与表头交互模式、未标记视图 ──
+    ui->split->setStretchFactor(0, 3);
+    ui->split->setStretchFactor(1, 2);
+    for (QTableWidget *t : {m_detailsTable, m_summaryTable}) {
+        t->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+        t->horizontalHeader()->setMinimumSectionSize(48);
+        t->setColumnWidth(0, 28);
+    }
+    m_untaggedView = new UntaggedView(m_store);
+    m_untaggedScroll->setWidget(m_untaggedView);
 
-    auto *dayPane = new QWidget;
-    auto *dl = new QVBoxLayout(dayPane);
-    dl->setContentsMargins(0, 0, 0, 0);
-    m_timeline = new TimelineWidget;
+    // 时间线默认显示今天
     m_timeline->setTimeRange(m_date.startOfDay().toMSecsSinceEpoch(),
                              m_date.addDays(1).startOfDay().toMSecsSinceEpoch());
-    dl->addWidget(m_timeline, 1);
-
-    // 底部：Details / Summary
-    m_bottomTabs = new QTabWidget;
-    m_detailsTable = new QTableWidget(0, 7);
-    m_detailsTable->setHorizontalHeaderLabels(
-        {QString(), QStringLiteral("Title"), QStringLiteral("Group"), QStringLiteral("Start"),
-         QStringLiteral("End"), QStringLiteral("Duration"), QStringLiteral("Notes")});
-    m_detailsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_detailsTable->horizontalHeader()->setMinimumSectionSize(48);
-    m_detailsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_detailsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_detailsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_detailsTable->setColumnWidth(0, 28);
-    m_bottomTabs->addTab(m_detailsTable, QStringLiteral("Details"));
-
-    auto *summaryPane = new QWidget;
-    auto *sml = new QVBoxLayout(summaryPane);
-    sml->setContentsMargins(0, 0, 0, 0);
-    m_summaryTable = new QTableWidget(0, 4);
-    m_summaryTable->setHorizontalHeaderLabels(
-        {QString(), QStringLiteral("Group"), QStringLiteral("Duration"), QStringLiteral("Count")});
-    m_summaryTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_summaryTable->horizontalHeader()->setMinimumSectionSize(48);
-    m_summaryTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_summaryTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_summaryTable->setColumnWidth(0, 28);
-    sml->addWidget(m_summaryTable, 1);
-    m_bottomSummary = new QLabel;
-    m_bottomSummary->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
-    sml->addWidget(m_bottomSummary);
-    m_bottomTabs->addTab(summaryPane, QStringLiteral("Summary"));
-
-    auto *split = new QSplitter(Qt::Vertical);
-    split->addWidget(m_timeline);
-    split->addWidget(m_bottomTabs);
-    split->setStretchFactor(0, 3);
-    split->setStretchFactor(1, 2);
-    m_bottomTabs->setMinimumHeight(120);
-    dl->addWidget(split, 1);
-    m_stack->addWidget(dayPane);
-
-    m_untaggedView = new UntaggedView(m_store);
-    m_untaggedScroll = new QScrollArea;
-    m_untaggedScroll->setWidget(m_untaggedView);
-    m_untaggedScroll->setWidgetResizable(true);
-    m_untaggedScroll->setStyleSheet(QStringLiteral("QScrollArea{background:%1;border:none;}").arg(kColorChartBg));
-    m_stack->addWidget(m_untaggedScroll);
-    root->addWidget(m_stack, 1);
 
     // ── 连接 ──
     connect(m_prevBtn, &QPushButton::clicked, this, &DayPage::onPrevDay);
