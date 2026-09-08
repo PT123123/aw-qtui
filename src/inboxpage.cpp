@@ -206,45 +206,68 @@ void InboxPage::applyStyles()
                                                .arg(glassBg(kColorBgElev), withAlpha(kColorBorder, 0.45))));
     if (m_tagTitle)
         m_tagTitle->setStyleSheet(scaleQss(QStringLiteral(
-            "color: %1; font-size: 11px; font-weight: 700; padding: 0 2px 2px;")
+            "color: %1; font-size: 10px; font-weight: 800; letter-spacing: 1.5px;"
+            " padding: 0 4px 2px;")
                                                .arg(kColorFgMuted)));
     if (m_tagTree)
         m_tagTree->setStyleSheet(scaleQss(QStringLiteral(
             "QTreeWidget { background: transparent; border: none; outline: none; }"
-            "QTreeWidget::item { padding: 4px 6px; border: none; border-radius: 6px; color: %1; }"
+            "QTreeWidget::branch { background: transparent; }"
+            "QTreeWidget::item { padding: 5px 8px; border: none; border-radius: 8px; color: %1; }"
             "QTreeWidget::item:hover { background: %2; color: %3; }"
-            "QTreeWidget::item:selected { background: %2; color: %3; }")
-                                             .arg(kColorFg, kColorBgElev2, kColorFg)));
+            "QTreeWidget::item:selected { background: %4; color: %5; }")
+                                             .arg(kColorFg, kColorBgElev2, kColorFg,
+                                                  withAlpha(kColorAccent, 0.16), kColorAccent)));
     if (m_filterText)
         m_filterText->setStyleSheet(scaleQss(QStringLiteral(
             "color: %1; font-size: 12px; background: %2; border: 1px solid %3;"
             " border-radius: 6px; padding: 3px 8px;")
                                                .arg(kColorAccent, glassBg(kColorBgElev), withAlpha(kColorBorder, 0.45))));
-    {   // 筛选条按钮复用 subtleBtn 样式
-        const QString subtleBtn2 = QStringLiteral(
+    {   // 筛选条与侧栏底部按钮：统一 hover 浮起的小圆角块（chip）
+        const QString chipBtn = scaleQss(QStringLiteral(
             "QPushButton { background: transparent; border: none; border-radius: 6px;"
-            " color: %1; padding: 5px 10px; font-size: 12px; }"
-            "QPushButton:hover { background: %2; color: %3; }");
+            " color: %1; padding: 5px 8px; font-size: 11px; text-align: left; }"
+            "QPushButton:hover { background: %2; color: %3; }")
+                                             .arg(kColorFgMuted, kColorBgElev2, kColorFg));
         for (QPushButton *b : {m_btnFilterUp, m_btnFilterClear})
             if (b)
-                b->setStyleSheet(scaleQss(subtleBtn2.arg(kColorFgMuted, kColorBgElev2, kColorFg)));
+                b->setStyleSheet(scaleQss(QStringLiteral(
+                    "QPushButton { background: transparent; border: none; border-radius: 6px;"
+                    " color: %1; padding: 5px 10px; font-size: 12px; }"
+                    "QPushButton:hover { background: %2; color: %3; }")
+                                                     .arg(kColorFgMuted, kColorBgElev2, kColorFg)));
+        if (m_btnClear)
+            m_btnClear->setStyleSheet(chipBtn);
+        if (m_btnSettings)
+            m_btnSettings->setStyleSheet(chipBtn);
     }
-    if (m_btnClear)
-        m_btnClear->setStyleSheet(scaleQss(QStringLiteral(
-            "QPushButton { background: transparent; border: none; color: %1; font-size: 11px;"
-            " text-align: left; padding: 2px; }"
-            "QPushButton:hover { color: %2; }")
-                                               .arg(kColorFgMuted, kColorAccent)));
-    if (m_btnSettings)
-        m_btnSettings->setStyleSheet(scaleQss(QStringLiteral(
-            "QPushButton { background: transparent; border: none; color: %1; font-size: 11px;"
-            " text-align: left; padding: 2px; }"
-            "QPushButton:hover { color: %2; }")
-                                               .arg(kColorFgMuted, kColorAccent)));
 
     // 工具栏
     if (m_title)
         m_title->setStyleSheet(scaleQss(QStringLiteral("font-size: 22px; font-weight: 700; color: %1;").arg(kColorFg)));
+    // 搜索框：胶囊化，聚焦时 accent 描边
+    if (m_search)
+        m_search->setStyleSheet(scaleQss(QStringLiteral(
+            "QLineEdit { background: %1; border: 1px solid transparent; border-radius: 9px;"
+            " padding: 5px 12px; color: %2; font-size: 12px;"
+            " selection-background-color: %3; }"
+            "QLineEdit:focus { border-color: %3; background: %4; }"
+            "QLineEdit:hover { border-color: %5; }")
+                                         .arg(kColorBgElev2, kColorFg, kColorAccent,
+                                              glassBg(kColorBgElev), withAlpha(kColorBorder, 0.7))));
+    // 排序下拉：圆角无边框化，匹配搜索框胶囊；下拉列表同样圆角
+    if (m_sort)
+        m_sort->setStyleSheet(scaleQss(QStringLiteral(
+            "QComboBox { background: %1; border: 1px solid transparent; border-radius: 9px;"
+            " padding: 4px 6px 4px 12px; color: %2; font-size: 12px; }"
+            "QComboBox:hover { border-color: %3; }"
+            "QComboBox:focus { border-color: %4; }"
+            "QComboBox::drop-down { border: none; width: 18px; }"
+            "QComboBox QAbstractItemView { background: %5; border: 1px solid %3;"
+            " border-radius: 8px; color: %2; outline: none;"
+            " selection-background-color: %6; selection-color: %4; padding: 4px; }")
+                                         .arg(kColorBgElev2, kColorFg, withAlpha(kColorBorder, 0.7),
+                                              kColorAccent, glassBg(kColorBgElev), withAlpha(kColorAccent, 0.16))));
     const QString subtleBtn = QStringLiteral(
         "QPushButton { background: transparent; border: none; border-radius: 6px;"
         " color: %1; padding: 5px 10px; font-size: 12px; }"

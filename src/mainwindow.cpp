@@ -249,13 +249,7 @@ void MainWindow::buildUi()
     navLay->setContentsMargins(0, si(12), 0, si(12));
     navLay->setSpacing(si(2));
 
-    // 顶部分隔线（下方紧跟展开/收起切换按钮）
-    auto *topSep = new QFrame;
-    topSep->setFrameShape(QFrame::HLine);
-    topSep->setStyleSheet(scaleQss(QStringLiteral("background: %1; max-height: 1px;").arg(kColorBorder)));
-    navLay->addWidget(topSep);
-
-    // 展开/收起切换按钮（图标随展开态在 updateNavIcons 重绘）
+    // 展开/收起切换按钮（顶部留白呼吸，不加分隔线；图标随展开态在 updateNavIcons 重绘）
     m_navToggle = new QToolButton;
     m_navToggle->setObjectName(QStringLiteral("NavToggle"));
     m_navToggle->setToolTip(QStringLiteral("展开导航"));
@@ -607,11 +601,11 @@ void MainWindow::updateNavIcons()
         b->setIcon(glyphIcon(glyphStr, b->isChecked() ? QColor(kColorAccent)
                                                       : QColor(kColorFgMuted), px));
     }
-    // 展开/收起切换按钮：窄栏汉堡菜单，展开左箭头（收起）
+    // 展开/收起切换按钮：窄栏汉堡菜单，展开左箭头（收起）——图标比导航项大一号
     if (m_navToggle) {
-        m_navToggle->setIconSize(QSize(si(16), si(16)));
+        m_navToggle->setIconSize(QSize(si(20), si(20)));
         m_navToggle->setIcon(glyphIcon(m_navExpanded ? glyph::ChevLeft : glyph::Menu,
-                                       QColor(kColorFgMuted), si(16)));
+                                       QColor(kColorFgMuted), si(20)));
     }
     // 分组头 chevron 与缩放尺寸
     for (auto *h : m_navSectionHeaders) {

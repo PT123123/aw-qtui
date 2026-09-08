@@ -615,7 +615,7 @@ inline QString themeQss(const Theme &t)
         QToolButton#NavToggle {
             border: none; border-radius: 8px; background: transparent;
             color: @MUTED@; font-size: 16px; text-align: center;
-            padding: 8px 0; margin: 1px 8px;
+            padding: 7px 0; margin: 2px 8px;
         }
         QToolButton#NavToggle:hover { background: @BGL2@; color: @FG@; border-radius: 8px; }
         QToolButton#NavToggle:pressed { background: @PRESSED@; }
