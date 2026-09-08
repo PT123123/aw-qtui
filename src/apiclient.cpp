@@ -40,7 +40,20 @@ QNetworkReply *ApiClient::sendJson(const QByteArray &method, const QString &path
     QNetworkRequest req = makeRequest(path);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     const QByteArray data = QJsonDocument(body).toJson(QJsonDocument::Compact);
-    return m_nam->sendCustomRequest(req, method, data);
+    QNetworkReply *r = m_nam->sendCustomRequest(req, method, data);
+    // 本机数据变更钩子：notes/todo 等路径写成功后广播，供同步页做去抖即时推送。
+    // 只在 2xx 时触发，避免把失败的写入也同步出去。
+    if (method != QByteArrayLiteral("GET")
+        && (path.contains(QStringLiteral("note")) || path.contains(QStringLiteral("todo"))
+            || path.contains(QStringLiteral("inbox")) || path.contains(QStringLiteral("comment"))
+            || path.contains(QStringLiteral("relation")))) {
+        connect(r, &QNetworkReply::finished, this, [this, r] {
+            const QVariant sc = r->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+            if (sc.isValid() && sc.toInt() >= 200 && sc.toInt() < 300)
+                emit localDataChanged();
+        });
+    }
+    return r;
 }
 
 // ------------------------------------------------------------------ //

@@ -31,6 +31,7 @@ public:
     int deviceCount() const { return m_devices.size(); }
 
     void refreshDevices();
+    // 同步一台设备（空 = 全部已配对在线设备依次同步；选中行时「立即同步」优先同步选中设备）
     void doSync();
     void heartbeat(bool quiet = false);
     void setServerUrl(const QString &url);
@@ -44,8 +45,13 @@ public:
     // 离开同步页时停止定时刷新（由 MainWindow 调用）
     void stopRefresh();
 
+    // 本机数据变更（apiclient 写操作成功）：去抖后立即推送，不必等轮询周期
+    void onLocalDataChanged();
+
 signals:
     void logMessage(const QString &line);
+    // 发现新的配对请求（MainWindow 弹系统托盘通知）
+    void pairRequestReceived(const QString &deviceName);
 
 private slots:
     void onRefreshConfig();
@@ -63,6 +69,7 @@ private slots:
     void onExportSnapshot();
     void onImportSnapshot();
     void onRefreshTimer();
+    void onUsePairCode();
 
 private:
     void buildUi();
@@ -71,6 +78,10 @@ private:
     void refreshSyncConfig();
     void refreshDeviceStats(const QString &deviceId);
     void refreshTrash();
+    void syncDevice(const QString &deviceId);
+    void processSyncQueue();
+    void updatePairBanner();
+    void setRefreshInterval(int ms);
 
     ApiClient *m_api;
     MdnsDiscovery *m_mdns; // 保留指针但不再作为发现源（服务端用 UDP 广播发现）
@@ -89,20 +100,13 @@ private:
     QLineEdit *m_editAlias;
     QLineEdit *m_editListenPort;
     QLineEdit *m_editUdpPort;
-    QComboBox *m_cmbSyncInterval = nullptr;    // 三档自动同步频率（狂暴/平和/静默）
+    QComboBox *m_cmbSyncInterval = nullptr;    // 自动同步频率（实时10s/标准60s/省电5min/仅手动）
     QPushButton *m_btnSaveConfig;
 
     // 操作
     QPushButton *m_btnSyncNow;
     QPushButton *m_btnRemoveDevice;
-    QPushButton *m_btnSetAlias;
-    QPushButton *m_btnClearAllDevices;
     QPushButton *m_btnClearLogs;
-
-    // 快照传输（WiFi 热点点对点，bb3f187）
-    QPushButton *m_btnExportSnapshot;
-    QPushButton *m_btnImportSnapshot;
-    QLabel *m_lblSnapshot;
 
     // 日志
     QPlainTextEdit *m_log;
@@ -116,6 +120,18 @@ private:
 
     // 定时刷新（进入页面后周期性拉取设备/状态，及时呈现 UDP 广播发现的设备）
     QTimer *m_refreshTimer = nullptr;
+
+    // 事件驱动同步：本机数据变更后去抖推送
+    QTimer *m_syncDebounce = nullptr;
+
+    // 配对请求横幅（有 incoming_pair_request 的设备时显示在设备表上方）
+    QWidget *m_pairBanner = nullptr;
+    QLabel *m_pairBannerLbl = nullptr;
+    QString m_pairBannerId;        // 当前横幅对应的请求方
+    QStringList m_notifiedPairReq; // 已提醒/已忽略的请求方，避免重复打扰
+
+    // 「立即同步」的顺序同步队列（多台在线设备逐台执行）
+    QStringList m_syncQueue;
 };
 
 } // namespace awqtui
