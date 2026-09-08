@@ -8,6 +8,9 @@ class QLineEdit;
 class QLabel;
 class QTabWidget;
 
+// Qt Designer 布局（inboxsettingspage.ui），全局命名空间
+namespace Ui { class InboxSettingsPage; }
+
 namespace awqtui {
 
 class LocalStore;
@@ -18,6 +21,7 @@ class InboxSettingsPage : public QWidget
     Q_OBJECT
 public:
     explicit InboxSettingsPage(LocalStore *store, QWidget *parent = nullptr);
+    ~InboxSettingsPage() override;
     void applyUiScale();
 
 private slots:
@@ -26,6 +30,8 @@ private slots:
     void onAutostartToggled(bool on);
 
 private:
+    // Qt Designer 生成的布局对象（inboxsettingspage.ui -> ui_inboxsettingspage.h）
+    Ui::InboxSettingsPage *ui = nullptr;
     void buildUi(LocalStore *store);
     void applyStyle();
 
