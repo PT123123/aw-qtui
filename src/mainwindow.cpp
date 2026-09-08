@@ -575,15 +575,17 @@ void MainWindow::switchPage(int index)
     if (index == PAGE_SYNC) {
         // 进入局域网同步界面：启动 UDP 广播发现 + 网络环境自动开启同步 + 定时刷新
         m_sync->onEnteredSyncPage();
-    } else {
+    } else if (m_prevPage == PAGE_SYNC) {
         // 从同步页切走时停止广播与定时刷新（避免后台偷偷广播）
-        if (m_api && m_stack->currentIndex() == PAGE_SYNC) {
+        if (m_api)
             m_api->discoveryStop();
-            m_sync->stopRefresh();
-        }
+        m_sync->stopRefresh();
     }
     if (index == PAGE_TODO)
         m_todo->refresh();
+
+    // 记录当前页为「上一页」，供下次切换判断是否离开同步页
+    m_prevPage = index;
 
     // 淡入动画
     if (gFxAnimations) {

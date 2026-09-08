@@ -164,6 +164,8 @@ private:
     QList<QPushButton *> m_navButtons;
     QList<QToolButton *> m_navSectionHeaders;
     bool m_navExpanded = false; // 默认收起（窄栏图标模式）
+    // 上一次显示的页面索引（用于检测「离开局域网同步页」以停止广播）
+    int m_prevPage = PAGE_INBOX;
     // 页面缩放：当前缩放比（1.0 = 100%）与右下角百分比提示
     qreal m_zoom = 1.0;
     QLabel *m_zoomBadge = nullptr;
