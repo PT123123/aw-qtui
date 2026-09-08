@@ -424,7 +424,7 @@ void TodoPage::buildUi()
     dueRow->addWidget(m_dDue, 1);
     form->addLayout(dueRow, 2, 1);
 
-    form->addWidget(addLabel(QStringLiteral("重复")), 3, 0);
+    QLabel *recurLabel = addLabel(QStringLiteral("重复"));
     m_dRecur = new QComboBox;
     m_dRecur->addItem(QStringLiteral("不重复"), QString());
     m_dRecur->addItem(QStringLiteral("每天"), QStringLiteral("daily"));
@@ -435,7 +435,13 @@ void TodoPage::buildUi()
         if (!m_loadingDetail)
             commitDetail();
     });
+    form->addWidget(recurLabel, 3, 0);
     form->addWidget(m_dRecur, 3, 1);
+    // API 数据源：服务端不支持重复规则（对齐 Android supportsRecurrence=false 隐藏 UI）
+    if (!m_source->supportsRecurrence()) {
+        recurLabel->hide();
+        m_dRecur->hide();
+    }
 
     form->addWidget(addLabel(QStringLiteral("标签")), 4, 0);
     m_dTags = new QLineEdit;
