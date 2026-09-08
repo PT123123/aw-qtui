@@ -1,0 +1,523 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- cloudbackuppage.ui —— 云备份（冷备）页布局（Qt Designer）
+     与 CloudBackupPage::buildUi() 的静态结构一一对应；主题 objectName、
+     下拉框 userData、运行时样式、信号连接等仍在 cloudbackuppage.cpp 中设置 -->
+<ui version="4.0">
+ <class>CloudBackupPage</class>
+ <widget class="QWidget" name="CloudBackupPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>760</width>
+    <height>620</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="rootLayout" stretch="0,0,1">
+   <property name="leftMargin">
+    <number>20</number>
+   </property>
+   <property name="topMargin">
+    <number>20</number>
+   </property>
+   <property name="rightMargin">
+    <number>20</number>
+   </property>
+   <property name="bottomMargin">
+    <number>20</number>
+   </property>
+   <property name="spacing">
+    <number>14</number>
+   </property>
+   <item>
+    <layout class="QHBoxLayout" name="toolbar">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="title">
+       <property name="text">
+        <string>❄ 云备份（冷备）</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="subtitle">
+       <property name="text">
+        <string>WebDAV / S3 低频冷备份</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="toolbarSpacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="lblServer">
+       <property name="text">
+        <string>服务端</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="serverEdit">
+       <property name="minimumSize">
+        <size>
+         <width>240</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>240</width>
+         <height>16777215</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btnApply">
+       <property name="text">
+        <string>应用</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="statusBar">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="statusLabel">
+       <property name="text">
+        <string>未配置</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="statusBarSpacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QTabWidget" name="tabs">
+     <widget class="QWidget" name="connTab">
+      <attribute name="title">
+       <string>🔌 连接</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="connLay">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="topMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <property name="bottomMargin">
+        <number>12</number>
+       </property>
+       <property name="spacing">
+        <number>8</number>
+       </property>
+       <item>
+        <widget class="QGroupBox" name="connBox">
+         <property name="title">
+          <string>备份目标</string>
+         </property>
+         <layout class="QFormLayout" name="connForm">
+          <property name="verticalSpacing">
+           <number>10</number>
+          </property>
+          <item row="0" column="0">
+           <widget class="QLabel" name="lblKind">
+            <property name="text">
+             <string>协议</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="kind">
+            <item>
+             <property name="text">
+              <string>未启用</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>WebDAV</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>S3 / MinIO</string>
+             </property>
+            </item>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="lblWebdavUrl">
+            <property name="text">
+             <string>WebDAV URL</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="webdavUrl">
+            <property name="placeholderText">
+             <string>https://dav.example.com/</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="lblWebdavUser">
+            <property name="text">
+             <string>用户名</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLineEdit" name="webdavUser"/>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="lblWebdavPass">
+            <property name="text">
+             <string>密码</string>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QLineEdit" name="webdavPass">
+            <property name="echoMode">
+             <enum>QLineEdit::Password</enum>
+            </property>
+           </widget>
+          </item>
+          <item row="4" column="0">
+           <widget class="QLabel" name="lblWebdavPath">
+            <property name="text">
+             <string>远程路径</string>
+            </property>
+           </widget>
+          </item>
+          <item row="4" column="1">
+           <widget class="QLineEdit" name="webdavPath">
+            <property name="text">
+             <string>/aw-qtui/</string>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="0">
+           <widget class="QLabel" name="lblS3Endpoint">
+            <property name="text">
+             <string>Endpoint</string>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="1">
+           <widget class="QLineEdit" name="s3Endpoint">
+            <property name="placeholderText">
+             <string>https://s3.amazonaws.com</string>
+            </property>
+           </widget>
+          </item>
+          <item row="6" column="0">
+           <widget class="QLabel" name="lblS3AccessKey">
+            <property name="text">
+             <string>Access Key</string>
+            </property>
+           </widget>
+          </item>
+          <item row="6" column="1">
+           <widget class="QLineEdit" name="s3AccessKey"/>
+          </item>
+          <item row="7" column="0">
+           <widget class="QLabel" name="lblS3SecretKey">
+            <property name="text">
+             <string>Secret Key</string>
+            </property>
+           </widget>
+          </item>
+          <item row="7" column="1">
+           <widget class="QLineEdit" name="s3SecretKey">
+            <property name="echoMode">
+             <enum>QLineEdit::Password</enum>
+            </property>
+           </widget>
+          </item>
+          <item row="8" column="0">
+           <widget class="QLabel" name="lblS3Bucket">
+            <property name="text">
+             <string>Bucket</string>
+            </property>
+           </widget>
+          </item>
+          <item row="8" column="1">
+           <widget class="QLineEdit" name="s3Bucket"/>
+          </item>
+          <item row="9" column="0">
+           <widget class="QLabel" name="lblS3Region">
+            <property name="text">
+             <string>Region</string>
+            </property>
+           </widget>
+          </item>
+          <item row="9" column="1">
+           <widget class="QLineEdit" name="s3Region">
+            <property name="text">
+             <string>us-east-1</string>
+            </property>
+           </widget>
+          </item>
+          <item row="10" column="0">
+           <widget class="QLabel" name="lblS3Path">
+            <property name="text">
+             <string>对象前缀</string>
+            </property>
+           </widget>
+          </item>
+          <item row="10" column="1">
+           <widget class="QLineEdit" name="s3Path">
+            <property name="text">
+             <string>aw-qtui/</string>
+            </property>
+           </widget>
+          </item>
+          <item row="11" column="0" colspan="2">
+           <widget class="QCheckBox" name="s3PathStyle">
+            <property name="text">
+             <string>路径风格（MinIO）</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="12" column="0" colspan="2">
+           <widget class="QCheckBox" name="s3Tls">
+            <property name="text">
+             <string>使用 TLS</string>
+            </property>
+            <property name="checked">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="13" column="0" colspan="2">
+           <layout class="QHBoxLayout" name="btnRow">
+            <property name="spacing">
+             <number>8</number>
+            </property>
+            <item>
+             <widget class="QPushButton" name="btnTest">
+              <property name="text">
+               <string>测试连接</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnSave">
+              <property name="text">
+               <string>保存配置</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnBackupNow">
+              <property name="text">
+               <string>立即备份</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="btnRowSpacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="connLayStretch">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="settingsTab">
+      <attribute name="title">
+       <string>⏰ 计划</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="settingsLay">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="topMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <property name="bottomMargin">
+        <number>12</number>
+       </property>
+       <property name="spacing">
+        <number>8</number>
+       </property>
+       <item>
+        <widget class="QGroupBox" name="schedBox">
+         <property name="title">
+          <string>自动备份计划</string>
+         </property>
+         <layout class="QFormLayout" name="schedForm">
+          <property name="verticalSpacing">
+           <number>10</number>
+          </property>
+          <item row="0" column="0" colspan="2">
+           <widget class="QCheckBox" name="chkAutoBackup">
+            <property name="text">
+             <string>启用自动备份</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="lblIntervalHours">
+            <property name="text">
+             <string>备份间隔</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QSpinBox" name="intervalHours">
+            <property name="minimum">
+             <number>1</number>
+            </property>
+            <property name="maximum">
+             <number>720</number>
+            </property>
+            <property name="value">
+             <number>24</number>
+            </property>
+            <property name="suffix">
+             <string> 小时</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="lblLastBackupTitle">
+            <property name="text">
+             <string>上次备份</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLabel" name="lblLastBackup">
+            <property name="text">
+             <string>从未备份</string>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="0" colspan="2">
+           <widget class="QLabel" name="hint">
+            <property name="text">
+             <string>冷备按小时间隔自动执行，不影响高频的局域网/D1 同步。</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="settingsLayStretch">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="logTab">
+      <attribute name="title">
+       <string>📜 日志</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="logLay">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="topMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <property name="bottomMargin">
+        <number>12</number>
+       </property>
+       <property name="spacing">
+        <number>8</number>
+       </property>
+       <item>
+        <widget class="QPlainTextEdit" name="log">
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+         <property name="placeholderText">
+          <string>操作日志将在此显示…</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

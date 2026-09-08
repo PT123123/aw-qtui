@@ -40,8 +40,10 @@ add_executable(awqtui WIN32
     src/syncpage.ui
     src/syncdetailspage.cpp
     src/syncdetailspage.h
+    src/syncdetailspage.ui
     src/d1syncpage.cpp
     src/d1syncpage.h
+    src/d1syncpage.ui
     src/mdnsdiscovery.cpp
     src/mdnsdiscovery.h
     src/mockdata.cpp
@@ -106,6 +108,7 @@ add_executable(awqtui WIN32
     src/querypage.h
     src/cloudbackuppage.cpp
     src/cloudbackuppage.h
+    src/cloudbackuppage.ui
 )
 
 target_link_libraries(awqtui PRIVATE

@@ -1,5 +1,6 @@
 // syncdetailspage.cpp —— 同步详情独立页（最近一次同步 / 日志 / 回收站）
 #include "syncdetailspage.h"
+#include "ui_syncdetailspage.h"
 
 #include "apiclient.h"
 #include "config.h"
@@ -33,7 +34,10 @@ SyncDetailsPage::SyncDetailsPage(ApiClient *api, QWidget *parent)
     applyTheme();
 }
 
-SyncDetailsPage::~SyncDetailsPage() = default;
+SyncDetailsPage::~SyncDetailsPage()
+{
+    delete ui;
+}
 
 void SyncDetailsPage::applyTheme()
 {
@@ -110,264 +114,111 @@ void SyncDetailsPage::applyTheme()
 
 void SyncDetailsPage::buildUi()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(20, 20, 20, 20);
-    root->setSpacing(14);
+    // 静态布局来自 Qt Designer（syncdetailspage.ui -> ui_syncdetailspage.h）
+    ui = new Ui::SyncDetailsPage;
+    ui->setupUi(this);
 
-    // ── 顶部工具栏 ──
-    auto *toolbar = new QHBoxLayout;
-    toolbar->setSpacing(8);
+    // ── 成员别名：业务逻辑沿用 m_* 指针，静态布局归属 .ui 文件 ──
+    m_backBtn = ui->btnBack;
+    m_serverEdit = ui->serverEdit;
+    m_statusLabel = ui->statusLabel; // 修复：原代码从未创建该标签，「应用」切换地址时空指针崩溃
+    m_tabs = ui->tabs;
+    m_latestSyncTab = ui->latestTab;
+    m_lblLatestSummary = ui->lblLatestSummary;
+    m_latestRecordsTable = ui->latestRecordsTable;
+    m_btnRefreshLatestSync = ui->btnRefreshLatestSync;
+    m_logTable = ui->logTable;
+    m_filterDirection = ui->filterDirection;
+    m_filterProtocol = ui->filterProtocol;
+    m_filterEvent = ui->filterEvent;
+    m_filterKind = ui->filterKind;
+    m_pageSpin = ui->pageSpin;
+    m_btnPrevPage = ui->btnPrevPage;
+    m_btnNextPage = ui->btnNextPage;
+    m_btnRefreshLog = ui->btnRefreshLog;
+    m_btnClearLogs = ui->btnClearLogs;
+    m_detailPanel = ui->detailPanel;
+    m_logCountLabel = ui->logCountLabel;
+    m_trashTable = ui->trashTable;
+    m_btnRefreshTrash = ui->btnRefreshTrash;
+    m_btnClearTrash = ui->btnClearTrash;
+    m_btnRestoreTrash = ui->btnRestoreTrash;
+    m_btnDeleteTrash = ui->btnDeleteTrash;
 
-    m_backBtn = new QPushButton(QStringLiteral("← 返回同步"));
+    // ── 主题样式角色（applyTheme 的 QSS 按 objectName 选择器匹配）──
     m_backBtn->setObjectName(QStringLiteral("NavBtn"));
-    connect(m_backBtn, &QPushButton::clicked, this, &SyncDetailsPage::onBack);
-    toolbar->addWidget(m_backBtn);
-
-    toolbar->addSpacing(16);
-
-    auto *title = new QLabel(QStringLiteral("📋 同步详情"));
-    title->setObjectName(QStringLiteral("Heading"));
-    toolbar->addWidget(title);
-
-    auto *subtitle = new QLabel(QStringLiteral("传输明细 / 日志 / 回收站"));
-    subtitle->setObjectName(QStringLiteral("SubHeading"));
-    toolbar->addWidget(subtitle);
-    toolbar->addStretch(1);
-
-    m_serverEdit = new QLineEdit(m_api ? m_api->baseUrl() : kDefaultServerUrl);
-    m_serverEdit->setFixedWidth(240);
-    toolbar->addWidget(new QLabel(QStringLiteral("服务端")));
-    toolbar->addWidget(m_serverEdit);
-
-    auto *btnApply = new QPushButton(QStringLiteral("应用"));
-    btnApply->setObjectName(QStringLiteral("ToolBtn"));
-    connect(btnApply, &QPushButton::clicked, this, [this] {
-        setServerUrl(m_serverEdit->text().trimmed());
-    });
-    toolbar->addWidget(btnApply);
-
-    root->addLayout(toolbar);
-
-    // ── 标签页 ──
-    m_tabs = new QTabWidget;
-
-    // ── 最近一次同步 Tab ──
-    m_latestSyncTab = new QWidget;
-    auto *latestLay = new QVBoxLayout(m_latestSyncTab);
-    latestLay->setContentsMargins(12, 12, 12, 12);
-    latestLay->setSpacing(8);
-
-    auto *latestToolbar = new QHBoxLayout;
-    latestToolbar->setSpacing(8);
-    m_btnRefreshLatestSync = new QPushButton(QStringLiteral("↻ 刷新"));
+    ui->btnApply->setObjectName(QStringLiteral("ToolBtn"));
     m_btnRefreshLatestSync->setObjectName(QStringLiteral("ToolBtn"));
-    connect(m_btnRefreshLatestSync, &QPushButton::clicked, this, &SyncDetailsPage::onRefreshLatestSync);
-    latestToolbar->addWidget(m_btnRefreshLatestSync);
-    latestToolbar->addStretch(1);
-    latestLay->addLayout(latestToolbar);
-
-    m_lblLatestSummary = new QLabel(QStringLiteral("暂无同步记录"));
+    m_btnPrevPage->setObjectName(QStringLiteral("ToolBtn"));
+    m_btnNextPage->setObjectName(QStringLiteral("ToolBtn"));
+    m_btnRefreshLog->setObjectName(QStringLiteral("ToolBtn"));
+    m_btnRefreshTrash->setObjectName(QStringLiteral("ToolBtn"));
+    m_btnRestoreTrash->setObjectName(QStringLiteral("ToolBtn"));
+    m_btnClearLogs->setObjectName(QStringLiteral("DangerBtn"));
+    m_btnClearTrash->setObjectName(QStringLiteral("DangerBtn"));
+    m_btnDeleteTrash->setObjectName(QStringLiteral("DangerBtn"));
+    ui->pageTitle->setObjectName(QStringLiteral("Heading"));
+    ui->pageSubtitle->setObjectName(QStringLiteral("SubHeading"));
+    m_logCountLabel->setObjectName(QStringLiteral("StatusLabel"));
+    m_statusLabel->setObjectName(QStringLiteral("StatusLabel"));
     m_lblLatestSummary->setObjectName(QStringLiteral("SummaryLabel"));
-    m_lblLatestSummary->setWordWrap(true);
-    latestLay->addWidget(m_lblLatestSummary);
 
-    auto *latestBox = new QGroupBox(QStringLiteral("传输明细"));
-    auto *latestBoxLay = new QVBoxLayout(latestBox);
-    m_latestRecordsTable = new QTableWidget(0, 5);
-    m_latestRecordsTable->setHorizontalHeaderLabels({QStringLiteral("类型"),
-                                                      QStringLiteral("逻辑键"),
-                                                      QStringLiteral("标题"),
-                                                      QStringLiteral("操作"),
-                                                      QStringLiteral("原因")});
-    m_latestRecordsTable->verticalHeader()->setVisible(false);
-    m_latestRecordsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_latestRecordsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_latestRecordsTable->horizontalHeader()->setStretchLastSection(true);
+    // 表格列宽（.ui 中无法表达）
     m_latestRecordsTable->setColumnWidth(0, 80);
     m_latestRecordsTable->setColumnWidth(1, 180);
     m_latestRecordsTable->setColumnWidth(2, 180);
     m_latestRecordsTable->setColumnWidth(3, 90);
-    latestBoxLay->addWidget(m_latestRecordsTable);
-    latestLay->addWidget(latestBox, 1);
 
-    m_tabs->addTab(m_latestSyncTab, QStringLiteral("📊 最近同步"));
+    // 筛选下拉框的档位数值（itemData 无法在 .ui 中表达；空值 = 全部）
+    m_filterDirection->setItemData(0, QString());
+    m_filterDirection->setItemData(1, QStringLiteral("out"));
+    m_filterDirection->setItemData(2, QStringLiteral("in"));
+    m_filterProtocol->setItemData(0, QString());
+    m_filterProtocol->setItemData(1, QStringLiteral("http"));
+    m_filterProtocol->setItemData(2, QStringLiteral("udp_broadcast"));
+    m_filterProtocol->setItemData(3, QStringLiteral("mdns"));
+    m_filterEvent->setItemData(0, QString());
+    m_filterEvent->setItemData(1, QStringLiteral("discovery"));
+    m_filterEvent->setItemData(2, QStringLiteral("pairing"));
+    m_filterEvent->setItemData(3, QStringLiteral("sync"));
+    m_filterEvent->setItemData(4, QStringLiteral("conflict"));
+    m_filterKind->setItemData(0, QStringLiteral("activity"));
+    m_filterKind->setItemData(1, QStringLiteral("note"));
+    m_filterKind->setItemData(2, QStringLiteral("todo"));
+    m_filterKind->setItemData(3, QString());
 
-    // ── 日志 Tab ──
-    auto *logTab = new QWidget;
-    auto *logLay = new QVBoxLayout(logTab);
-    logLay->setContentsMargins(12, 12, 12, 12);
-    logLay->setSpacing(8);
+    // 服务端地址初值
+    m_serverEdit->setText(m_api ? m_api->baseUrl() : kDefaultServerUrl);
 
-    // 筛选栏
-    auto *filterBar = new QHBoxLayout;
-    filterBar->setSpacing(8);
-
-    filterBar->addWidget(new QLabel(QStringLiteral("方向")));
-    m_filterDirection = new QComboBox;
-    m_filterDirection->addItem(QStringLiteral("全部"), QString());
-    m_filterDirection->addItem(QStringLiteral("发出"), QStringLiteral("out"));
-    m_filterDirection->addItem(QStringLiteral("接收"), QStringLiteral("in"));
-    filterBar->addWidget(m_filterDirection);
-
-    filterBar->addWidget(new QLabel(QStringLiteral("协议")));
-    m_filterProtocol = new QComboBox;
-    m_filterProtocol->addItem(QStringLiteral("全部"), QString());
-    m_filterProtocol->addItem(QStringLiteral("HTTP"), QStringLiteral("http"));
-    m_filterProtocol->addItem(QStringLiteral("UDP 广播"), QStringLiteral("udp_broadcast"));
-    m_filterProtocol->addItem(QStringLiteral("mDNS"), QStringLiteral("mdns"));
-    filterBar->addWidget(m_filterProtocol);
-
-    filterBar->addWidget(new QLabel(QStringLiteral("事件")));
-    m_filterEvent = new QComboBox;
-    m_filterEvent->addItem(QStringLiteral("全部"), QString());
-    m_filterEvent->addItem(QStringLiteral("发现"), QStringLiteral("discovery"));
-    m_filterEvent->addItem(QStringLiteral("配对"), QStringLiteral("pairing"));
-    m_filterEvent->addItem(QStringLiteral("同步"), QStringLiteral("sync"));
-    m_filterEvent->addItem(QStringLiteral("冲突"), QStringLiteral("conflict"));
-    filterBar->addWidget(m_filterEvent);
-
-    filterBar->addWidget(new QLabel(QStringLiteral("类型")));
-    m_filterKind = new QComboBox;
-    m_filterKind->addItem(QStringLiteral("ActivityWatch（日志）"), QStringLiteral("activity"));
-    m_filterKind->addItem(QStringLiteral("收件箱（已禁用）"), QStringLiteral("note"));
-    m_filterKind->addItem(QStringLiteral("任务（已禁用）"), QStringLiteral("todo"));
-    m_filterKind->addItem(QStringLiteral("全部"), QString());
-    m_filterKind->setCurrentIndex(0);
-    m_filterKind->setToolTip(QStringLiteral("局域网同步详情默认只显示 ActivityWatch 日志；收件箱/任务由 D1 云同步管理"));
-    filterBar->addWidget(m_filterKind);
-
-    filterBar->addStretch(1);
-
-    m_logCountLabel = new QLabel(QStringLiteral("0 条"));
-    m_logCountLabel->setObjectName(QStringLiteral("StatusLabel"));
-    filterBar->addWidget(m_logCountLabel);
-
+    // ── 信号连接 ──
+    connect(m_backBtn, &QPushButton::clicked, this, &SyncDetailsPage::onBack);
+    connect(ui->btnApply, &QPushButton::clicked, this, [this] {
+        setServerUrl(m_serverEdit->text().trimmed());
+    });
+    connect(m_btnRefreshLatestSync, &QPushButton::clicked, this, &SyncDetailsPage::onRefreshLatestSync);
     connect(m_filterDirection, QOverload<int>::of(&QComboBox::activated), this, &SyncDetailsPage::onLogFiltersChanged);
     connect(m_filterProtocol, QOverload<int>::of(&QComboBox::activated), this, &SyncDetailsPage::onLogFiltersChanged);
     connect(m_filterEvent, QOverload<int>::of(&QComboBox::activated), this, &SyncDetailsPage::onLogFiltersChanged);
     connect(m_filterKind, QOverload<int>::of(&QComboBox::activated), this, &SyncDetailsPage::onLogFiltersChanged);
-
-    logLay->addLayout(filterBar);
-
-    // 日志表格
-    m_logTable = new QTableWidget(0, 6);
-    m_logTable->setHorizontalHeaderLabels({QStringLiteral("时间"), QStringLiteral("方向"),
-                                           QStringLiteral("协议"), QStringLiteral("事件"),
-                                           QStringLiteral("状态"), QStringLiteral("消息")});
-    m_logTable->verticalHeader()->setVisible(false);
-    m_logTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_logTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_logTable->horizontalHeader()->setStretchLastSection(true);
-    m_logTable->setColumnWidth(0, 140);
-    m_logTable->setColumnWidth(1, 60);
-    m_logTable->setColumnWidth(2, 70);
-    m_logTable->setColumnWidth(3, 70);
-    m_logTable->setColumnWidth(4, 70);
     connect(m_logTable, &QTableWidget::cellDoubleClicked, this, &SyncDetailsPage::onLogRowExpanded);
-    logLay->addWidget(m_logTable, 1);
-
-    // 分页栏
-    auto *pageBar = new QHBoxLayout;
-    pageBar->setSpacing(8);
-    m_btnPrevPage = new QPushButton(QStringLiteral("◀ 上一页"));
-    m_btnPrevPage->setObjectName(QStringLiteral("ToolBtn"));
-    m_btnPrevPage->setEnabled(false);
     connect(m_btnPrevPage, &QPushButton::clicked, this, [this] {
         m_offset = qMax(0, m_offset - m_limit);
         refreshLogs();
     });
-    pageBar->addWidget(m_btnPrevPage);
-
-    m_pageSpin = new QSpinBox;
-    m_pageSpin->setMinimum(1);
-    m_pageSpin->setMaximum(1);
-    m_pageSpin->setSuffix(QStringLiteral(" / 1"));
     connect(m_pageSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int page) {
         m_offset = (page - 1) * m_limit;
         refreshLogs();
     });
-    pageBar->addWidget(m_pageSpin);
-
-    m_btnNextPage = new QPushButton(QStringLiteral("下一页 ▶"));
-    m_btnNextPage->setObjectName(QStringLiteral("ToolBtn"));
-    m_btnNextPage->setEnabled(false);
     connect(m_btnNextPage, &QPushButton::clicked, this, [this] {
         m_offset += m_limit;
         refreshLogs();
     });
-    pageBar->addWidget(m_btnNextPage);
-
-    pageBar->addStretch(1);
-
-    m_btnRefreshLog = new QPushButton(QStringLiteral("↻ 刷新"));
-    m_btnRefreshLog->setObjectName(QStringLiteral("ToolBtn"));
     connect(m_btnRefreshLog, &QPushButton::clicked, this, &SyncDetailsPage::onRefreshLogs);
-    pageBar->addWidget(m_btnRefreshLog);
-
-    m_btnClearLogs = new QPushButton(QStringLiteral("🗑 清空"));
-    m_btnClearLogs->setObjectName(QStringLiteral("DangerBtn"));
     connect(m_btnClearLogs, &QPushButton::clicked, this, &SyncDetailsPage::onClearLogs);
-    pageBar->addWidget(m_btnClearLogs);
-
-    logLay->addLayout(pageBar);
-
-    // 明细面板
-    auto *detailBox = new QGroupBox(QStringLiteral("传输明细（双击日志行展开）"));
-    auto *dl = new QVBoxLayout(detailBox);
-    m_detailPanel = new QPlainTextEdit;
-    m_detailPanel->setReadOnly(true);
-    m_detailPanel->setMaximumHeight(180);
-    m_detailPanel->setPlaceholderText(QStringLiteral("双击上方日志行查看传输明细…"));
-    dl->addWidget(m_detailPanel);
-    logLay->addWidget(detailBox);
-
-    m_tabs->addTab(logTab, QStringLiteral("📜 同步日志"));
-
-    // ── 回收站 Tab ──
-    auto *trashTab = new QWidget;
-    auto *trashLay = new QVBoxLayout(trashTab);
-    trashLay->setContentsMargins(12, 12, 12, 12);
-    trashLay->setSpacing(8);
-
-    auto *trashBar = new QHBoxLayout;
-    trashBar->setSpacing(8);
-    m_btnRefreshTrash = new QPushButton(QStringLiteral("↻ 刷新"));
-    m_btnRefreshTrash->setObjectName(QStringLiteral("ToolBtn"));
     connect(m_btnRefreshTrash, &QPushButton::clicked, this, &SyncDetailsPage::onRefreshTrash);
-    trashBar->addWidget(m_btnRefreshTrash);
-
-    m_btnClearTrash = new QPushButton(QStringLiteral("🗑 清空"));
-    m_btnClearTrash->setObjectName(QStringLiteral("DangerBtn"));
     connect(m_btnClearTrash, &QPushButton::clicked, this, &SyncDetailsPage::onClearTrash);
-    trashBar->addWidget(m_btnClearTrash);
-
-    trashBar->addStretch(1);
-
-    m_btnRestoreTrash = new QPushButton(QStringLiteral("↩ 恢复"));
-    m_btnRestoreTrash->setObjectName(QStringLiteral("ToolBtn"));
     connect(m_btnRestoreTrash, &QPushButton::clicked, this, &SyncDetailsPage::onRestoreTrashRow);
-    trashBar->addWidget(m_btnRestoreTrash);
-
-    m_btnDeleteTrash = new QPushButton(QStringLiteral("✗ 永久删除"));
-    m_btnDeleteTrash->setObjectName(QStringLiteral("DangerBtn"));
     connect(m_btnDeleteTrash, &QPushButton::clicked, this, &SyncDetailsPage::onDeleteTrashRow);
-    trashBar->addWidget(m_btnDeleteTrash);
-
-    trashLay->addLayout(trashBar);
-
-    m_trashTable = new QTableWidget(0, 6);
-    m_trashTable->setHorizontalHeaderLabels({QStringLiteral("ID"), QStringLiteral("类型"),
-                                              QStringLiteral("逻辑键"), QStringLiteral("原因"),
-                                              QStringLiteral("来源设备"), QStringLiteral("归档时间")});
-    m_trashTable->verticalHeader()->setVisible(false);
-    m_trashTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_trashTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_trashTable->horizontalHeader()->setStretchLastSection(true);
-    trashLay->addWidget(m_trashTable, 1);
-
-    m_tabs->addTab(trashTab, QStringLiteral("🗑 回收站"));
-
-    root->addWidget(m_tabs, 1);
 }
 
 void SyncDetailsPage::setServerUrl(const QString &url)

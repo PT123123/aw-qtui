@@ -12,6 +12,9 @@ class QPushButton;
 class QSpinBox;
 class QTabWidget;
 
+// Qt Designer 布局（cloudbackuppage.ui），全局命名空间
+namespace Ui { class CloudBackupPage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -39,6 +42,8 @@ private slots:
     void onAutoBackupToggled(bool on);
 
 private:
+    // Qt Designer 生成的布局对象（cloudbackuppage.ui -> ui_cloudbackuppage.h）
+    Ui::CloudBackupPage *ui = nullptr;
     void buildUi();
     void log(const QString &line);
     void setStatus(const QString &text, bool ok);

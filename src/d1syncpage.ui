@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- d1syncpage.ui —— Cloudflare D1 云同步配置页布局（Qt Designer）
+     与 D1SyncPage::buildUi() 的静态结构一一对应；主题 objectName、
+     运行时样式、信号连接等仍在 d1syncpage.cpp 中设置 -->
+<ui version="4.0">
+ <class>D1SyncPage</class>
+ <widget class="QWidget" name="D1SyncPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>640</width>
+    <height>680</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="rootLayout" stretch="0,0,1">
+   <property name="leftMargin">
+    <number>16</number>
+   </property>
+   <property name="topMargin">
+    <number>16</number>
+   </property>
+   <property name="rightMargin">
+    <number>16</number>
+   </property>
+   <property name="bottomMargin">
+    <number>16</number>
+   </property>
+   <property name="spacing">
+    <number>12</number>
+   </property>
+   <item>
+    <widget class="QGroupBox" name="cfgBox">
+     <property name="title">
+      <string>Cloudflare D1 云同步</string>
+     </property>
+     <layout class="QFormLayout" name="cfgForm">
+      <item row="0" column="0">
+       <widget class="QLabel" name="lblAccountId">
+        <property name="text">
+         <string>Account ID</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLineEdit" name="accountId">
+        <property name="placeholderText">
+         <string>例如：a1b2c3d4e5f6...</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="lblDatabaseId">
+        <property name="text">
+         <string>Database ID</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLineEdit" name="databaseId">
+        <property name="placeholderText">
+         <string>D1 数据库 UUID</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="lblApiToken">
+        <property name="text">
+         <string>API Token</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QLineEdit" name="apiToken">
+        <property name="echoMode">
+         <enum>QLineEdit::Password</enum>
+        </property>
+        <property name="placeholderText">
+         <string>Cloudflare API Token（需含 D1 读写权限）</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0" colspan="2">
+       <widget class="QCheckBox" name="chkEnabled">
+        <property name="text">
+         <string>启用 D1 云同步</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="lblInterval">
+        <property name="text">
+         <string>同步间隔</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QSpinBox" name="interval">
+        <property name="toolTip">
+         <string>后台周期同步间隔，最小 30 秒</string>
+        </property>
+        <property name="minimum">
+         <number>30</number>
+        </property>
+        <property name="maximum">
+         <number>86400</number>
+        </property>
+        <property name="singleStep">
+         <number>30</number>
+        </property>
+        <property name="value">
+         <number>300</number>
+        </property>
+        <property name="suffix">
+         <string> 秒</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0" colspan="2">
+       <layout class="QHBoxLayout" name="btnRow">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <item>
+         <widget class="QPushButton" name="btnTest">
+          <property name="text">
+           <string>测试连接</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btnSave">
+          <property name="text">
+           <string>保存配置</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btnSyncNow">
+          <property name="text">
+           <string>立即同步</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btnFullSync">
+          <property name="toolTip">
+           <string>清空云端 checkpoint 后从 D1 全量拉取，用于重装软件后恢复数据</string>
+          </property>
+          <property name="text">
+           <string>强制全量同步</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btnResetCheckpoint">
+          <property name="toolTip">
+           <string>仅清除本机云端 checkpoint，不推不拉，下次同步从头开始</string>
+          </property>
+          <property name="text">
+           <string>重置 checkpoint</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="btnRowSpacer">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item row="6" column="0">
+       <widget class="QLabel" name="lblStatus">
+        <property name="text">
+         <string>状态</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QLabel" name="statusLabel">
+        <property name="text">
+         <string>未配置</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="helpBox">
+     <property name="title">
+      <string>说明</string>
+     </property>
+     <layout class="QVBoxLayout" name="helpLay">
+      <item>
+       <widget class="QLabel" name="helpLabel">
+        <property name="text">
+         <string>D1 是 Cloudflare 的托管 SQLite 数据库。本配置启用后，服务端会按设定间隔 把本机 Inbox 笔记和 Todo 推送到 D1，并拉取其他设备的更新，实现多设备间 Inbox/TODO 的云端同步。
+• Account ID：Cloudflare 账户的 32 位十六进制 ID（在账户首页右侧可见）。
+• Database ID：D1 数据库 UUID（wrangler d1 list 或控制台可见）。
+• API Token：在 Cloudflare 控制台创建，需授予 D1:Edit 权限。
+• 强制全量同步：清空云端 checkpoint 后全量拉取，用于重装软件后恢复数据。
+保存后请先点「测试连接」验证凭据与 D1 初始化状态，再点「立即同步」触发一次。</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="logBox">
+     <property name="title">
+      <string>日志</string>
+     </property>
+     <layout class="QVBoxLayout" name="logLay">
+      <item>
+       <layout class="QHBoxLayout" name="logBtns">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <item>
+         <widget class="QPushButton" name="btnRefreshD1Logs">
+          <property name="text">
+           <string>刷新 D1 同步日志</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="logBtnsSpacer">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QPlainTextEdit" name="log">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>140</height>
+         </size>
+        </property>
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

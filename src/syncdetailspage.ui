@@ -1,0 +1,669 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- syncdetailspage.ui —— 同步详情页布局（Qt Designer）
+     与 SyncDetailsPage::buildUi() 的静态结构一一对应；主题 objectName、
+     表格列宽、下拉框档位数据、信号连接等运行时内容仍在 syncdetailspage.cpp 中设置 -->
+<ui version="4.0">
+ <class>SyncDetailsPage</class>
+ <widget class="QWidget" name="SyncDetailsPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>900</width>
+    <height>620</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="rootLayout" stretch="0,1">
+   <property name="leftMargin">
+    <number>20</number>
+   </property>
+   <property name="topMargin">
+    <number>20</number>
+   </property>
+   <property name="rightMargin">
+    <number>20</number>
+   </property>
+   <property name="bottomMargin">
+    <number>20</number>
+   </property>
+   <property name="spacing">
+    <number>14</number>
+   </property>
+   <item>
+    <layout class="QHBoxLayout" name="toolbarLayout">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <item>
+      <widget class="QPushButton" name="btnBack">
+       <property name="text">
+        <string>← 返回同步</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="toolbarGap">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeType">
+        <enum>QSizePolicy::Fixed</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>16</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="pageTitle">
+       <property name="text">
+        <string>📋 同步详情</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="pageSubtitle">
+       <property name="text">
+        <string>传输明细 / 日志 / 回收站</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="toolbarSpacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="lblServer">
+       <property name="text">
+        <string>服务端</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="serverEdit">
+       <property name="minimumSize">
+        <size>
+         <width>240</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>240</width>
+         <height>16777215</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btnApply">
+       <property name="text">
+        <string>应用</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="statusLabel"/>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QTabWidget" name="tabs">
+     <widget class="QWidget" name="latestTab">
+      <attribute name="title">
+       <string>📊 最近同步</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="latestLayout" stretch="0,0,1">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="topMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <property name="bottomMargin">
+        <number>12</number>
+       </property>
+       <property name="spacing">
+        <number>8</number>
+       </property>
+       <item>
+        <layout class="QHBoxLayout" name="latestToolbar">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <item>
+          <widget class="QPushButton" name="btnRefreshLatestSync">
+           <property name="text">
+            <string>↻ 刷新</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="latestToolbarSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="lblLatestSummary">
+         <property name="text">
+          <string>暂无同步记录</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="latestBox">
+         <property name="title">
+          <string>传输明细</string>
+         </property>
+         <layout class="QVBoxLayout" name="latestBoxLayout">
+          <item>
+           <widget class="QTableWidget" name="latestRecordsTable">
+            <property name="editTriggers">
+             <set>QAbstractItemView::NoEditTriggers</set>
+            </property>
+            <property name="selectionBehavior">
+             <enum>QAbstractItemView::SelectRows</enum>
+            </property>
+            <attribute name="verticalHeaderVisible">
+             <bool>false</bool>
+            </attribute>
+            <attribute name="horizontalHeaderStretchLastSection">
+             <bool>true</bool>
+            </attribute>
+            <column>
+             <property name="text">
+              <string>类型</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>逻辑键</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>标题</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>操作</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>原因</string>
+             </property>
+            </column>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="logTab">
+      <attribute name="title">
+       <string>📜 同步日志</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="logLayout" stretch="0,1,0,0">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="topMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <property name="bottomMargin">
+        <number>12</number>
+       </property>
+       <property name="spacing">
+        <number>8</number>
+       </property>
+       <item>
+        <layout class="QHBoxLayout" name="filterBar">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="lblFilterDirection">
+           <property name="text">
+            <string>方向</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="filterDirection">
+           <item>
+            <property name="text">
+             <string>全部</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>发出</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>接收</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="lblFilterProtocol">
+           <property name="text">
+            <string>协议</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="filterProtocol">
+           <item>
+            <property name="text">
+             <string>全部</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>HTTP</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>UDP 广播</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>mDNS</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="lblFilterEvent">
+           <property name="text">
+            <string>事件</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="filterEvent">
+           <item>
+            <property name="text">
+             <string>全部</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>发现</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>配对</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>同步</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>冲突</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="lblFilterKind">
+           <property name="text">
+            <string>类型</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="filterKind">
+           <property name="toolTip">
+            <string>局域网同步详情默认只显示 ActivityWatch 日志；收件箱/任务由 D1 云同步管理</string>
+           </property>
+           <item>
+            <property name="text">
+             <string>ActivityWatch（日志）</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>收件箱（已禁用）</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>任务（已禁用）</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>全部</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <spacer name="filterBarSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QLabel" name="logCountLabel">
+           <property name="text">
+            <string>0 条</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QTableWidget" name="logTable">
+         <property name="editTriggers">
+          <set>QAbstractItemView::NoEditTriggers</set>
+         </property>
+         <property name="selectionBehavior">
+          <enum>QAbstractItemView::SelectRows</enum>
+         </property>
+         <attribute name="verticalHeaderVisible">
+          <bool>false</bool>
+         </attribute>
+         <attribute name="horizontalHeaderStretchLastSection">
+          <bool>true</bool>
+         </attribute>
+         <column>
+          <property name="text">
+           <string>时间</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>方向</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>协议</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>事件</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>状态</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>消息</string>
+          </property>
+         </column>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="pageBar">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <item>
+          <widget class="QPushButton" name="btnPrevPage">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>◀ 上一页</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="pageSpin">
+           <property name="minimum">
+            <number>1</number>
+           </property>
+           <property name="maximum">
+            <number>1</number>
+           </property>
+           <property name="suffix">
+            <string> / 1</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnNextPage">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>下一页 ▶</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="pageBarSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnRefreshLog">
+           <property name="text">
+            <string>↻ 刷新</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnClearLogs">
+           <property name="text">
+            <string>🗑 清空</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="detailBox">
+         <property name="title">
+          <string>传输明细（双击日志行展开）</string>
+         </property>
+         <layout class="QVBoxLayout" name="detailBoxLayout">
+          <item>
+           <widget class="QPlainTextEdit" name="detailPanel">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>180</height>
+             </size>
+            </property>
+            <property name="placeholderText">
+             <string>双击上方日志行查看传输明细…</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="trashTab">
+      <attribute name="title">
+       <string>🗑 回收站</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="trashLayout" stretch="0,1">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="topMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <property name="bottomMargin">
+        <number>12</number>
+       </property>
+       <property name="spacing">
+        <number>8</number>
+       </property>
+       <item>
+        <layout class="QHBoxLayout" name="trashBar">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <item>
+          <widget class="QPushButton" name="btnRefreshTrash">
+           <property name="text">
+            <string>↻ 刷新</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnClearTrash">
+           <property name="text">
+            <string>🗑 清空</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="trashBarSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnRestoreTrash">
+           <property name="text">
+            <string>↩ 恢复</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btnDeleteTrash">
+           <property name="text">
+            <string>✗ 永久删除</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QTableWidget" name="trashTable">
+         <property name="editTriggers">
+          <set>QAbstractItemView::NoEditTriggers</set>
+         </property>
+         <property name="selectionBehavior">
+          <enum>QAbstractItemView::SelectRows</enum>
+         </property>
+         <attribute name="verticalHeaderVisible">
+          <bool>false</bool>
+         </attribute>
+         <attribute name="horizontalHeaderStretchLastSection">
+          <bool>true</bool>
+         </attribute>
+         <column>
+          <property name="text">
+           <string>ID</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>类型</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>逻辑键</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>原因</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>来源设备</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>归档时间</string>
+          </property>
+         </column>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

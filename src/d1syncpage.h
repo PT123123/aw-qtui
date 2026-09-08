@@ -10,6 +10,9 @@ class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
 
+// Qt Designer 布局（d1syncpage.ui），全局命名空间
+namespace Ui { class D1SyncPage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -33,6 +36,8 @@ private slots:
     void onRefreshD1Logs();
 
 private:
+    // Qt Designer 生成的布局对象（d1syncpage.ui -> ui_d1syncpage.h）
+    Ui::D1SyncPage *ui = nullptr;
     void buildUi();
     void log(const QString &line);
     void setStatus(const QString &text, bool ok);
