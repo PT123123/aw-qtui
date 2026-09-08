@@ -37,6 +37,7 @@ add_executable(awqtui WIN32
     src/inboxpage.h
     src/syncpage.cpp
     src/syncpage.h
+    src/syncpage.ui
     src/syncdetailspage.cpp
     src/syncdetailspage.h
     src/d1syncpage.cpp
