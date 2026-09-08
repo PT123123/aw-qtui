@@ -100,6 +100,7 @@ add_executable(awqtui WIN32
     src/statschart.h
     src/statspage.cpp
     src/statspage.h
+    src/statspage.ui
     src/timingdialog.cpp
     src/timingdialog.h
     src/inboxsettingspage.cpp
