@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- stopwatchpage.ui —— 秒表页布局（Qt Designer）
+     与 StopwatchPage::buildUi() 的静态结构一一对应。注意：
+     1. 控件名直接取主题 QSS 的 objectName 角色（PageTitle/StopwatchTime/PrimaryBtn/SectionTitle/HistoryList）；
+     2. 计时显示字体为静态样式（不随缩放）可直接写进 .ui；
+        涉及主题色的状态/提示标签样式保留在 stopwatchpage.cpp -->
+<ui version="4.0">
+ <class>StopwatchPage</class>
+ <widget class="QWidget" name="StopwatchPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>640</width>
+    <height>560</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="rootLayout" stretch="0,0,0,0,0,0,1,0">
+   <property name="leftMargin">
+    <number>24</number>
+   </property>
+   <property name="topMargin">
+    <number>24</number>
+   </property>
+   <property name="rightMargin">
+    <number>24</number>
+   </property>
+   <property name="bottomMargin">
+    <number>24</number>
+   </property>
+   <property name="spacing">
+    <number>16</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="PageTitle">
+     <property name="text">
+      <string>秒表</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="StopwatchTime">
+     <property name="text">
+      <string>00:00.0</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">font-size: 56px; font-weight: 200; font-family: 'Consolas', 'Courier New', monospace;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="statusLabel">
+     <property name="text">
+      <string>准备就绪</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="labelRow">
+     <item>
+      <widget class="QLabel" name="labelTitle">
+       <property name="text">
+        <string>标签</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="labelEdit">
+       <property name="placeholderText">
+        <string>可选：事件描述</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="btnRow">
+     <item>
+      <widget class="QPushButton" name="PrimaryBtn">
+       <property name="text">
+        <string>开始</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="secondaryBtn">
+       <property name="text">
+        <string>暂停</string>
+       </property>
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="btnStretch">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="clearBtn">
+       <property name="text">
+        <string>清空历史</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="SectionTitle">
+     <property name="text">
+      <string>历史记录</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QListWidget" name="HistoryList">
+     <property name="selectionMode">
+      <enum>QAbstractItemView::SingleSelection</enum>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="hint">
+     <property name="text">
+      <string>双击历史条目可删除</string>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
