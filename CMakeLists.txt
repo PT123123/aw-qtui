@@ -109,6 +109,7 @@ add_executable(awqtui WIN32
     src/trashpage.ui
     src/stopwatchpage.cpp
     src/stopwatchpage.h
+    src/stopwatchpage.ui
     src/querypage.cpp
     src/querypage.h
     src/cloudbackuppage.cpp

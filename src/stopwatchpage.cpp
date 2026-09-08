@@ -1,5 +1,6 @@
 // stopwatchpage.cpp —— 秒表页（手动计时，停止后写入 aw-stopwatch-android bucket）
 #include "stopwatchpage.h"
+#include "ui_stopwatchpage.h"
 
 #include "apiclient.h"
 #include "charts.h"
@@ -31,74 +32,38 @@ StopwatchPage::StopwatchPage(ApiClient *api, QWidget *parent)
     connect(m_tick, &QTimer::timeout, this, &StopwatchPage::onTick);
 }
 
-StopwatchPage::~StopwatchPage() = default;
+StopwatchPage::~StopwatchPage()
+{
+    delete ui;
+}
 
 void StopwatchPage::buildUi()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(24, 24, 24, 24);
-    root->setSpacing(16);
+    // 静态布局来自 Qt Designer（stopwatchpage.ui -> ui_stopwatchpage.h）；
+    // 控件名直接使用主题 QSS 的 objectName 角色，静态字体样式烘焙在 .ui 中
+    ui = new Ui::StopwatchPage;
+    ui->setupUi(this);
 
-    // 标题
-    auto *title = new QLabel(QStringLiteral("秒表"));
-    title->setObjectName(QStringLiteral("PageTitle"));
-    root->addWidget(title);
+    // 成员别名：业务逻辑沿用 m_* 指针
+    m_timeLabel = ui->StopwatchTime;
+    m_statusLabel = ui->statusLabel;
+    m_labelEdit = ui->labelEdit;
+    m_startBtn = ui->PrimaryBtn;
+    m_secondaryBtn = ui->secondaryBtn;
+    m_clearBtn = ui->clearBtn;
+    m_historyList = ui->HistoryList;
 
-    // 时间显示
-    m_timeLabel = new QLabel(QStringLiteral("00:00.0"));
-    m_timeLabel->setObjectName(QStringLiteral("StopwatchTime"));
-    m_timeLabel->setAlignment(Qt::AlignCenter);
-    m_timeLabel->setStyleSheet(QStringLiteral("font-size: 56px; font-weight: 200; font-family: 'Consolas', 'Courier New', monospace;"));
-    root->addWidget(m_timeLabel);
-
-    m_statusLabel = new QLabel(QStringLiteral("准备就绪"));
-    m_statusLabel->setAlignment(Qt::AlignCenter);
+    // 主题色相关样式（kColor* 随主题切换，无法烘焙进 .ui）
     m_statusLabel->setStyleSheet(QStringLiteral("color: %1; margin-bottom: 8px;").arg(kColorFgMuted));
-    root->addWidget(m_statusLabel);
+    ui->hint->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;").arg(kColorFgMuted));
 
-    // 标签输入
-    auto *labelRow = new QHBoxLayout;
-    labelRow->addWidget(new QLabel(QStringLiteral("标签")));
-    m_labelEdit = new QLineEdit;
-    m_labelEdit->setPlaceholderText(QStringLiteral("可选：事件描述"));
-    labelRow->addWidget(m_labelEdit, 1);
-    root->addLayout(labelRow);
-
-    // 按钮行
-    auto *btnRow = new QHBoxLayout;
-    m_startBtn = new QPushButton(QStringLiteral("开始"));
-    m_startBtn->setObjectName(QStringLiteral("PrimaryBtn"));
     connect(m_startBtn, &QPushButton::clicked, this, [this] {
         if (m_state == State::Idle) onStart();
         else if (m_state == State::Running || m_state == State::Paused) onStopReset();
     });
-    m_secondaryBtn = new QPushButton(QStringLiteral("暂停"));
-    m_secondaryBtn->setEnabled(false);
     connect(m_secondaryBtn, &QPushButton::clicked, this, &StopwatchPage::onPauseResume);
-    m_clearBtn = new QPushButton(QStringLiteral("清空历史"));
     connect(m_clearBtn, &QPushButton::clicked, this, &StopwatchPage::onClearHistory);
-    btnRow->addWidget(m_startBtn);
-    btnRow->addWidget(m_secondaryBtn);
-    btnRow->addStretch(1);
-    btnRow->addWidget(m_clearBtn);
-    root->addLayout(btnRow);
-
-    // 历史记录
-    auto *histTitle = new QLabel(QStringLiteral("历史记录"));
-    histTitle->setObjectName(QStringLiteral("SectionTitle"));
-    root->addWidget(histTitle);
-
-    m_historyList = new QListWidget;
-    m_historyList->setObjectName(QStringLiteral("HistoryList"));
-    m_historyList->setSelectionMode(QAbstractItemView::SingleSelection);
     connect(m_historyList, &QListWidget::itemDoubleClicked, this, &StopwatchPage::onDeleteRecord);
-    root->addWidget(m_historyList, 1);
-
-    auto *hint = new QLabel(QStringLiteral("双击历史条目可删除"));
-    hint->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;").arg(kColorFgMuted));
-    root->addWidget(hint);
-
-    root->addStretch(0);
 }
 
 void StopwatchPage::applyStyle()
