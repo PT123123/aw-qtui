@@ -418,6 +418,13 @@ void MainWindow::buildUi()
     m_day = new DayPage(m_api, m_tagStore);
     m_stats = new StatsPage(m_api, m_tagStore);
     m_sync = new SyncPage(m_api, m_mdns);
+    // 配对请求到达 → 系统托盘气泡（用户不在同步页也能第一时间知道）
+    connect(m_sync, &SyncPage::pairRequestReceived, this, [this](const QString &deviceName) {
+        if (m_tray)
+            m_tray->showMessage(QStringLiteral("局域网同步"),
+                                QStringLiteral("设备「%1」想与本机配对，请在同步页确认").arg(deviceName),
+                                QSystemTrayIcon::Information, 6000);
+    });
     m_d1Sync = new D1SyncPage(m_api);
     m_syncDetails = new SyncDetailsPage(m_api);
     m_cloudBackup = new CloudBackupPage(m_api);
