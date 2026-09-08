@@ -92,10 +92,6 @@ private:
     QComboBox *m_cmbSyncInterval = nullptr;    // 三档自动同步频率（狂暴/平和/静默）
     QPushButton *m_btnSaveConfig;
 
-    // 配对（对齐 Android：addDevice + pair/initiate + pair/accept，无配对码）
-    QPushButton *m_btnInitiatePair;
-    QPushButton *m_btnAcceptPair;
-
     // 操作
     QPushButton *m_btnSyncNow;
     QPushButton *m_btnRemoveDevice;
