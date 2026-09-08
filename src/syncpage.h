@@ -15,6 +15,9 @@ class QTableWidget;
 class QTabWidget;
 class QTimer;
 
+// Qt Designer 布局（syncpage.ui），全局命名空间
+namespace Ui { class SyncPage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -72,6 +75,8 @@ private slots:
     void onUsePairCode();
 
 private:
+    // Qt Designer 生成的布局对象（syncpage.ui -> ui_syncpage.h）
+    Ui::SyncPage *ui = nullptr;
     void buildUi();
     void log(const QString &line);
     void syncComplete(const ApplyResult &r);
