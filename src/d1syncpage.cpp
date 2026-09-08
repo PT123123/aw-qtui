@@ -8,6 +8,7 @@
 // 配置字段复用 SyncConfig 里的 d1_*（aw-server-rust 持久化在 sync.db 的 kv 表里）：
 //   d1_enabled, d1_account_id, d1_database_id, d1_api_token, d1_sync_interval
 #include "d1syncpage.h"
+#include "ui_d1syncpage.h"
 
 #include "apiclient.h"
 #include "models.h"
@@ -44,96 +45,39 @@ D1SyncPage::D1SyncPage(ApiClient *api, QWidget *parent)
     refreshStatus();
 }
 
-D1SyncPage::~D1SyncPage() = default;
+D1SyncPage::~D1SyncPage()
+{
+    delete ui;
+}
 
 void D1SyncPage::buildUi()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(16, 16, 16, 16);
-    root->setSpacing(12);
+    // 静态布局来自 Qt Designer（d1syncpage.ui -> ui_d1syncpage.h）
+    ui = new Ui::D1SyncPage;
+    ui->setupUi(this);
 
-    auto *cfgBox = new QGroupBox(QStringLiteral("Cloudflare D1 云同步"));
-    auto *cfgForm = new QFormLayout(cfgBox);
+    // ── 成员别名：业务逻辑沿用 m_* 指针，静态布局归属 .ui 文件 ──
+    m_accountId = ui->accountId;
+    m_databaseId = ui->databaseId;
+    m_apiToken = ui->apiToken;
+    m_chkEnabled = ui->chkEnabled;
+    m_interval = ui->interval;
+    m_btnSave = ui->btnSave;
+    m_btnTest = ui->btnTest;
+    m_btnSyncNow = ui->btnSyncNow;
+    m_btnFullSync = ui->btnFullSync;
+    m_btnResetCheckpoint = ui->btnResetCheckpoint;
+    m_btnRefreshD1Logs = ui->btnRefreshD1Logs;
+    m_lblStatus = ui->statusLabel;
+    m_log = ui->log;
 
-    m_accountId = new QLineEdit;
-    m_accountId->setPlaceholderText(QStringLiteral("例如：a1b2c3d4e5f6..."));
-
-    m_databaseId = new QLineEdit;
-    m_databaseId->setPlaceholderText(QStringLiteral("D1 数据库 UUID"));
-
-    m_apiToken = new QLineEdit;
-    m_apiToken->setEchoMode(QLineEdit::Password);
-    m_apiToken->setPlaceholderText(QStringLiteral("Cloudflare API Token（需含 D1 读写权限）"));
-
-    m_chkEnabled = new QCheckBox(QStringLiteral("启用 D1 云同步"));
-    m_interval = new QSpinBox;
-    m_interval->setRange(30, 24 * 3600);
-    m_interval->setSingleStep(30);
-    m_interval->setSuffix(QStringLiteral(" 秒"));
-    m_interval->setValue(300);
-    m_interval->setToolTip(QStringLiteral("后台周期同步间隔，最小 30 秒"));
-
-    cfgForm->addRow(QStringLiteral("Account ID"), m_accountId);
-    cfgForm->addRow(QStringLiteral("Database ID"), m_databaseId);
-    cfgForm->addRow(QStringLiteral("API Token"), m_apiToken);
-    cfgForm->addRow(m_chkEnabled);
-    cfgForm->addRow(QStringLiteral("同步间隔"), m_interval);
-
-    auto *btnRow = new QHBoxLayout;
-    m_btnTest = new QPushButton(QStringLiteral("测试连接"));
+    // 主题样式角色（全局 QSS 按 objectName 选择器匹配）
     m_btnTest->setObjectName(QStringLiteral("PrimaryBtn"));
-    m_btnSave = new QPushButton(QStringLiteral("保存配置"));
-    m_btnSyncNow = new QPushButton(QStringLiteral("立即同步"));
-    m_btnFullSync = new QPushButton(QStringLiteral("强制全量同步"));
-    m_btnFullSync->setToolTip(QStringLiteral("清空云端 checkpoint 后从 D1 全量拉取，用于重装软件后恢复数据"));
-    m_btnResetCheckpoint = new QPushButton(QStringLiteral("重置 checkpoint"));
-    m_btnResetCheckpoint->setToolTip(QStringLiteral("仅清除本机云端 checkpoint，不推不拉，下次同步从头开始"));
-    btnRow->addWidget(m_btnTest);
-    btnRow->addWidget(m_btnSave);
-    btnRow->addWidget(m_btnSyncNow);
-    btnRow->addWidget(m_btnFullSync);
-    btnRow->addWidget(m_btnResetCheckpoint);
-    btnRow->addStretch(1);
-    cfgForm->addRow(btnRow);
 
-    m_lblStatus = new QLabel(QStringLiteral("未配置"));
-    m_lblStatus->setWordWrap(true);
+    // uic 不便表达的运行时属性
     m_lblStatus->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    cfgForm->addRow(QStringLiteral("状态"), m_lblStatus);
-
-    root->addWidget(cfgBox);
-
-    // 说明
-    auto *helpBox = new QGroupBox(QStringLiteral("说明"));
-    auto *helpLay = new QVBoxLayout(helpBox);
-    auto *help = new QLabel(QStringLiteral(
-        "D1 是 Cloudflare 的托管 SQLite 数据库。本配置启用后，服务端会按设定间隔 "
-        "把本机 Inbox 笔记和 Todo 推送到 D1，并拉取其他设备的更新，实现多设备间 "
-        "Inbox/TODO 的云端同步。\n"
-        "• Account ID：Cloudflare 账户的 32 位十六进制 ID（在账户首页右侧可见）。\n"
-        "• Database ID：D1 数据库 UUID（wrangler d1 list 或控制台可见）。\n"
-        "• API Token：在 Cloudflare 控制台创建，需授予 D1:Edit 权限。\n"
-        "• 强制全量同步：清空云端 checkpoint 后全量拉取，用于重装软件后恢复数据。\n"
-        "保存后请先点「测试连接」验证凭据与 D1 初始化状态，再点「立即同步」触发一次。"));
-    help->setWordWrap(true);
-    help->setStyleSheet(QStringLiteral("color: %1;").arg(kColorFgMuted));
-    helpLay->addWidget(help);
-    root->addWidget(helpBox);
-
-    // 日志
-    auto *logBox = new QGroupBox(QStringLiteral("日志"));
-    auto *logLay = new QVBoxLayout(logBox);
-    auto *logBtns = new QHBoxLayout;
-    m_btnRefreshD1Logs = new QPushButton(QStringLiteral("刷新 D1 同步日志"));
-    logBtns->addWidget(m_btnRefreshD1Logs);
-    logBtns->addStretch(1);
-    logLay->addLayout(logBtns);
-    m_log = new QPlainTextEdit;
-    m_log->setReadOnly(true);
+    ui->helpLabel->setStyleSheet(QStringLiteral("color: %1;").arg(kColorFgMuted));
     m_log->setMaximumBlockCount(500);
-    m_log->setMinimumHeight(140);
-    logLay->addWidget(m_log);
-    root->addWidget(logBox, 1);
 
     connect(m_btnSave, &QPushButton::clicked, this, &D1SyncPage::onSave);
     connect(m_btnTest, &QPushButton::clicked, this, &D1SyncPage::onTest);
