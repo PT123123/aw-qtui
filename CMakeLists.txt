@@ -105,6 +105,7 @@ add_executable(awqtui WIN32
     src/inboxsettingspage.h
     src/trashpage.cpp
     src/trashpage.h
+    src/trashpage.ui
     src/stopwatchpage.cpp
     src/stopwatchpage.h
     src/querypage.cpp

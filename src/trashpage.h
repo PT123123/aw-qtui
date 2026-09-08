@@ -7,6 +7,9 @@ class QListWidget;
 class QPushButton;
 class QLabel;
 
+// Qt Designer 布局（trashpage.ui），全局命名空间
+namespace Ui { class TrashPage; }
+
 namespace awqtui {
 
 class LocalStore;
@@ -16,6 +19,7 @@ class TrashPage : public QWidget
     Q_OBJECT
 public:
     explicit TrashPage(LocalStore *store, QWidget *parent = nullptr);
+    ~TrashPage() override;
     void applyUiScale();
     void refresh();
 
@@ -25,6 +29,8 @@ private slots:
     void onClearAll();
 
 private:
+    // Qt Designer 生成的布局对象（trashpage.ui -> ui_trashpage.h）
+    Ui::TrashPage *ui = nullptr;
     void buildUi();
     void applyStyle();
     void rebuildList();
