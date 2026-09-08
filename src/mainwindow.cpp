@@ -262,10 +262,9 @@ void MainWindow::buildUi()
     topSep->setStyleSheet(scaleQss(QStringLiteral("background: %1; max-height: 1px;").arg(kColorBorder)));
     navLay->addWidget(topSep);
 
-    // 展开/收起切换按钮
+    // 展开/收起切换按钮（图标随展开态在 updateNavIcons 重绘）
     m_navToggle = new QToolButton;
     m_navToggle->setObjectName(QStringLiteral("NavToggle"));
-    m_navToggle->setText(QStringLiteral("☰"));
     m_navToggle->setToolTip(QStringLiteral("展开导航"));
     m_navToggle->setCursor(Qt::PointingHandCursor);
     m_navToggle->setProperty("expanded", false);
@@ -282,10 +281,12 @@ void MainWindow::buildUi()
         auto *header = new QToolButton;
         header->setObjectName(QStringLiteral("NavSection"));
         header->setText(title);
-        header->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        header->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         header->setCheckable(true);
         header->setChecked(expanded);
-        header->setText(expanded ? QStringLiteral("▼ ") + title : QStringLiteral("▶ ") + title);
+        // chevron 用 Segoe 图标字体字形（折叠 ▶ / 展开 ▼），随 toggled 换图
+        header->setIcon(glyphIcon(expanded ? glyph::ChevDown : glyph::ChevRight,
+                                  QColor(kColorMuted2), si(12)));
         header->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
         auto *box = new QWidget;
@@ -294,8 +295,9 @@ void MainWindow::buildUi()
         lay->setSpacing(4);
 
         QObject::connect(header, &QToolButton::toggled, box, &QWidget::setVisible);
-        QObject::connect(header, &QToolButton::toggled, header, [header, title](bool on) {
-            header->setText(on ? QStringLiteral("▼ ") + title : QStringLiteral("▶ ") + title);
+        QObject::connect(header, &QToolButton::toggled, header, [header](bool on) {
+            header->setIcon(glyphIcon(on ? glyph::ChevDown : glyph::ChevRight,
+                                      QColor(kColorMuted2), si(12)));
         });
 
         navLay->addWidget(header);
@@ -304,17 +306,17 @@ void MainWindow::buildUi()
         return NavSection{header, box, lay};
     };
 
-    // 导航按钮工厂
-    auto makeNavBtn = [this](const char *emoji, const char *label) -> QPushButton * {
+    // 导航按钮工厂：图标用 Segoe 图标字体字形渲染（颜色随选中态在 updateNavIcons 重绘）
+    auto makeNavBtn = [this](const QString &glyph, const char *label) -> QPushButton * {
         auto *b = new QPushButton;
         b->setObjectName(QStringLiteral("NavBtn"));
         b->setCheckable(true);
         b->setCursor(Qt::PointingHandCursor);
-        b->setProperty("navEmoji", QString::fromUtf8(emoji));
+        b->setProperty("navGlyph", glyph);
         b->setProperty("navLabel", QString::fromUtf8(label));
         b->setProperty("expanded", false);
         b->setToolTip(QString::fromUtf8(label));
-        b->setText(QString::fromUtf8(emoji));
+        b->setIconSize(QSize(si(18), si(18)));
         m_navButtons.append(b);
         return b;
     };
@@ -322,17 +324,17 @@ void MainWindow::buildUi()
     // ---- 分组 1：Inbox ----
     // 回收站收纳进「收件箱设置」页内子标签，侧边栏只保留设置入口
     NavSection inboxSec = makeSection(QStringLiteral("收件箱"), true);
-    m_navInbox = makeNavBtn("📥", "收件箱");
-    m_navInboxSettings = makeNavBtn("⚙", "收件箱设置");
+    m_navInbox = makeNavBtn(glyph::Inbox, "收件箱");
+    m_navInboxSettings = makeNavBtn(glyph::Settings, "收件箱设置");
     inboxSec.layout->addWidget(m_navInbox);
     inboxSec.layout->addWidget(m_navInboxSettings);
 
     // ---- 分组 2：任务 ----
     // 统计类视图合并为单个「专注统计」入口（页内子标签切换），减少侧边栏图标数量
     NavSection todoSec = makeSection(QStringLiteral("任务"), true);
-    m_navTodo = makeNavBtn("☑", "收集箱");
-    m_navTimer = makeNavBtn("⏱", "计时专注");
-    m_navFocusStats = makeNavBtn("📊", "专注统计");
+    m_navTodo = makeNavBtn(glyph::Checkbox, "收集箱");
+    m_navTimer = makeNavBtn(glyph::Stopwatch, "计时专注");
+    m_navFocusStats = makeNavBtn(glyph::BarChart, "专注统计");
     todoSec.layout->addWidget(m_navTodo);
     todoSec.layout->addWidget(m_navTimer);
     todoSec.layout->addWidget(m_navFocusStats);
@@ -340,15 +342,15 @@ void MainWindow::buildUi()
     // ---- 分组 3：活动 ----
     // 6 个视图合并为单个「活动」入口（页内子标签切换）
     NavSection awSec = makeSection(QStringLiteral("活动"), false);
-    m_navActivity = makeNavBtn("📊", "活动");
+    m_navActivity = makeNavBtn(glyph::Recent, "活动");
     awSec.layout->addWidget(m_navActivity);
 
     // ---- 分组 4：同步 ----
     // 同步详情并入局域网同步页内子标签
     NavSection syncSec = makeSection(QStringLiteral("同步"), false);
-    m_navSync = makeNavBtn("⇄", "局域网同步");
-    m_navD1Sync = makeNavBtn("☁", "D1 云同步");
-    m_navCloudBackup = makeNavBtn("❄", "云备份（冷备）");
+    m_navSync = makeNavBtn(glyph::Sync, "局域网同步");
+    m_navD1Sync = makeNavBtn(glyph::Cloud, "D1 云同步");
+    m_navCloudBackup = makeNavBtn(glyph::Save, "云备份（冷备）");
     syncSec.layout->addWidget(m_navSync);
     syncSec.layout->addWidget(m_navD1Sync);
     syncSec.layout->addWidget(m_navCloudBackup);
@@ -509,23 +511,23 @@ void MainWindow::setNavExpanded(bool expanded)
         h->setChecked(true);
     }
 
-    // 按钮文字：窄栏只显示 emoji（居中），展开显示 emoji + 文字（左对齐）
+    // 按钮内容：窄栏只显示图标（居中），展开显示图标 + 文字（左对齐）
     for (auto *b : m_navButtons) {
-        const QString emoji = b->property("navEmoji").toString();
         const QString label = b->property("navLabel").toString();
-        b->setText(expanded ? emoji + QStringLiteral("  ") + label : emoji);
+        b->setText(expanded ? label : QString());
         b->setProperty("expanded", expanded);
         b->style()->unpolish(b);
         b->style()->polish(b);
     }
 
     if (m_navToggle) {
-        m_navToggle->setText(expanded ? QStringLiteral("«") : QStringLiteral("☰"));
         m_navToggle->setToolTip(expanded ? QStringLiteral("收起导航") : QStringLiteral("展开导航"));
         m_navToggle->setProperty("expanded", expanded);
         m_navToggle->style()->unpolish(m_navToggle);
         m_navToggle->style()->polish(m_navToggle);
     }
+
+    updateNavIcons();
 
     if (m_nav) {
         const int target = si(expanded ? kNavExpandedPx : kNavCollapsedPx);
@@ -561,6 +563,33 @@ void MainWindow::setNavExpanded(bool expanded)
     }
 }
 
+// 导航图标重绘：Segoe 字形渲染为 QIcon（选中 accent / 未选中 muted）。
+// 触发点：选中页变化（switchPage）、窄栏/展开切换（setNavExpanded）、缩放变化（applyUiScale）
+void MainWindow::updateNavIcons()
+{
+    const int px = si(18);
+    for (auto *b : m_navButtons) {
+        const QString glyphStr = b->property("navGlyph").toString();
+        if (glyphStr.isEmpty())
+            continue;
+        b->setIconSize(QSize(si(18), si(18)));
+        b->setIcon(glyphIcon(glyphStr, b->isChecked() ? QColor(kColorAccent)
+                                                      : QColor(kColorFgMuted), px));
+    }
+    // 展开/收起切换按钮：窄栏汉堡菜单，展开左箭头（收起）
+    if (m_navToggle) {
+        m_navToggle->setIconSize(QSize(si(16), si(16)));
+        m_navToggle->setIcon(glyphIcon(m_navExpanded ? glyph::ChevLeft : glyph::Menu,
+                                       QColor(kColorFgMuted), si(16)));
+    }
+    // 分组头 chevron 与缩放尺寸
+    for (auto *h : m_navSectionHeaders) {
+        h->setIconSize(QSize(si(12), si(12)));
+        h->setIcon(glyphIcon(h->isChecked() ? glyph::ChevDown : glyph::ChevRight,
+                             QColor(kColorMuted2), si(12)));
+    }
+}
+
 void MainWindow::switchPage(int index)
 {
     if (index < 0 || index >= PAGE_COUNT)
@@ -577,6 +606,7 @@ void MainWindow::switchPage(int index)
     m_navSync->setChecked(index == PAGE_SYNC);
     m_navD1Sync->setChecked(index == PAGE_D1_SYNC);
     m_navCloudBackup->setChecked(index == PAGE_CLOUD_BACKUP);
+    updateNavIcons();
 
     // 页面特定处理
     if (index == PAGE_SYNC) {
@@ -981,6 +1011,7 @@ void MainWindow::applyUiScale()
             nl->setContentsMargins(0, si(m_navExpanded ? 16 : 12), 0, si(12));
             nl->setSpacing(si(m_navExpanded ? 4 : 2));
         }
+        updateNavIcons();
     }
 
     // 页面级缩放样式

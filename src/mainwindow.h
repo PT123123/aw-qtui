@@ -93,6 +93,8 @@ private:
     void buildUi();
     // 左侧导航在「窄栏（仅图标）」与「展开（图标+文字）」之间切换，并持久化状态
     void setNavExpanded(bool expanded);
+    // 导航图标重绘：选中 accent / 未选中 muted，随选中态、展开态与缩放变化调用
+    void updateNavIcons();
     // 系统托盘：emoji 图标（复用主题 emoji + accent，无外部资源文件），
     // 左键切换显示/隐藏，右键菜单（显示/隐藏、退出），关窗最小化到托盘
     void setupTray();
