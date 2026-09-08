@@ -440,6 +440,8 @@ inline const QString Recent     = QStringLiteral("\uE81C"); // Recent
 inline const QString Sync       = QStringLiteral("\uE895"); // Sync
 inline const QString Cloud      = QStringLiteral("\uE753"); // Cloud
 inline const QString Save       = QStringLiteral("\uE74E"); // Save
+inline const QString Calendar   = QStringLiteral("\uE787"); // Calendar
+inline const QString ViewAll    = QStringLiteral("\uE8A9"); // ViewAll
 inline const QString ChevDown   = QStringLiteral("\uE70D"); // ChevronDown
 inline const QString ChevRight  = QStringLiteral("\uE70E"); // ChevronRight
 inline const QString Menu       = QStringLiteral("\uE700"); // GlobalNavButton
@@ -611,11 +613,11 @@ inline QString themeQss(const Theme &t)
         QToolButton#NavSection:hover { color: @FGSOFT@; }
         QToolButton#NavSection:checked { background: transparent; }
         QToolButton#NavToggle {
-            border: none; border-radius: 6px; background: transparent;
+            border: none; border-radius: 8px; background: transparent;
             color: @MUTED@; font-size: 16px; text-align: center;
-            padding: 8px 0; margin: 2px 8px;
+            padding: 8px 0; margin: 1px 8px;
         }
-        QToolButton#NavToggle:hover { background: @BGL2@; color: @FG@; border-radius: 6px; }
+        QToolButton#NavToggle:hover { background: @BGL2@; color: @FG@; border-radius: 8px; }
         QToolButton#NavToggle:pressed { background: @PRESSED@; }
         QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox {
             background: @BGEL@; border: 1px solid @BORDER@; border-radius: 6px;
