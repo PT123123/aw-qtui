@@ -46,7 +46,7 @@
       <item>
        <widget class="QToolButton" name="btnInbox">
         <property name="text">
-         <string>📥 收集箱</string>
+         <string>收集箱</string>
         </property>
         <property name="checkable">
          <bool>true</bool>
@@ -62,7 +62,7 @@
       <item>
        <widget class="QToolButton" name="btnToday">
         <property name="text">
-         <string>📅 今天</string>
+         <string>今天</string>
         </property>
         <property name="checkable">
          <bool>true</bool>
@@ -78,7 +78,7 @@
       <item>
        <widget class="QToolButton" name="btnNext7">
         <property name="text">
-         <string>📆 最近 7 天</string>
+         <string>最近 7 天</string>
         </property>
         <property name="checkable">
          <bool>true</bool>
@@ -94,7 +94,7 @@
       <item>
        <widget class="QToolButton" name="btnAll">
         <property name="text">
-         <string>☰ 全部</string>
+         <string>全部</string>
         </property>
         <property name="checkable">
          <bool>true</bool>

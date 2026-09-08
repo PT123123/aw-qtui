@@ -66,6 +66,8 @@ public:
     ~TodoPage() override;
     void refresh();
     void applyUiScale();
+    // 侧栏视图按钮 Segoe 图标重绘（选中 accent / 未选中 muted）
+    void updateSideIcons();
 
 private slots:
     void onDataChanged();

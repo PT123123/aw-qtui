@@ -216,6 +216,7 @@ void TodoPage::applyUiScale()
         m_sidebar->setFixedWidth(si(180));
     if (m_detailPanel)
         m_detailPanel->setFixedWidth(si(280));
+    updateSideIcons();
     applyPageStyles();
     rebuildSidebar();
     rebuildList();
@@ -278,6 +279,7 @@ void TodoPage::buildUi()
     m_viewBtns = {ui->btnInbox, ui->btnToday, ui->btnNext7, ui->btnAll};
     for (auto *b : m_viewBtns)
         b->setObjectName(QStringLiteral("TodoSideBtn"));
+    updateSideIcons();
     connect(ui->btnInbox, &QToolButton::clicked, this, [this] { selectView(ViewInbox); });
     connect(ui->btnToday, &QToolButton::clicked, this, [this] { selectView(ViewToday); });
     connect(ui->btnNext7, &QToolButton::clicked, this, [this] { selectView(ViewNext7); });
@@ -530,6 +532,22 @@ void TodoPage::setViewButtonsChecked()
             }
         }
         break;
+    }
+    updateSideIcons();
+}
+
+// 侧栏视图按钮图标：Segoe 字形渲染为 QIcon，选中 accent / 未选中 muted。
+// 触发点：buildUi、applyUiScale（缩放重设尺寸）、setViewButtonsChecked（选中态变色）
+void TodoPage::updateSideIcons()
+{
+    static const QString kGlyphs[4] = {glyph::Inbox, glyph::Calendar,
+                                       glyph::Recent, glyph::ViewAll};
+    for (int i = 0; i < m_viewBtns.size() && i < 4; ++i) {
+        auto *b = m_viewBtns[i];
+        b->setIconSize(QSize(si(14), si(14)));
+        b->setIcon(glyphIcon(kGlyphs[i],
+                             b->isChecked() ? QColor(kColorAccent) : QColor(kColorFgMuted),
+                             si(14)));
     }
 }
 
