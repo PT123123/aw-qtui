@@ -49,8 +49,8 @@ QString formatMs(qint64 ms)
 // ═══════════════════════════════════════════════════════════
 // HorizontalBarChart
 // ═══════════════════════════════════════════════════════════
-HorizontalBarChart::HorizontalBarChart(const QString &title, QWidget *parent)
-    : QWidget(parent), m_title(title)
+HorizontalBarChart::HorizontalBarChart(QWidget *parent)
+    : QWidget(parent)
 {
     setMouseTracking(true);
     setMinimumHeight(80);
