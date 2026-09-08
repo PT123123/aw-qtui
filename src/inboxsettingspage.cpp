@@ -1,5 +1,6 @@
 // inboxsettingspage.cpp —— 收件箱设置页实现（含回收站子标签）
 #include "inboxsettingspage.h"
+#include "ui_inboxsettingspage.h"
 
 #include "appsettings.h"
 #include "config.h"
@@ -22,96 +23,46 @@ InboxSettingsPage::InboxSettingsPage(LocalStore *store, QWidget *parent)
     buildUi(store);
 }
 
+InboxSettingsPage::~InboxSettingsPage()
+{
+    delete ui;
+}
+
 void InboxSettingsPage::buildUi(LocalStore *store)
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(si(20), si(16), si(20), si(16));
-    root->setSpacing(si(12));
+    // 静态布局来自 Qt Designer（inboxsettingspage.ui -> ui_inboxsettingspage.h），
+    // .ui 中边距/间距为基准值，si() 缩放几何在此重设
+    ui = new Ui::InboxSettingsPage;
+    ui->setupUi(this);
 
-    auto *title = new QLabel(QStringLiteral("收件箱设置"));
-    title->setObjectName(QStringLiteral("Heading"));
-    title->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: %2;")
-                             .arg(sp(16), QString::fromLatin1(kColorFg)));
-    root->addWidget(title);
+    ui->rootLayout->setContentsMargins(si(20), si(16), si(20), si(16));
+    ui->rootLayout->setSpacing(si(12));
+    ui->generalLay->setContentsMargins(si(16), si(16), si(16), si(16));
+    ui->generalLay->setSpacing(si(10));
+    ui->gap->changeSize(0, si(8), QSizePolicy::Fixed);
+    for (QLabel *l : {ui->nameLabel, ui->idLabel, ui->platLabel})
+        l->setMinimumWidth(si(80));
 
-    // 把「通用」表单与「回收站」收纳进同一页面的子标签，
-    // 侧边栏只保留「收件箱设置」一个入口
-    m_tabs = new QTabWidget;
-    m_tabs->setDocumentMode(true);
-
-    // ---- 子标签 1：通用 ----
-    auto *general = new QWidget;
-    auto *gl = new QVBoxLayout(general);
-    gl->setContentsMargins(si(16), si(16), si(16), si(16));
-    gl->setSpacing(si(10));
-
-    // 设备名
-    auto *nameRow = new QHBoxLayout;
-    auto *nameLabel = new QLabel(QStringLiteral("设备名"));
-    nameLabel->setMinimumWidth(si(80));
-    nameLabel->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
-                                 .arg(QString::fromLatin1(kColorFgMuted), sp(12)));
-    nameRow->addWidget(nameLabel);
-    m_deviceName = new QLineEdit;
+    // ── 成员别名 + 运行时取值 ──
+    m_tabs = ui->tabs;
+    m_deviceName = ui->deviceName;
     m_deviceName->setPlaceholderText(hostname());
     m_deviceName->setText(loadDeviceName());
-    m_deviceName->setClearButtonEnabled(true);
-    nameRow->addWidget(m_deviceName, 1);
-    gl->addLayout(nameRow);
-
-    // 设备 ID（只读）
-    auto *idRow = new QHBoxLayout;
-    auto *idLabel = new QLabel(QStringLiteral("设备 ID"));
-    idLabel->setMinimumWidth(si(80));
-    idLabel->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
-                               .arg(QString::fromLatin1(kColorFgMuted), sp(12)));
-    idRow->addWidget(idLabel);
-    m_deviceId = new QLabel(deviceId());
-    m_deviceId->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
-                                  .arg(QString::fromLatin1(kColorFg), sp(12)));
-    idRow->addWidget(m_deviceId, 1);
-    gl->addLayout(idRow);
-
-    // 平台（只读）
-    auto *platRow = new QHBoxLayout;
-    auto *platLabel = new QLabel(QStringLiteral("平台"));
-    platLabel->setMinimumWidth(si(80));
-    platLabel->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
-                                 .arg(QString::fromLatin1(kColorFgMuted), sp(12)));
-    platRow->addWidget(platLabel);
-    m_platform = new QLabel(platform());
-    m_platform->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
-                                  .arg(QString::fromLatin1(kColorFg), sp(12)));
-    platRow->addWidget(m_platform, 1);
-    gl->addLayout(platRow);
-
-    gl->addSpacing(si(8));
-
-    // 服务端管理
-    m_autoManage = new QCheckBox(QStringLiteral("自动管理本地服务端（探测 / 拉起 / 看护）"));
+    m_deviceId = ui->deviceId;
+    m_deviceId->setText(deviceId());
+    m_platform = ui->platformLabel;
+    m_platform->setText(platform());
+    m_autoManage = ui->autoManage;
     m_autoManage->setChecked(loadServerAutoManage());
     m_autoManage->setCursor(Qt::PointingHandCursor);
-    gl->addWidget(m_autoManage);
-
-    m_autostart = new QCheckBox(QStringLiteral("开机自启（Task Scheduler ONLOGON）"));
+    m_autostart = ui->autostart;
     m_autostart->setChecked(loadServerAutostart());
     m_autostart->setCursor(Qt::PointingHandCursor);
-    gl->addWidget(m_autostart);
+    m_status = ui->status;
 
-    m_status = new QLabel;
-    m_status->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
-                                .arg(QString::fromLatin1(kColorOk), sp(11)));
-    gl->addWidget(m_status);
-
-    gl->addStretch(1);
-
-    m_tabs->addTab(general, QStringLiteral("⚙ 通用"));
-
-    // ---- 子标签 2：回收站 ----
+    // 回收站子页构造需要 LocalStore*，无法由 uic 创建：.ui 中放容器，运行时装入
     m_trash = new TrashPage(store);
-    m_tabs->addTab(m_trash, QStringLiteral("🗑 回收站"));
-
-    root->addWidget(m_tabs, 1);
+    ui->trashHostLay->addWidget(m_trash);
 
     connect(m_deviceName, &QLineEdit::editingFinished, this, &InboxSettingsPage::onDeviceNameChanged);
     connect(m_autoManage, &QCheckBox::toggled, this, &InboxSettingsPage::onAutoManageToggled);
@@ -122,6 +73,20 @@ void InboxSettingsPage::buildUi(LocalStore *store)
 
 void InboxSettingsPage::applyStyle()
 {
+    // 标题/表单标签/状态用 sp() 动态字号，随缩放重设（控件本体在 .ui 中）
+    ui->title->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: %2;")
+                                 .arg(sp(16), QString::fromLatin1(kColorFg)));
+    const QString formLabel = QStringLiteral("color: %1; font-size: %2;")
+                                  .arg(QString::fromLatin1(kColorFgMuted), sp(12));
+    ui->nameLabel->setStyleSheet(formLabel);
+    ui->idLabel->setStyleSheet(formLabel);
+    ui->platLabel->setStyleSheet(formLabel);
+    const QString valueText = QStringLiteral("color: %1; font-size: %2;")
+                                  .arg(QString::fromLatin1(kColorFg), sp(12));
+    ui->deviceId->setStyleSheet(valueText);
+    ui->platformLabel->setStyleSheet(valueText);
+    ui->status->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
+                                  .arg(QString::fromLatin1(kColorOk), sp(11)));
     if (!m_tabs)
         return;
     m_tabs->setStyleSheet(QStringLiteral(

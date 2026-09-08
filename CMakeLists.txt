@@ -103,6 +103,7 @@ add_executable(awqtui WIN32
     src/timingdialog.h
     src/inboxsettingspage.cpp
     src/inboxsettingspage.h
+    src/inboxsettingspage.ui
     src/trashpage.cpp
     src/trashpage.h
     src/trashpage.ui
