@@ -23,6 +23,9 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QVBoxLayout;
 
+// Qt Designer 布局（inboxpage.ui），全局命名空间
+namespace Ui { class InboxPage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -34,6 +37,7 @@ class InboxPage : public QWidget
     Q_OBJECT
 public:
     explicit InboxPage(ApiClient *api, QWidget *parent = nullptr);
+    ~InboxPage() override;
 
     void loadNotes(bool reset = true);
     void loadTags();
@@ -79,7 +83,10 @@ private slots:
     void onCopyAll();
 
 private:
+    // Qt Designer 生成的布局对象（inboxpage.ui -> ui_inboxpage.h）
+    Ui::InboxPage *ui = nullptr;
     void buildUi();
+    void applyStyles();               // 内联主题样式（buildUi 与 applyUiScale 共用）
     void rebuildTagTree();            // 按 m_tagRoots 重建侧栏层级标签树并恢复当前选中
     void updateFilterBar();           // 同步筛选面包屑条（显示/隐藏、文案、↑ 可用性）
     void applyTagFilterPath(const QString &path); // 进入/切换/清除层级标签筛选（空 = 清除）
