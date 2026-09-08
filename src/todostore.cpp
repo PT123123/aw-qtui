@@ -10,13 +10,12 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QSaveFile>
+#include <QSet>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QNetworkReply>
 
 #include "apiclient.h"
-#include "mockdata.h"
-#include "theme.h"
 
 namespace awqtui {
 
@@ -377,30 +376,11 @@ void TodoStore::removeSubtask(qint64 taskId, qint64 subtaskId)
 
 
 
-// ── TodoApiStore（Rust /inbox/todos） ────────────────────────
+// ── TodoApiStore（Rust /inbox/todos + /inbox/todo-lists，契约对齐 Android RestTodoSource） ──
 
 TodoApiStore::TodoApiStore(ApiClient *api, QObject *parent)
     : TodoSource(parent), m_api(api)
 {
-}
-
-qint64 TodoApiStore::tagToListId(const QString &tag)
-{
-    if (tag.isEmpty())
-        return 0;
-    // 用 tag 字符串的 hash 作为 listId（正整数）
-    return qHash(tag) % 1000000 + 1;
-}
-
-QString TodoApiStore::listIdToTag(qint64 listId)
-{
-    if (listId <= 0)
-        return QString();
-    // 反向查找：从 m_lists 里找对应 id 的 name
-    for (const auto &l : m_lists)
-        if (l.id == listId)
-            return l.name;
-    return QString();
 }
 
 TodoTask TodoApiStore::todoToTask(const QJsonObject &o)
@@ -417,7 +397,7 @@ TodoTask TodoApiStore::todoToTask(const QJsonObject &o)
 
     const QString due = o.value(QLatin1String("due_date")).toString();
     if (!due.isEmpty()) {
-        // due_date 是 ISO 8601，只取日期部分
+        // due_date 是 RFC3339，只取日期部分
         t.dueDate = due.left(10);
     }
 
@@ -425,45 +405,30 @@ TodoTask TodoApiStore::todoToTask(const QJsonObject &o)
     for (const auto &v : tags)
         t.tags << v.toString();
 
-    // listId 用第一个 tag 模拟
-    if (!t.tags.isEmpty())
-        t.listId = tagToListId(t.tags.first());
-    else
-        t.listId = 0;
+    // 清单 = 独立实体，list_id 关联（0 = 收集箱），与 tag 无关
+    t.listId = o.value(QLatin1String("list_id")).toVariant().toLongLong();
 
-    // subtasks / recurrence 暂不支持
+    // 子任务：todos.subtasks JSON 列（id 由客户端分配，服务端原样存储）
+    const auto subs = o.value(QLatin1String("subtasks")).toArray();
+    for (const auto &v : subs)
+        t.subtasks.append(TodoSubtask::fromJson(v.toObject()));
     return t;
 }
 
-void TodoApiStore::rebuildLists()
+qint64 TodoApiStore::nextSubtaskId() const
 {
-    m_lists.clear();
-    // 收集箱（id=0）
-    TodoList inbox;
-    inbox.id = 0;
-    inbox.name = QStringLiteral("收集箱");
-    m_lists.append(inbox);
-
-    QSet<QString> seen;
-    for (const auto &t : m_tasks) {
-        for (const auto &tag : t.tags) {
-            if (seen.contains(tag))
-                continue;
-            seen.insert(tag);
-            TodoList l;
-            l.id = tagToListId(tag);
-            l.name = tag;
-            l.color = colorForString(tag).name();
-            m_lists.append(l);
-        }
-    }
+    qint64 maxId = 0;
+    for (const auto &t : m_tasks)
+        for (const auto &s : t.subtasks)
+            maxId = qMax(maxId, s.id);
+    return maxId + 1;
 }
 
-void TodoApiStore::load()
+void TodoApiStore::fetchTodos()
 {
     if (!m_api)
         return;
-    QNetworkReply *reply = m_api->getTodos(true); // include completed
+    QNetworkReply *reply = m_api->getTodos(true); // include completed（服务端始终过滤 deleted）
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         QJsonDocument doc;
         QString err;
@@ -472,89 +437,105 @@ void TodoApiStore::load()
             const auto arr = doc.array();
             for (const auto &v : arr)
                 m_tasks.append(todoToTask(v.toObject()));
-            rebuildLists();
-            m_loaded = true;
-            emit dataChanged();
         } else {
-            qWarning() << "[TodoApiStore] load failed:" << err;
+            qWarning() << "[TodoApiStore] load todos failed:" << err;
         }
         reply->deleteLater();
+        m_loaded = true;
+        emit dataChanged();
     });
 }
 
+void TodoApiStore::fetchLists()
+{
+    if (!m_api)
+        return;
+    QNetworkReply *reply = m_api->getTodoLists();
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        QJsonDocument doc;
+        QString err;
+        if (ApiClient::parseReply(reply, &doc, &err)) {
+            m_lists.clear();
+            // 收集箱（虚拟清单，id=0）
+            TodoList inbox;
+            inbox.id = 0;
+            inbox.name = QStringLiteral("收集箱");
+            m_lists.append(inbox);
+            const auto arr = doc.array();
+            for (const auto &v : arr)
+                m_lists.append(TodoList::fromJson(v.toObject()));
+            // 清单可能已在别处删除：悬空 list_id 的任务按收集箱展示（不丢任务）
+            QSet<qint64> known;
+            for (const auto &l : m_lists)
+                known.insert(l.id);
+            for (auto &t : m_tasks)
+                if (t.listId != 0 && !known.contains(t.listId))
+                    t.listId = 0;
+        } else {
+            qWarning() << "[TodoApiStore] load lists failed:" << err;
+        }
+        reply->deleteLater();
+        emit dataChanged();
+    });
+}
+
+void TodoApiStore::load()
+{
+    fetchTodos();
+    fetchLists();
+}
+
+void TodoApiStore::reload()
+{
+    load();
+}
+
+// ── 清单 CRUD（独立实体 /inbox/todo-lists） ────────────────
 void TodoApiStore::createList(const QString &name, const QString &color)
 {
-    Q_UNUSED(color);
-    // lists 用 tags 模拟，创建 list 就是确保 tag 存在
-    // 不需要实际操作，下次 load 时会自动出现
-    Q_UNUSED(name);
+    if (name.trimmed().isEmpty())
+        return;
+    QNetworkReply *reply = m_api->createTodoList(name.trimmed(), color, int(m_lists.size()));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        reload();
+    });
 }
 
 void TodoApiStore::renameList(qint64 listId, const QString &name)
 {
-    // 重命名 list = 把所有该 tag 的 todo 改成新 tag
-    const QString oldTag = listIdToTag(listId);
-    if (oldTag.isEmpty())
+    if (listId <= 0 || name.trimmed().isEmpty())
         return;
-    for (auto &t : m_tasks) {
-        if (t.tags.contains(oldTag)) {
-            t.tags.removeAll(oldTag);
-            t.tags.prepend(name);
-            QJsonObject patch;
-            patch.insert(QStringLiteral("tags"), QJsonArray::fromStringList(t.tags));
-            QNetworkReply *reply = m_api->updateTodo(t.id, patch);
-            connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
-        }
-    }
-    rebuildLists();
-    emit dataChanged();
+    QJsonObject patch;
+    patch.insert(QStringLiteral("name"), name.trimmed());
+    QNetworkReply *reply = m_api->updateTodoList(listId, patch);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        reload();
+    });
 }
 
 void TodoApiStore::deleteList(qint64 listId)
 {
-    const QString tag = listIdToTag(listId);
-    if (tag.isEmpty())
+    if (listId <= 0)
         return;
-    for (auto &t : m_tasks) {
-        if (t.tags.contains(tag)) {
-            t.tags.removeAll(tag);
-            QJsonObject patch;
-            patch.insert(QStringLiteral("tags"), QJsonArray::fromStringList(t.tags));
-            QNetworkReply *reply = m_api->updateTodo(t.id, patch);
-            connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
-        }
-    }
-    rebuildLists();
-    emit dataChanged();
+    // 服务端把其下任务 list_id 归零（回收集箱），任务本身不删除
+    QNetworkReply *reply = m_api->deleteTodoList(listId);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        reload();
+    });
 }
 
+// ── 任务 CRUD ──────────────────────────────────────────────
 void TodoApiStore::createTask(const QString &title, qint64 listId, const QString &dueDate)
 {
-    QStringList tags;
-    const QString tag = listIdToTag(listId);
-    if (!tag.isEmpty())
-        tags << tag;
-
-    QJsonObject patch;
-    if (!dueDate.isEmpty())
-        patch.insert(QStringLiteral("due_date"), dueDate);
-
-    QNetworkReply *reply = m_api->createTodo(title, QString(), tags);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, dueDate]() {
+    if (title.trimmed().isEmpty())
+        return;
+    QNetworkReply *reply = m_api->createTodo(title.trimmed(), QString(), {}, listId, dueDate);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
-        // 如果有 dueDate，需要额外 update（因为 createTodo 不支持 dueDate）
-        if (!dueDate.isEmpty()) {
-            QJsonDocument doc;
-            QString err;
-            if (ApiClient::parseReply(reply, &doc, &err)) {
-                qint64 id = doc.object().value(QLatin1String("id")).toVariant().toLongLong();
-                QJsonObject p;
-                p.insert(QStringLiteral("due_date"), dueDate);
-                QNetworkReply *r2 = m_api->updateTodo(id, p);
-                connect(r2, &QNetworkReply::finished, r2, &QNetworkReply::deleteLater);
-            }
-        }
-        load(); // 重新加载
+        reload();
     });
 }
 
@@ -564,13 +545,19 @@ void TodoApiStore::updateTask(const TodoTask &task)
     patch.insert(QStringLiteral("title"), task.title);
     patch.insert(QStringLiteral("content"), task.notes);
     patch.insert(QStringLiteral("priority"), task.priority);
+    patch.insert(QStringLiteral("list_id"), task.listId);
+    // 已知缺口：无法清空 due_date（Option 字段省略 = 保留原值，与 Android 端一致）
     if (!task.dueDate.isEmpty())
-        patch.insert(QStringLiteral("due_date"), task.dueDate);
+        patch.insert(QStringLiteral("due_date"), task.dueDate + QStringLiteral("T00:00:00Z"));
     patch.insert(QStringLiteral("tags"), QJsonArray::fromStringList(task.tags));
+    QJsonArray subs;
+    for (const auto &s : task.subtasks)
+        subs.append(s.toJson());
+    patch.insert(QStringLiteral("subtasks"), subs);
     QNetworkReply *reply = m_api->updateTodo(task.id, patch);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
-        load();
+        reload();
     });
 }
 
@@ -581,7 +568,7 @@ void TodoApiStore::setTaskCompleted(qint64 taskId, bool completed)
     QNetworkReply *reply = m_api->updateTodo(taskId, patch);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
-        load();
+        reload();
     });
 }
 
@@ -590,29 +577,61 @@ void TodoApiStore::deleteTask(qint64 taskId)
     QNetworkReply *reply = m_api->deleteTodo(taskId);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
-        load();
+        reload();
+    });
+}
+
+// ── 子任务：todos.subtasks 整组读改写 ─────────────────────
+void TodoApiStore::mutateSubtasks(qint64 taskId,
+                                  const std::function<void(QList<TodoSubtask> &)> &fn)
+{
+    const TodoTask *cached = nullptr;
+    for (const auto &t : m_tasks)
+        if (t.id == taskId)
+            cached = &t;
+    if (!cached)
+        return;
+    TodoTask task = *cached;
+    fn(task.subtasks);
+    QJsonArray subs;
+    for (const auto &s : task.subtasks)
+        subs.append(s.toJson());
+    QJsonObject patch;
+    patch.insert(QStringLiteral("subtasks"), subs);
+    QNetworkReply *reply = m_api->updateTodo(taskId, patch);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        reload();
     });
 }
 
 void TodoApiStore::addSubtask(qint64 taskId, const QString &title)
 {
-    Q_UNUSED(taskId);
-    Q_UNUSED(title);
-    // 暂不支持 subtasks
+    const QString trimmed = title.trimmed();
+    if (trimmed.isEmpty())
+        return;
+    mutateSubtasks(taskId, [this, trimmed](QList<TodoSubtask> &subs) {
+        TodoSubtask s;
+        s.id = nextSubtaskId();
+        s.title = trimmed;
+        subs.append(s);
+    });
 }
 
 void TodoApiStore::toggleSubtask(qint64 taskId, qint64 subtaskId)
 {
-    Q_UNUSED(taskId);
-    Q_UNUSED(subtaskId);
-    // 暂不支持 subtasks
+    mutateSubtasks(taskId, [subtaskId](QList<TodoSubtask> &subs) {
+        for (auto &s : subs)
+            if (s.id == subtaskId)
+                s.completed = !s.completed;
+    });
 }
 
 void TodoApiStore::removeSubtask(qint64 taskId, qint64 subtaskId)
 {
-    Q_UNUSED(taskId);
-    Q_UNUSED(subtaskId);
-    // 暂不支持 subtasks
+    mutateSubtasks(taskId, [subtaskId](QList<TodoSubtask> &subs) {
+        subs.removeIf([subtaskId](const TodoSubtask &s) { return s.id == subtaskId; });
+    });
 }
 
 } // namespace awqtui

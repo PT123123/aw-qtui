@@ -9,6 +9,7 @@
 // 方法并把服务端响应转成 dataChanged 信号，Todo 页代码零改动。
 #pragma once
 
+#include <functional>
 #include <QList>
 #include <QObject>
 
@@ -32,6 +33,9 @@ public:
     // 快照查询（来源内部已加载；调用方在收到 dataChanged 后再读取）
     virtual QList<TodoList> lists() const = 0;
     virtual QList<TodoTask> tasks() const = 0;
+
+    // 能力开关：服务端无 recurrence 字段（Android 端 supportsRecurrence=false 同款语义）
+    virtual bool supportsRecurrence() const { return true; }
 
     // 写操作（异步；生效后发 dataChanged）
     virtual void createList(const QString &name, const QString &color) = 0;
@@ -93,7 +97,9 @@ private:
     static QString filePath();
 };
 
-// ── Rust 服务端实现（/inbox/todos；lists 用 tags 模拟，subtasks/recurrence 暂不支持） ──
+// ── Rust 服务端实现（/inbox/todos + /inbox/todo-lists；服务端 7116825 起
+//    清单为独立实体、任务以 list_id 关联、子任务存 todos.subtasks JSON 列，
+//    与 Android RestTodoSource 同一契约。重复规则服务端不支持，UI 不展示） ──
 class TodoApiStore : public TodoSource
 {
     Q_OBJECT
@@ -103,6 +109,7 @@ public:
 
     void load() override;
     bool ready() const override { return m_loaded; }
+    bool supportsRecurrence() const override { return false; }
 
     QList<TodoList> lists() const override { return m_lists; }
     QList<TodoTask> tasks() const override { return m_tasks; }
@@ -119,10 +126,14 @@ public:
     void removeSubtask(qint64 taskId, qint64 subtaskId) override;
 
 private:
-    void rebuildLists();
     static TodoTask todoToTask(const QJsonObject &o);
-    static qint64 tagToListId(const QString &tag);
-    QString listIdToTag(qint64 listId);
+    void fetchTodos();
+    void fetchLists();
+    // 子任务整组读改写（对齐 Android mutateSubtasks）
+    void mutateSubtasks(qint64 taskId, const std::function<void(QList<TodoSubtask> &)> &fn);
+    // 全局唯一子任务 id：所有任务已有子任务 id 的最大值 + 1（对齐 Android nextSubtaskId）
+    qint64 nextSubtaskId() const;
+    void reload();
 
     ApiClient *m_api = nullptr;
     QList<TodoList> m_lists;

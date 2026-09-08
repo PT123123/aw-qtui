@@ -103,11 +103,19 @@ public:
     QNetworkReply *getTodos(bool includeCompleted = false);
     QNetworkReply *getTodo(qint64 id);
     QNetworkReply *createTodo(const QString &title, const QString &content = QString(),
-                              const QStringList &tags = {});
+                              const QStringList &tags = {}, qint64 listId = 0,
+                              const QString &dueDate = QString());
     QNetworkReply *updateTodo(qint64 id, const QJsonObject &patch);
     QNetworkReply *deleteTodo(qint64 id);
     // 恢复软删除的任务：PUT /inbox/todos/<id>/restore
     QNetworkReply *restoreTodo(qint64 id);
+
+    // 清单实体 (/inbox/todo-lists，7116825：清单与 tag 独立，任务以 list_id 关联)
+    QNetworkReply *getTodoLists();                              // GET /todo-lists
+    QNetworkReply *createTodoList(const QString &name,          // POST /todo-lists
+                                  const QString &color = QString(), int sortOrder = 0);
+    QNetworkReply *updateTodoList(qint64 id, const QJsonObject &patch); // PUT /todo-lists/<id>
+    QNetworkReply *deleteTodoList(qint64 id);                   // DELETE /todo-lists/<id>
 
     // 解析回复：ok=true 且 doc 有效 -> 成功；否则 err 为错误描述
     static bool parseReply(QNetworkReply *reply, QJsonDocument *doc, QString *err);
