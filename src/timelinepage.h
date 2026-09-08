@@ -14,6 +14,9 @@ class QPushButton;
 class QComboBox;
 class QNetworkReply;
 
+// Qt Designer 布局（timelinepage.ui），全局命名空间
+namespace Ui { class TimelinePage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -41,6 +44,8 @@ private slots:
     void onEventLoaded();
 
 private:
+    // Qt Designer 生成的布局对象（timelinepage.ui -> ui_timelinepage.h）
+    Ui::TimelinePage *ui = nullptr;
     void buildUi();
     void reloadData();
     void fetchAllEvents();
