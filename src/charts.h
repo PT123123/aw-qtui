@@ -11,7 +11,7 @@ class HorizontalBarChart : public QWidget
 {
     Q_OBJECT
 public:
-    explicit HorizontalBarChart(const QString &title = QString(), QWidget *parent = nullptr);
+    explicit HorizontalBarChart(QWidget *parent = nullptr);
 
     void setItems(const QList<BarItem> &items);
     void setTitle(const QString &title);

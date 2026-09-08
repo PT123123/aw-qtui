@@ -58,6 +58,7 @@ add_executable(awqtui WIN32
     src/timelinewidget.h
     src/activitypage.cpp
     src/activitypage.h
+    src/activitypage.ui
     src/timelinepage.cpp
     src/timelinepage.h
     src/mainwindow.cpp

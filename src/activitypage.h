@@ -15,6 +15,9 @@ class QTabWidget;
 class QNetworkReply;
 class QFrame;
 
+// Qt Designer 布局（activitypage.ui），全局命名空间
+namespace Ui { class ActivityPage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -28,6 +31,7 @@ class ActivityPage : public QWidget
     Q_OBJECT
 public:
     explicit ActivityPage(ApiClient *api, QWidget *parent = nullptr);
+    ~ActivityPage() override;
 
     void setDate(const QDate &date);
     QDate date() const { return m_dateStart; }
@@ -48,6 +52,8 @@ private slots:
     void onEventLoaded();
 
 private:
+    // Qt Designer 生成的布局对象（activitypage.ui -> ui_activitypage.h）
+    Ui::ActivityPage *ui = nullptr;
     void buildUi();
     void reloadData();
     void fetchAllEvents();
