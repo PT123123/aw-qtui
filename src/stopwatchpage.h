@@ -10,6 +10,9 @@ class QListWidget;
 class QPushButton;
 class QTimer;
 
+// Qt Designer 布局（stopwatchpage.ui），全局命名空间
+namespace Ui { class StopwatchPage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -40,6 +43,8 @@ private slots:
     void onBucketReady();
 
 private:
+    // Qt Designer 生成的布局对象（stopwatchpage.ui -> ui_stopwatchpage.h）
+    Ui::StopwatchPage *ui = nullptr;
     void buildUi();
     void applyStyle();
     void rebuildHistory();
