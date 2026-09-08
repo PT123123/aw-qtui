@@ -1,5 +1,6 @@
 // syncpage.cpp —— 局域网同步页 (aw-sync-rust /api/0/sync)
 #include "syncpage.h"
+#include "ui_syncpage.h"
 
 #include "apiclient.h"
 #include "config.h"
@@ -71,7 +72,10 @@ SyncPage::SyncPage(ApiClient *api, MdnsDiscovery *mdns, QWidget *parent)
     connect(m_api, &ApiClient::localDataChanged, this, &SyncPage::onLocalDataChanged);
 }
 
-SyncPage::~SyncPage() = default;
+SyncPage::~SyncPage()
+{
+    delete ui;
+}
 
 void SyncPage::onLocalDataChanged()
 {
@@ -125,49 +129,49 @@ void SyncPage::stopRefresh()
 
 void SyncPage::buildUi()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(16, 16, 16, 16);
-    root->setSpacing(12);
+    // 静态布局来自 Qt Designer（syncpage.ui -> ui_syncpage.h）
+    ui = new Ui::SyncPage;
+    ui->setupUi(this);
 
-    // ---- 服务端 ----
-    auto *serverBox = new QGroupBox(QStringLiteral("服务端"));
-    auto *sl = new QHBoxLayout(serverBox);
-    sl->setSpacing(8);
-    m_serverEdit = new QLineEdit(m_api ? m_api->baseUrl() : kDefaultServerUrl);
-    m_serverEdit->setFixedWidth(300);
-    sl->addWidget(new QLabel(QStringLiteral("地址")));
-    sl->addWidget(m_serverEdit);
-    auto *btnSet = new QPushButton(QStringLiteral("应用"));
-    connect(btnSet, &QPushButton::clicked, this, [this] {
-        setServerUrl(m_serverEdit->text().trimmed());
-        refreshDevices();
-    });
-    sl->addWidget(btnSet);
-    m_serverBadge = new StatusBadge;
-    sl->addWidget(m_serverBadge);
-    sl->addStretch(1);
-    root->addWidget(serverBox);
+    // ── 成员别名：历史逻辑沿用 m_* 指针，静态布局归属 .ui 文件 ──
+    m_serverEdit = ui->serverEdit;
+    m_serverBadge = ui->serverBadge;
+    m_devTable = ui->devTable;
+    m_chkEnabled = ui->chkEnabled;
+    m_chkHttp = ui->chkHttp;
+    m_editAlias = ui->editAlias;
+    m_editListenPort = ui->editListenPort;
+    m_editUdpPort = ui->editUdpPort;
+    m_cmbSyncInterval = ui->cmbSyncInterval;
+    m_btnSaveConfig = ui->btnSaveConfig;
+    m_btnSyncNow = ui->btnSyncNow;
+    m_btnRemoveDevice = ui->btnRemoveDevice;
+    m_btnClearLogs = ui->btnClearLogs;
+    m_log = ui->logView;
+    m_lblStats = ui->lblStats;
+    m_trashTable = ui->trashTable;
+    m_btnRestoreTrash = ui->btnRestoreTrash;
+    m_btnDeleteTrash = ui->btnDeleteTrash;
+    m_btnClearTrash = ui->btnClearTrash;
+    m_pairBanner = ui->pairBanner;
+    m_pairBannerLbl = ui->pairBannerLbl;
 
-    // ---- 标签页：设备 / 配置 / 日志 / 回收站 ----
-    auto *tabs = new QTabWidget;
+    // ── 运行时才能确定的内容：主题色、DPI 缩放、菜单、档位数据 ──
 
-    // ── 设备页 ──
-    auto *devTab = new QWidget;
-    auto *devLay = new QVBoxLayout(devTab);
+    // 主题色是运行时可变的（theme.h applyTheme 会切换），无法写进 .ui
+    m_pairBanner->setStyleSheet(QStringLiteral(
+        "QWidget { background: rgba(76,139,245,0.14); border: 1px solid %1; border-radius: 6px; }")
+                                    .arg(kColorAccent));
+    ui->discoverHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
+    ui->syncRangeHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
 
-    // 设备注册表
-    auto *devBox = new QGroupBox(QStringLiteral("已配对 / 已发现设备"));
-    auto *dl = new QVBoxLayout(devBox);
-    m_devTable = new QTableWidget(0, 8);
-    m_devTable->setHorizontalHeaderLabels({QStringLiteral("设备"), QStringLiteral("类型"),
-                                           QStringLiteral("IP"), QStringLiteral("端口"),
-                                           QStringLiteral("最后在线"), QStringLiteral("最后同步"),
-                                           QStringLiteral("状态"), QStringLiteral("操作")});
-    m_devTable->verticalHeader()->setVisible(false);
+    // 主题按 objectName 选择器（#PrimaryBtn）渲染高亮按钮
+    m_btnSyncNow->setObjectName(QStringLiteral("PrimaryBtn"));
+    ui->btnAcceptPair->setObjectName(QStringLiteral("PrimaryBtn"));
+    m_btnSaveConfig->setObjectName(QStringLiteral("PrimaryBtn"));
+
+    // 表格列宽 / 行高（si() 按全局缩放适配，.ui 中无法表达）
     m_devTable->verticalHeader()->setDefaultSectionSize(si(42)); // 行高容纳操作列 34px 按钮（setCellWidget 不会自动撑高行）
-    m_devTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_devTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_devTable->horizontalHeader()->setStretchLastSection(true);
     m_devTable->setColumnWidth(0, 180);
     m_devTable->setColumnWidth(1, 70);
     m_devTable->setColumnWidth(2, 110);
@@ -175,20 +179,15 @@ void SyncPage::buildUi()
     m_devTable->setColumnWidth(4, 140);
     m_devTable->setColumnWidth(5, 140);
     m_devTable->setColumnWidth(7, si(240));
-    dl->addWidget(m_devTable);
 
-    auto *dlRow = new QHBoxLayout;
-    m_btnSyncNow = new QPushButton(QStringLiteral("立即同步"));
-    m_btnSyncNow->setObjectName(QStringLiteral("PrimaryBtn"));
-    m_btnSyncNow->setToolTip(QStringLiteral("选中设备时只同步该设备；未选中时同步全部已配对在线设备"));
-    connect(m_btnSyncNow, &QPushButton::clicked, this, &SyncPage::onSyncNow);
-    m_btnRemoveDevice = new QPushButton(QStringLiteral("移除设备"));
-    connect(m_btnRemoveDevice, &QPushButton::clicked, this, &SyncPage::onRemoveDevice);
-    // 低频操作收纳进「更多」菜单，主流程只留同步/移除
-    auto *btnMore = new QToolButton;
-    btnMore->setText(QStringLiteral("更多 ▾"));
-    btnMore->setPopupMode(QToolButton::InstantPopup);
-    auto *moreMenu = new QMenu(btnMore);
+    // 自动同步频率的档位数值（itemData 无法在 .ui 中表达；0 = 仅手动）
+    m_cmbSyncInterval->setItemData(0, 10);
+    m_cmbSyncInterval->setItemData(1, 60);
+    m_cmbSyncInterval->setItemData(2, 300);
+    m_cmbSyncInterval->setItemData(3, 0);
+
+    // 低频操作收纳进「更多」菜单，主流程只留同步/移除（动作绑定槽函数，保留在代码中）
+    auto *moreMenu = new QMenu(ui->btnMore);
     moreMenu->addAction(QStringLiteral("设置别名…"), this, &SyncPage::onSetAlias);
     moreMenu->addAction(QStringLiteral("使用配对码配对…"), this, &SyncPage::onUsePairCode);
     moreMenu->addSeparator();
@@ -196,115 +195,28 @@ void SyncPage::buildUi()
     moreMenu->addAction(QStringLiteral("导入合并快照…"), this, &SyncPage::onImportSnapshot);
     moreMenu->addSeparator();
     moreMenu->addAction(QStringLiteral("清空所有配对"), this, &SyncPage::onClearAllDevices);
-    btnMore->setMenu(moreMenu);
-    auto *btnDevRefresh = new QPushButton(QStringLiteral("刷新"));
-    connect(btnDevRefresh, &QPushButton::clicked, this, &SyncPage::refreshDevices);
-    dlRow->addWidget(m_btnSyncNow);
-    dlRow->addWidget(m_btnRemoveDevice);
-    dlRow->addWidget(btnMore);
-    dlRow->addStretch(1);
-    dlRow->addWidget(btnDevRefresh);
-    dl->addLayout(dlRow);
+    ui->btnMore->setMenu(moreMenu);
 
-    // 配对请求横幅：对端发起配对时置顶提示，一键接受/忽略
-    m_pairBanner = new QWidget;
-    m_pairBanner->setVisible(false);
-    m_pairBanner->setStyleSheet(QStringLiteral(
-        "QWidget { background: rgba(76,139,245,0.14); border: 1px solid %1; border-radius: 6px; }")
-                                    .arg(kColorAccent));
-    auto *bannerLay = new QHBoxLayout(m_pairBanner);
-    bannerLay->setContentsMargins(10, 6, 10, 6);
-    m_pairBannerLbl = new QLabel;
-    m_pairBannerLbl->setWordWrap(true);
-    auto *btnAccept = new QPushButton(QStringLiteral("接受"));
-    btnAccept->setObjectName(QStringLiteral("PrimaryBtn"));
-    connect(btnAccept, &QPushButton::clicked, this, &SyncPage::onAcceptPair);
-    auto *btnIgnore = new QPushButton(QStringLiteral("忽略"));
-    connect(btnIgnore, &QPushButton::clicked, this, [this] {
+    // 服务端地址初值
+    m_serverEdit->setText(m_api ? m_api->baseUrl() : kDefaultServerUrl);
+
+    // ── 信号连接 ──
+    connect(ui->btnApplyServer, &QPushButton::clicked, this, [this] {
+        setServerUrl(m_serverEdit->text().trimmed());
+        refreshDevices();
+    });
+    connect(m_btnSyncNow, &QPushButton::clicked, this, &SyncPage::onSyncNow);
+    connect(m_btnRemoveDevice, &QPushButton::clicked, this, &SyncPage::onRemoveDevice);
+    connect(ui->btnRefreshDevices, &QPushButton::clicked, this, &SyncPage::refreshDevices);
+    connect(ui->btnAcceptPair, &QPushButton::clicked, this, &SyncPage::onAcceptPair);
+    connect(ui->btnIgnorePair, &QPushButton::clicked, this, [this] {
         if (!m_pairBannerId.isEmpty())
             m_notifiedPairReq.append(m_pairBannerId); // 本轮不再提醒
         m_pairBanner->setVisible(false);
     });
-    bannerLay->addWidget(m_pairBannerLbl, 1);
-    bannerLay->addWidget(btnAccept);
-    bannerLay->addWidget(btnIgnore);
-    dl->addWidget(m_pairBanner);
-
-    devLay->addWidget(devBox);
-
-    // 统计信息
-    auto *statsBox = new QGroupBox(QStringLiteral("同步统计"));
-    auto *statsLay = new QVBoxLayout(statsBox);
-    m_lblStats = new QLabel(QStringLiteral("选择设备查看统计"));
-    m_lblStats->setWordWrap(true);
-    statsLay->addWidget(m_lblStats);
-    devLay->addWidget(statsBox);
-
-    // 设备发现说明（一行灰字：用户无需关心端口细节）
-    auto *discoverHint = new QLabel(QStringLiteral(
-        "进入本页面即开启 UDP 广播发现；同一局域网的设备会自动出现在上表（离线设备不显示配对按钮）"));
-    discoverHint->setWordWrap(true);
-    discoverHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
-    devLay->addWidget(discoverHint);
-
-    tabs->addTab(devTab, QStringLiteral("设备"));
-
-    // ── 配置页 ──
-    auto *cfgTab = new QWidget;
-    auto *cfgLay = new QVBoxLayout(cfgTab);
-    auto *cfgBox = new QGroupBox(QStringLiteral("同步设置"));
-    auto *fl = new QFormLayout(cfgBox);
-    m_chkEnabled = new QCheckBox(QStringLiteral("启用局域网同步"));
-    m_chkHttp = new QCheckBox(QStringLiteral("启用 HTTP 同步"));
-    fl->addRow(m_chkEnabled);
-    fl->addRow(m_chkHttp);
-    m_chkHttp->setToolTip(QStringLiteral(
-        "服务端 HTTP 同步接口开关（配对传输走该通道），保持默认开启即可。\n"
-        "收件箱/任务/ActivityWatch 的同步范围在「设置 → 同步」中配置。"));
-    auto *syncRangeHint = new QLabel(QStringLiteral(
-        "同步范围（收件箱/任务/ActivityWatch）请在「设置 → 同步」中配置"));
-    syncRangeHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
-    syncRangeHint->setWordWrap(true);
-    fl->addRow(syncRangeHint);
-    fl->addRow(QStringLiteral("本机别名"), m_editAlias = new QLineEdit);
-    fl->addRow(QStringLiteral("监听端口"), m_editListenPort = new QLineEdit);
-    fl->addRow(QStringLiteral("UDP 端口"), m_editUdpPort = new QLineEdit);
-    // 自动同步频率：四档预设；0 = 仅手动（服务端 auto 循环跳过，只靠立即同步/事件推送）
-    m_cmbSyncInterval = new QComboBox;
-    m_cmbSyncInterval->addItem(QStringLiteral("实时（每 10 秒）"), 10);
-    m_cmbSyncInterval->addItem(QStringLiteral("标准（每 1 分钟）"), 60);
-    m_cmbSyncInterval->addItem(QStringLiteral("省电（每 5 分钟）"), 300);
-    m_cmbSyncInterval->addItem(QStringLiteral("仅手动"), 0);
-    m_cmbSyncInterval->setToolTip(QStringLiteral(
-        "已配对设备间自动双向同步的周期。PC 端建议「实时」；手机端建议「省电」。\n"
-        "本机数据改动后会自动即时推送，不必等到下个周期；「仅手动」只在使用「立即同步」时同步。"));
-    fl->addRow(QStringLiteral("自动同步频率"), m_cmbSyncInterval);
-    m_btnSaveConfig = new QPushButton(QStringLiteral("保存配置"));
-    m_btnSaveConfig->setObjectName(QStringLiteral("PrimaryBtn"));
     connect(m_btnSaveConfig, &QPushButton::clicked, this, &SyncPage::onSaveConfig);
-    fl->addRow(m_btnSaveConfig);
-    cfgLay->addWidget(cfgBox);
-    auto *cfgBtnRow = new QHBoxLayout;
-    auto *btnRefreshCfg = new QPushButton(QStringLiteral("刷新配置"));
-    connect(btnRefreshCfg, &QPushButton::clicked, this, &SyncPage::refreshSyncConfig);
-    cfgBtnRow->addWidget(btnRefreshCfg);
-    cfgBtnRow->addStretch(1);
-    cfgLay->addLayout(cfgBtnRow);
-    cfgLay->addStretch(1);
-    tabs->addTab(cfgTab, QStringLiteral("配置"));
-
-    // ── 日志页 ──
-    auto *logTab = new QWidget;
-    auto *logLay = new QVBoxLayout(logTab);
-    auto *logBox = new QGroupBox(QStringLiteral("同步日志"));
-    auto *ll = new QVBoxLayout(logBox);
-    m_log = new QPlainTextEdit;
-    m_log->setReadOnly(true);
-    m_log->setMaximumHeight(300);
-    ll->addWidget(m_log);
-    auto *logRow = new QHBoxLayout;
-    auto *btnRefreshLog = new QPushButton(QStringLiteral("刷新日志"));
-    connect(btnRefreshLog, &QPushButton::clicked, this, [this] {
+    connect(ui->btnRefreshConfig, &QPushButton::clicked, this, &SyncPage::refreshSyncConfig);
+    connect(ui->btnRefreshLogs, &QPushButton::clicked, this, [this] {
         if (!m_api) return;
         QNetworkReply *r = m_api->getSyncLogs();
         connect(r, &QNetworkReply::finished, this, [this, r] {
@@ -342,49 +254,11 @@ void SyncPage::buildUi()
                 .arg(detailCount ? QStringLiteral("，含传输明细 %1 条").arg(detailCount) : QString()));
         });
     });
-    m_btnClearLogs = new QPushButton(QStringLiteral("清空日志"));
     connect(m_btnClearLogs, &QPushButton::clicked, this, &SyncPage::onClearLogs);
-    logRow->addWidget(btnRefreshLog);
-    logRow->addWidget(m_btnClearLogs);
-    logRow->addStretch(1);
-    ll->addLayout(logRow);
-    logLay->addWidget(logBox, 1);
-    tabs->addTab(logTab, QStringLiteral("日志"));
-
-    // ── 回收站页 ──
-    auto *trashTab = new QWidget;
-    auto *trashLay = new QVBoxLayout(trashTab);
-    auto *trashBox = new QGroupBox(QStringLiteral("回收站（冲突/删除归档）"));
-    auto *tl = new QVBoxLayout(trashBox);
-    m_trashTable = new QTableWidget(0, 6);
-    m_trashTable->setHorizontalHeaderLabels({QStringLiteral("ID"), QStringLiteral("类型"),
-                                              QStringLiteral("逻辑键"), QStringLiteral("原因"),
-                                              QStringLiteral("来源设备"), QStringLiteral("归档时间")});
-    m_trashTable->verticalHeader()->setVisible(false);
-    m_trashTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_trashTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_trashTable->horizontalHeader()->setStretchLastSection(true);
-    tl->addWidget(m_trashTable);
-    auto *trashRow = new QHBoxLayout;
-    auto *btnRefreshTrash = new QPushButton(QStringLiteral("刷新"));
-    connect(btnRefreshTrash, &QPushButton::clicked, this, &SyncPage::refreshTrash);
-    m_btnRestoreTrash = new QPushButton(QStringLiteral("恢复选中"));
+    connect(ui->btnRefreshTrash, &QPushButton::clicked, this, &SyncPage::refreshTrash);
     connect(m_btnRestoreTrash, &QPushButton::clicked, this, &SyncPage::onRestoreTrashRow);
-    m_btnDeleteTrash = new QPushButton(QStringLiteral("删除选中"));
     connect(m_btnDeleteTrash, &QPushButton::clicked, this, &SyncPage::onDeleteTrashRow);
-    m_btnClearTrash = new QPushButton(QStringLiteral("清空回收站"));
     connect(m_btnClearTrash, &QPushButton::clicked, this, &SyncPage::onClearAllTrash);
-    trashRow->addWidget(btnRefreshTrash);
-    trashRow->addWidget(m_btnRestoreTrash);
-    trashRow->addWidget(m_btnDeleteTrash);
-    trashRow->addWidget(m_btnClearTrash);
-    trashRow->addStretch(1);
-    tl->addLayout(trashRow);
-    trashLay->addWidget(trashBox);
-    tabs->addTab(trashTab, QStringLiteral("回收站"));
-
-
-    root->addWidget(tabs, 1);
 
     // 底部状态栏
     connect(this, &SyncPage::logMessage, this, [this](const QString &line) {
