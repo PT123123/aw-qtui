@@ -96,6 +96,7 @@ add_executable(awqtui WIN32
     src/untaggedview.h
     src/daypage.cpp
     src/daypage.h
+    src/daypage.ui
     src/statschart.cpp
     src/statschart.h
     src/statspage.cpp

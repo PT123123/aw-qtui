@@ -1,0 +1,389 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- daypage.ui —— Day 视图布局（Qt Designer）
+     与 DayPage::buildUi() 的静态结构一一对应。注意：
+     1. 控件名保持唯一，主题 QSS 的 objectName 角色（ToolBtn/PrimaryBtn）在 buildUi() 统一映射；
+     2. QSplitter 子项拉伸经 <attribute name="stretch"> 声明（3,2）；
+     3. awqtui::TimelineWidget 经 customwidget 声明，setTimeRange 运行时处理；
+        UntaggedView 构造需 TagStore*，.ui 中 QScrollArea 留空、运行时 setWidget；
+     4. 表格表头文字/行为属性进 .ui，列宽与 Interactive 调整模式保留在 buildUi() -->
+<ui version="4.0">
+ <class>DayPage</class>
+ <widget class="QWidget" name="DayPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>980</width>
+    <height>680</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="rootLayout" stretch="0,0,1">
+   <property name="leftMargin">
+    <number>12</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>12</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   <property name="spacing">
+    <number>8</number>
+   </property>
+   <item>
+    <layout class="QHBoxLayout" name="row1">
+     <item>
+      <widget class="QPushButton" name="prevBtn">
+       <property name="text">
+        <string>◀</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="nextBtn">
+       <property name="text">
+        <string>▶</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="todayBtn">
+       <property name="text">
+        <string>Today</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="gap1">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeType">
+        <enum>QSizePolicy::Fixed</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>12</width>
+         <height>1</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="dateLabel"/>
+     </item>
+     <item>
+      <spacer name="row1Stretch">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="statusLabel"/>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="row2">
+     <item>
+      <widget class="QPushButton" name="selectToggle">
+       <property name="text">
+        <string>选择模式</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="selModeCombo">
+       <item>
+        <property name="text">
+         <string>Select all</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>Select only untagged</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>Show only untagged</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <spacer name="gap2">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeType">
+        <enum>QSizePolicy::Fixed</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>8</width>
+         <height>1</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="addTagBtn">
+       <property name="text">
+        <string>＋ Add tag</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="tagEditorBtn">
+       <property name="text">
+        <string>Tag editor</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="autoTagBtn">
+       <property name="text">
+        <string>自动标签</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="copyAutotagBtn">
+       <property name="text">
+        <string>复制 autotags</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="untaggedBtn">
+       <property name="text">
+        <string>未标记</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="awayBtn">
+       <property name="text">
+        <string>Tag away</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="timingBtn">
+       <property name="text">
+        <string>⏱ 计时</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="advSearchBtn">
+       <property name="text">
+        <string>高级搜索</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="row2Stretch">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="filterEdit">
+       <property name="maximumSize">
+        <size>
+         <width>420</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="placeholderText">
+        <string>Filter… group: / duration&gt;1m / start&gt;22:00 / -xxx / or / ? * / #"regex"</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QStackedWidget" name="stack">
+     <widget class="QWidget" name="dayPane">
+      <layout class="QVBoxLayout" name="dayLay" stretch="1">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <property name="spacing">
+        <number>6</number>
+       </property>
+       <item>
+        <widget class="QSplitter" name="split">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <widget class="awqtui::TimelineWidget" name="timeline"/>
+         <widget class="QTabWidget" name="bottomTabs">
+          <property name="minimumSize">
+           <size>
+            <width>0</width>
+            <height>120</height>
+           </size>
+          </property>
+          <widget class="QTableWidget" name="detailsTable">
+           <attribute name="title">
+            <string>Details</string>
+           </attribute>
+           <property name="columnCount">
+            <number>7</number>
+           </property>
+           <property name="selectionBehavior">
+            <enum>QAbstractItemView::SelectRows</enum>
+           </property>
+           <property name="selectionMode">
+            <enum>QAbstractItemView::ExtendedSelection</enum>
+           </property>
+           <property name="editTriggers">
+            <set>QAbstractItemView::NoEditTriggers</set>
+           </property>
+           <column>
+            <property name="text">
+             <string/>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Title</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Group</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Start</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>End</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Duration</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Notes</string>
+            </property>
+           </column>
+          </widget>
+          <widget class="QWidget" name="summaryPane">
+           <attribute name="title">
+            <string>Summary</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="summaryLay" stretch="1,0">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QTableWidget" name="summaryTable">
+              <property name="columnCount">
+               <number>4</number>
+              </property>
+              <property name="selectionBehavior">
+               <enum>QAbstractItemView::SelectRows</enum>
+              </property>
+              <property name="editTriggers">
+               <set>QAbstractItemView::NoEditTriggers</set>
+              </property>
+              <column>
+               <property name="text">
+                <string/>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Group</string>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Duration</string>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Count</string>
+               </property>
+              </column>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="bottomSummary"/>
+            </item>
+           </layout>
+          </widget>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QScrollArea" name="untaggedScroll">
+      <property name="widgetResizable">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>awqtui::TimelineWidget</class>
+   <extends>QWidget</extends>
+   <header>timelinewidget.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>
