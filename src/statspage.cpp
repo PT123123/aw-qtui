@@ -1,5 +1,6 @@
 // statspage.cpp
 #include "statspage.h"
+#include "ui_statspage.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -36,53 +37,31 @@ namespace awqtui {
 
 static const char *kStatTypeNames[] = {"Top 统计", "Day duration", "Attendance", "Custom"};
 
-StatsPage::StatsPage(ApiClient *api, TagStore *store, QWidget *parent)
-    : QWidget(parent), m_api(api), m_store(store)
+StatsPage::~StatsPage()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(14, 12, 14, 12);
-    root->setSpacing(10);
+    delete ui;
+}
 
-    // 顶部：范围 + 操作
-    auto *top = new QHBoxLayout;
-    m_fromEdit = new QDateEdit;
-    m_fromEdit->setCalendarPopup(true);
-    m_fromEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
-    m_toEdit = new QDateEdit;
-    m_toEdit->setCalendarPopup(true);
-    m_toEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
-    auto *weekBtn = new QPushButton(QStringLiteral("本周"));
-    weekBtn->setObjectName(QStringLiteral("ToolBtn"));
-    auto *monthBtn = new QPushButton(QStringLiteral("本月"));
-    monthBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_avgCheck = new QCheckBox(QStringLiteral("平均值"));
-    m_avgCheck->setChecked(true);
-    auto *refreshBtn = new QPushButton(QStringLiteral("刷新"));
-    refreshBtn->setObjectName(QStringLiteral("PrimaryBtn"));
-    auto *exportBtn = new QPushButton(QStringLiteral("导出 CSV"));
-    exportBtn->setObjectName(QStringLiteral("ToolBtn"));
-    auto *addTabBtn = new QPushButton(QStringLiteral("＋ 新建统计"));
-    addTabBtn->setObjectName(QStringLiteral("ToolBtn"));
-    top->addWidget(new QLabel(QStringLiteral("From")));
-    top->addWidget(m_fromEdit);
-    top->addWidget(new QLabel(QStringLiteral("To")));
-    top->addWidget(m_toEdit);
-    top->addWidget(weekBtn);
-    top->addWidget(monthBtn);
-    top->addWidget(m_avgCheck);
-    top->addStretch(1);
-    top->addWidget(addTabBtn);
-    top->addWidget(refreshBtn);
-    top->addWidget(exportBtn);
-    root->addLayout(top);
+void StatsPage::buildUi()
+{
+    // 静态布局来自 Qt Designer（statspage.ui -> ui_statspage.h）
+    ui = new Ui::StatsPage;
+    ui->setupUi(this);
 
-    m_tabs = new QTabWidget;
-    m_tabs->setTabsClosable(true);
-    root->addWidget(m_tabs, 1);
+    // 成员别名：业务逻辑沿用 m_* 指针
+    m_fromEdit = ui->fromEdit;
+    m_toEdit = ui->toEdit;
+    m_avgCheck = ui->avgCheck;
+    m_tabs = ui->tabs;
+    m_status = ui->status;
 
-    m_status = new QLabel;
+    // 主题样式角色（全局 QSS 按 objectName 选择器匹配；.ui 中名称保持唯一）
+    for (auto *b : {ui->weekBtn, ui->monthBtn, ui->addTabBtn, ui->exportBtn})
+        b->setObjectName(QStringLiteral("ToolBtn"));
+    ui->refreshBtn->setObjectName(QStringLiteral("PrimaryBtn"));
+
+    // 主题色相关样式（kColor* 随主题切换，无法烘焙进 .ui）
     m_status->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorMuted2));
-    root->addWidget(m_status);
 
     // 默认本周
     const QDate today = QDate::currentDate();
@@ -91,22 +70,22 @@ StatsPage::StatsPage(ApiClient *api, TagStore *store, QWidget *parent)
 
     connect(m_fromEdit, &QDateEdit::dateChanged, this, &StatsPage::onFromChanged);
     connect(m_toEdit, &QDateEdit::dateChanged, this, &StatsPage::onToChanged);
-    connect(weekBtn, &QPushButton::clicked, this, [this] {
+    connect(ui->weekBtn, &QPushButton::clicked, this, [this] {
         const QDate today = QDate::currentDate();
         m_fromEdit->setDate(today.addDays(-(today.dayOfWeek() - 1)));
         m_toEdit->setDate(today);
         refresh();
     });
-    connect(monthBtn, &QPushButton::clicked, this, [this] {
+    connect(ui->monthBtn, &QPushButton::clicked, this, [this] {
         const QDate today = QDate::currentDate();
         m_fromEdit->setDate(QDate(today.year(), today.month(), 1));
         m_toEdit->setDate(today);
         refresh();
     });
     connect(m_avgCheck, &QCheckBox::toggled, this, [this](bool) { refresh(); });
-    connect(refreshBtn, &QPushButton::clicked, this, &StatsPage::refresh);
-    connect(exportBtn, &QPushButton::clicked, this, &StatsPage::exportCsv);
-    connect(addTabBtn, &QPushButton::clicked, this, &StatsPage::onAddTab);
+    connect(ui->refreshBtn, &QPushButton::clicked, this, &StatsPage::refresh);
+    connect(ui->exportBtn, &QPushButton::clicked, this, &StatsPage::exportCsv);
+    connect(ui->addTabBtn, &QPushButton::clicked, this, &StatsPage::onAddTab);
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, &StatsPage::onCloseTab);
     connect(m_tabs, &QTabWidget::currentChanged, this, [this](int) {
         const int idx = m_tabs->currentIndex();
@@ -120,6 +99,12 @@ StatsPage::StatsPage(ApiClient *api, TagStore *store, QWidget *parent)
     // 默认两个 tab
     addTab(1, QStringLiteral("Day duration"));
     addTab(0, QStringLiteral("Top 统计"));
+}
+
+StatsPage::StatsPage(ApiClient *api, TagStore *store, QWidget *parent)
+    : QWidget(parent), m_api(api), m_store(store)
+{
+    buildUi();
     refresh();
 }
 
