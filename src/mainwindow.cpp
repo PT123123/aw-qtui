@@ -249,14 +249,7 @@ void MainWindow::buildUi()
     navLay->setContentsMargins(0, si(12), 0, si(12));
     navLay->setSpacing(si(2));
 
-    // 顶部应用图标
-    m_navIcon = new QLabel(QStringLiteral("🕐"));
-    m_navIcon->setAlignment(Qt::AlignCenter);
-    m_navIcon->setStyleSheet(scaleQss(QStringLiteral("font-size: 20px; padding: 4px 0 8px;")));
-    m_navIcon->setFixedSize(si(28), si(28));
-    navLay->addWidget(m_navIcon, 0, Qt::AlignCenter);
-
-    // 顶部分隔线
+    // 顶部分隔线（下方紧跟展开/收起切换按钮）
     auto *topSep = new QFrame;
     topSep->setFrameShape(QFrame::HLine);
     topSep->setStyleSheet(scaleQss(QStringLiteral("background: %1; max-height: 1px;").arg(kColorBorder)));
@@ -322,12 +315,10 @@ void MainWindow::buildUi()
     };
 
     // ---- 分组 1：Inbox ----
-    // 回收站收纳进「收件箱设置」页内子标签，侧边栏只保留设置入口
+    // 回收站与「收件箱设置」均收纳进「设置」页，侧边栏只保留收件箱入口
     NavSection inboxSec = makeSection(QStringLiteral("收件箱"), true);
     m_navInbox = makeNavBtn(glyph::Inbox, "收件箱");
-    m_navInboxSettings = makeNavBtn(glyph::Settings, "收件箱设置");
     inboxSec.layout->addWidget(m_navInbox);
-    inboxSec.layout->addWidget(m_navInboxSettings);
 
     // ---- 分组 2：任务 ----
     // 统计类视图合并为单个「专注统计」入口（页内子标签切换），减少侧边栏图标数量
@@ -370,7 +361,6 @@ void MainWindow::buildUi()
 
     // 连接信号
     connect(m_navInbox, &QPushButton::clicked, this, [this] { switchPage(PAGE_INBOX); });
-    connect(m_navInboxSettings, &QPushButton::clicked, this, [this] { switchPage(PAGE_INBOX_SETTINGS); });
     connect(m_navTodo, &QPushButton::clicked, this, [this] { switchPage(PAGE_TODO); });
     connect(m_navTimer, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_TIMER); });
     connect(m_navFocusStats, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_STATS); });
@@ -380,6 +370,16 @@ void MainWindow::buildUi()
     connect(m_navCloudBackup, &QPushButton::clicked, this, [this] { switchPage(PAGE_CLOUD_BACKUP); });
 
     navLay->addStretch(1);
+
+    // 底部固定区：分隔线 + 设置入口（现代应用惯例，全局操作置底）
+    auto *bottomSep = new QFrame;
+    bottomSep->setFrameShape(QFrame::HLine);
+    bottomSep->setStyleSheet(scaleQss(QStringLiteral("background: %1; max-height: 1px;").arg(kColorBorder)));
+    navLay->addWidget(bottomSep);
+    m_navSettings = makeNavBtn(glyph::Settings, "设置");
+    navLay->addWidget(m_navSettings);
+    connect(m_navSettings, &QPushButton::clicked, this, [this] { switchPage(PAGE_SETTINGS); });
+
     root->addWidget(nav);
 
     // ---- 页面堆栈 ----
@@ -445,6 +445,37 @@ void MainWindow::buildUi()
     syncLay->addWidget(m_syncTabs, 1);
     styleSubTabs(m_syncTabs);
 
+    // 设置容器页：收件箱设置 + 通用设置收进一个带子标签的页面，
+    // 侧边栏只在底部保留一个「设置」入口
+    QWidget *settingsPage = new QWidget;
+    auto *settingsLay = new QVBoxLayout(settingsPage);
+    settingsLay->setContentsMargins(0, 0, 0, 0);
+    m_settingsTabs = new QTabWidget;
+    m_settingsTabs->setDocumentMode(true);
+    m_settingsTabs->addTab(m_inboxSettings, QStringLiteral("收件箱设置"));
+
+    // 通用设置 Tab：主题 / 界面效果 / 快捷键 / 应用图标仍是模态对话框
+    QWidget *generalTab = new QWidget;
+    auto *generalLay = new QVBoxLayout(generalTab);
+    generalLay->addStretch(1);
+    auto *generalHint = new QLabel(QStringLiteral("主题、界面效果、快捷键与应用图标等全局设置在对话框中调整"));
+    generalHint->setAlignment(Qt::AlignCenter);
+    generalHint->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 13px;").arg(kColorFgMuted)));
+    generalLay->addWidget(generalHint);
+    auto *generalBtnLay = new QHBoxLayout;
+    generalBtnLay->addStretch(1);
+    auto *generalOpenBtn = new QPushButton(QStringLiteral("打开设置对话框"));
+    generalOpenBtn->setObjectName(QStringLiteral("PrimaryBtn"));
+    generalOpenBtn->setCursor(Qt::PointingHandCursor);
+    connect(generalOpenBtn, &QPushButton::clicked, this, &MainWindow::openSettings);
+    generalBtnLay->addWidget(generalOpenBtn);
+    generalBtnLay->addStretch(1);
+    generalLay->addLayout(generalBtnLay);
+    generalLay->addStretch(1);
+    m_settingsTabs->addTab(generalTab, QStringLiteral("通用设置"));
+    settingsLay->addWidget(m_settingsTabs, 1);
+    styleSubTabs(m_settingsTabs);
+
     // ActivityWatch 容器页：6 个视图收纳进一个带子标签的页面，
     // 侧边栏只保留一个「ActivityWatch」入口
     QWidget *awPage = new QWidget;
@@ -463,7 +494,7 @@ void MainWindow::buildUi()
 
     // 添加到堆栈（顺序必须与 switchPage 的索引一致）
     m_stack->addWidget(m_inbox);             // PAGE_INBOX = 0
-    m_stack->addWidget(m_inboxSettings);     // PAGE_INBOX_SETTINGS = 1（含回收站子标签）
+    m_stack->addWidget(settingsPage);        // PAGE_SETTINGS = 1（收件箱设置 + 通用设置子标签）
     m_stack->addWidget(m_todo);              // PAGE_TODO = 2
     m_stack->addWidget(m_timerPage);         // PAGE_FOCUS_TIMER = 3
     m_stack->addWidget(focusStatsPage);      // PAGE_FOCUS_STATS = 4（7 个统计视图子标签）
@@ -598,7 +629,7 @@ void MainWindow::switchPage(int index)
 
     // 更新导航按钮状态
     m_navInbox->setChecked(index == PAGE_INBOX);
-    m_navInboxSettings->setChecked(index == PAGE_INBOX_SETTINGS);
+    m_navSettings->setChecked(index == PAGE_SETTINGS);
     m_navTodo->setChecked(index == PAGE_TODO);
     m_navTimer->setChecked(index == PAGE_FOCUS_TIMER);
     m_navFocusStats->setChecked(index == PAGE_FOCUS_STATS);
@@ -785,9 +816,10 @@ void MainWindow::applyTheme(const QString &themeId)
     gTheme = t;
     applyThemeColors(*t);
     applyUiScale(); // 重建全局 QSS（按缩放）+ 缩放字体 + 导航 + inbox/todo 页面
-    styleSubTabs(m_focusTabs); // 专注统计子标签按新主题重建
-    styleSubTabs(m_awTabs);    // ActivityWatch 子标签按新主题重建
-    styleSubTabs(m_syncTabs);  // 同步子标签按新主题重建
+    styleSubTabs(m_focusTabs);    // 专注统计子标签按新主题重建
+    styleSubTabs(m_awTabs);       // ActivityWatch 子标签按新主题重建
+    styleSubTabs(m_syncTabs);     // 同步子标签按新主题重建
+    styleSubTabs(m_settingsTabs); // 设置子标签按新主题重建
 
     // 页面级内联样式按新主题重建
     if (m_activity)
@@ -904,7 +936,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     // 快捷键：1-9 切页，F5 刷新当前页
     switch (event->key()) {
     case Qt::Key_1: switchPage(PAGE_INBOX); return;
-    case Qt::Key_2: switchPage(PAGE_INBOX_SETTINGS); return;
+    case Qt::Key_2: switchPage(PAGE_SETTINGS); return;
     case Qt::Key_3: switchPage(PAGE_TODO); return;
     case Qt::Key_4: switchPage(PAGE_FOCUS_TIMER); return;
     case Qt::Key_5: switchPage(PAGE_FOCUS_STATS); return;

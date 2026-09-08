@@ -125,7 +125,7 @@ private:
     // 页面索引枚举
     enum {
         PAGE_INBOX = 0,
-        PAGE_INBOX_SETTINGS,
+        PAGE_SETTINGS,    // 设置：收件箱设置 + 通用设置（子标签容器）
         PAGE_TODO,
         PAGE_FOCUS_TIMER,
         PAGE_FOCUS_STATS, // 专注统计：7 个统计视图的子标签容器
@@ -159,8 +159,6 @@ private:
     QStackedWidget *m_stack = nullptr;
     // 左侧导航栏（缩放时按比例调整宽度）
     QWidget *m_nav = nullptr;
-    // 左侧导航：顶部应用图标
-    QLabel *m_navIcon = nullptr;
     // 左侧导航：展开/收起切换按钮；全部导航按钮与分组标题（用于窄栏/展开两种状态切换）
     QToolButton *m_navToggle = nullptr;
     QList<QPushButton *> m_navButtons;
@@ -174,7 +172,7 @@ private:
     QLabel *m_toast = nullptr;
     // 左侧导航按钮
     QPushButton *m_navInbox = nullptr;
-    QPushButton *m_navInboxSettings = nullptr;
+    QPushButton *m_navSettings = nullptr;
     QPushButton *m_navTodo = nullptr;
     QPushButton *m_navTimer = nullptr;
     QPushButton *m_navFocusStats = nullptr;
@@ -188,6 +186,8 @@ private:
     QTabWidget *m_awTabs = nullptr;
     // 同步容器页内部的子标签容器（局域网同步 / 同步详情共用一个导航入口）
     QTabWidget *m_syncTabs = nullptr;
+    // 设置容器页内部的子标签容器（收件箱设置 / 通用设置共用一个导航入口）
+    QTabWidget *m_settingsTabs = nullptr;
     // 子标签样式（随主题/缩放重建），专注统计与 ActivityWatch 容器共用
     void styleSubTabs(QTabWidget *tabs);
     // 专注模块页面指针（Todo 内部持有，这里也存一份供快捷键/刷新用）
