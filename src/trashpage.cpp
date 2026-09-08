@@ -1,5 +1,6 @@
 // trashpage.cpp —— 回收站实现
 #include "trashpage.h"
+#include "ui_trashpage.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -22,39 +23,35 @@ TrashPage::TrashPage(LocalStore *store, QWidget *parent)
     refresh();
 }
 
+TrashPage::~TrashPage()
+{
+    delete ui;
+}
+
 void TrashPage::buildUi()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(si(20), si(16), si(20), si(16));
-    root->setSpacing(si(10));
+    // 静态布局来自 Qt Designer（trashpage.ui -> ui_trashpage.h），
+    // .ui 中边距/间距为基准值，si() 缩放几何在此重设
+    ui = new Ui::TrashPage;
+    ui->setupUi(this);
 
-    auto *head = new QHBoxLayout;
-    auto *title = new QLabel(QStringLiteral("回收站"));
-    title->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: %2;")
-                             .arg(sp(16), QString::fromLatin1(kColorFg)));
-    head->addWidget(title);
-    m_countLabel = new QLabel;
-    m_countLabel->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
-                                    .arg(QString::fromLatin1(kColorFgMuted), sp(12)));
-    head->addWidget(m_countLabel);
-    head->addStretch(1);
-    m_restoreBtn = new QPushButton(QStringLiteral("恢复"));
-    m_restoreBtn->setCursor(Qt::PointingHandCursor);
-    m_restoreBtn->setEnabled(false);
-    head->addWidget(m_restoreBtn);
-    m_deleteBtn = new QPushButton(QStringLiteral("永久删除"));
+    ui->rootLayout->setContentsMargins(si(20), si(16), si(20), si(16));
+    ui->rootLayout->setSpacing(si(10));
+
+    // 成员别名：业务逻辑沿用 m_* 指针，静态布局归属 .ui 文件
+    m_list = ui->TrashList;
+    m_countLabel = ui->countLabel;
+    m_restoreBtn = ui->btnRestore;
+    m_deleteBtn = ui->btnDelete;
+    m_clearBtn = ui->btnClear;
+
+    for (auto *b : {m_restoreBtn, m_deleteBtn, m_clearBtn}) {
+        b->setCursor(Qt::PointingHandCursor);
+        b->setEnabled(false);
+    }
+    m_clearBtn->setEnabled(true);
+    // 主题样式角色（全局 QSS 按 objectName 选择器匹配危险按钮）
     m_deleteBtn->setObjectName(QStringLiteral("DangerBtn"));
-    m_deleteBtn->setCursor(Qt::PointingHandCursor);
-    m_deleteBtn->setEnabled(false);
-    head->addWidget(m_deleteBtn);
-    m_clearBtn = new QPushButton(QStringLiteral("清空回收站"));
-    m_clearBtn->setCursor(Qt::PointingHandCursor);
-    head->addWidget(m_clearBtn);
-    root->addLayout(head);
-
-    m_list = new QListWidget;
-    m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    root->addWidget(m_list, 1);
 
     connect(m_list, &QListWidget::itemSelectionChanged, this, [this] {
         const bool has = !m_list->selectedItems().isEmpty();
@@ -70,6 +67,11 @@ void TrashPage::buildUi()
 
 void TrashPage::applyStyle()
 {
+    // 标题/计数用 sp() 动态字号，需随缩放/主题重设（控件本体在 .ui 中）
+    ui->TrashTitle->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: %2;")
+                                      .arg(sp(16), QString::fromLatin1(kColorFg)));
+    ui->countLabel->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
+                                      .arg(QString::fromLatin1(kColorFgMuted), sp(12)));
     setStyleSheet(QString());
 }
 
