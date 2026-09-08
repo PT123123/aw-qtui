@@ -19,6 +19,9 @@ class QStackedWidget;
 class QTabWidget;
 class QTableWidget;
 
+// Qt Designer 布局（statspage.ui），全局命名空间
+namespace Ui { class StatsPage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -31,6 +34,7 @@ class StatsPage : public QWidget
     Q_OBJECT
 public:
     explicit StatsPage(ApiClient *api, TagStore *store, QWidget *parent = nullptr);
+    ~StatsPage() override;
     void refresh();
     // 按当前主题重建页面内联样式与图表（主题切换时调用）
     void applyTheme();
@@ -55,6 +59,9 @@ private:
     };
     void addTab(int type, const QString &title);
     void rebuildTab(TabData &tab);
+    // Qt Designer 生成的布局对象（statspage.ui -> ui_statspage.h）
+    Ui::StatsPage *ui = nullptr;
+    void buildUi();
     void fetchAllDays();
     void showEmptyState(const QString &msg);
     // 每日每应用秒数
