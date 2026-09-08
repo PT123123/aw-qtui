@@ -1,5 +1,6 @@
 // activitypage.cpp
 #include "activitypage.h"
+#include "ui_activitypage.h"
 
 #include "apiclient.h"
 #include "awdatastore.h"
@@ -22,20 +23,6 @@
 
 namespace awqtui {
 
-static QFrame *createCard(QWidget *parent = nullptr)
-{
-    auto *card = new QFrame(parent);
-    card->setObjectName(QStringLiteral("Card"));
-    return card;
-}
-
-static QLabel *createCardTitle(const QString &text, QWidget *parent = nullptr)
-{
-    auto *lbl = new QLabel(text, parent);
-    lbl->setObjectName(QStringLiteral("CardTitle"));
-    return lbl;
-}
-
 ActivityPage::ActivityPage(ApiClient *api, QWidget *parent)
     : QWidget(parent), m_api(api), m_dateStart(QDate::currentDate()), m_dateEnd(QDate::currentDate()),
       m_rangeLabel(QStringLiteral("Today"))
@@ -48,6 +35,11 @@ ActivityPage::ActivityPage(ApiClient *api, QWidget *parent)
     qDebug() << "[ActivityPage] buildUi done, calling reloadData...";
     reloadData();
     qDebug() << "[ActivityPage] ctor done";
+}
+
+ActivityPage::~ActivityPage()
+{
+    delete ui;
 }
 
 void ActivityPage::applyTheme()
@@ -100,285 +92,90 @@ void ActivityPage::applyTheme()
 
 void ActivityPage::buildUi()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(16, 12, 16, 12);
-    root->setSpacing(10);
+    // 静态布局来自 Qt Designer（activitypage.ui -> ui_activitypage.h）
+    ui = new Ui::ActivityPage;
+    ui->setupUi(this);
 
-    // ── 顶部工具栏 ──
-    auto *toolbar = new QHBoxLayout;
-    toolbar->setSpacing(8);
+    // ── 成员别名：业务逻辑沿用 m_* 指针，静态布局归属 .ui 文件 ──
+    m_prevBtn = ui->prevBtn;
+    m_dateLabel = ui->dateLabel;
+    m_nextBtn = ui->nextBtn;
+    m_todayBtn = ui->todayBtn;
+    m_chipToday = ui->chipToday;
+    m_chipYesterday = ui->chipYesterday;
+    m_chipLast7 = ui->chipLast7;
+    m_chipLast30 = ui->chipLast30;
+    m_chipAll = ui->chipAll;
+    m_hostLabel = ui->hostLabel;
+    m_activeLabel = ui->activeLabel;
+    m_hourlyBars = ui->hourlyBars;
+    m_tabs = ui->tabs;
+    m_topApps = ui->topApps;
+    m_topTitles = ui->topTitles;
+    m_topCats = ui->topCats;
+    m_catBars = ui->catBars;
+    m_catTree = ui->catTree;
+    m_donut = ui->donut;
+    m_winApps = ui->winApps;
+    m_winTitles = ui->winTitles;
+    m_topDomains = ui->topDomains;
+    m_topUrls = ui->topUrls;
+    m_editorFiles = ui->editorFiles;
+    m_trendPlaceholder = ui->trendPlaceholder;
+    m_trendApps = ui->trendApps;
+    m_trendCats = ui->trendCats;
+    m_trendDaily = ui->trendDaily;
 
-    m_prevBtn = new QPushButton(QStringLiteral("◀"));
+    // 主题样式角色（applyTheme 的 QSS 按 objectName 选择器匹配）
+    for (QFrame *card : {ui->barsCard, ui->appsCard, ui->titlesCard, ui->catsCard,
+                         ui->cbCard, ui->treeCard, ui->donutCard, ui->winAppsCard,
+                         ui->winTitlesCard, ui->domCard, ui->urlCard, ui->edCard,
+                         ui->trendPlaceholder})
+        card->setObjectName(QStringLiteral("Card"));
+    for (QLabel *title : {ui->barsTitle, ui->appsTitle, ui->titlesTitle, ui->catsTitle,
+                          ui->cbTitle, ui->treeTitle, ui->donutTitle, ui->winAppsTitle,
+                          ui->winTitlesTitle, ui->domTitle, ui->urlTitle, ui->edTitle,
+                          ui->tAppsTitle, ui->tCatsTitle, ui->tDailyTitle})
+        title->setObjectName(QStringLiteral("CardTitle"));
     m_prevBtn->setObjectName(QStringLiteral("NavArrow"));
-    m_dateLabel = new QLabel;
-    m_nextBtn = new QPushButton(QStringLiteral("▶"));
     m_nextBtn->setObjectName(QStringLiteral("NavArrow"));
-    m_todayBtn = new QPushButton(QStringLiteral("Today"));
     m_todayBtn->setObjectName(QStringLiteral("ToolBtn"));
+    m_chipToday->setObjectName(QStringLiteral("ChipBtn"));
+    m_chipYesterday->setObjectName(QStringLiteral("ChipBtn"));
+    m_chipLast7->setObjectName(QStringLiteral("ChipBtn"));
+    m_chipLast30->setObjectName(QStringLiteral("ChipBtn"));
+    m_chipAll->setObjectName(QStringLiteral("ChipBtn"));
+    m_hostLabel->setObjectName(QStringLiteral("ToolbarLabel"));
+    m_activeLabel->setObjectName(QStringLiteral("ToolbarLabel"));
+    ui->filtersBtn->setObjectName(QStringLiteral("ToolBtn"));
+    ui->refreshBtn->setObjectName(QStringLiteral("ToolBtn"));
+    ui->newViewBtn->setObjectName(QStringLiteral("ToolBtn"));
+    ui->phLabel->setObjectName(QStringLiteral("ToolbarLabel"));
 
+    // 图表参数（自定义方法，非 Q_PROPERTY，无法进 .ui）
+    m_topApps->setLabelWidth(130);
+    m_topTitles->setLabelWidth(170);
+    m_topCats->setLabelWidth(130);
+    m_catTree->setLabelWidth(160);
+    m_winApps->setLabelWidth(150);
+    m_winTitles->setLabelWidth(200);
+    m_topDomains->setLabelWidth(160);
+    m_topUrls->setLabelWidth(180);
+    m_editorFiles->setLabelWidth(260);
+    m_trendApps->setLabelWidth(150);
+    m_trendCats->setLabelWidth(150);
+    m_trendDaily->setLabelWidth(100);
+
+    // 信号连接
     connect(m_prevBtn, &QPushButton::clicked, this, &ActivityPage::onPrevDay);
     connect(m_nextBtn, &QPushButton::clicked, this, &ActivityPage::onNextDay);
     connect(m_todayBtn, &QPushButton::clicked, this, &ActivityPage::onToday);
-
-    toolbar->addWidget(m_prevBtn);
-    toolbar->addWidget(m_dateLabel);
-    toolbar->addWidget(m_nextBtn);
-    toolbar->addWidget(m_todayBtn);
-    toolbar->addSpacing(16);
-
-    // 日期 chips
-    m_chipToday = new QPushButton(QStringLiteral("Today"));
-    m_chipToday->setObjectName(QStringLiteral("ChipBtn"));
-    m_chipToday->setCheckable(true);
-    m_chipToday->setChecked(true);
-    m_chipYesterday = new QPushButton(QStringLiteral("Yesterday"));
-    m_chipYesterday->setObjectName(QStringLiteral("ChipBtn"));
-    m_chipYesterday->setCheckable(true);
-    m_chipLast7 = new QPushButton(QStringLiteral("Last 7 days"));
-    m_chipLast7->setObjectName(QStringLiteral("ChipBtn"));
-    m_chipLast7->setCheckable(true);
-    m_chipLast30 = new QPushButton(QStringLiteral("Last 30 days"));
-    m_chipLast30->setObjectName(QStringLiteral("ChipBtn"));
-    m_chipLast30->setCheckable(true);
-    m_chipAll = new QPushButton(QStringLiteral("All"));
-    m_chipAll->setObjectName(QStringLiteral("ChipBtn"));
-    m_chipAll->setCheckable(true);
-
     connect(m_chipToday, &QPushButton::clicked, this, &ActivityPage::onDateChipToday);
     connect(m_chipYesterday, &QPushButton::clicked, this, &ActivityPage::onDateChipYesterday);
     connect(m_chipLast7, &QPushButton::clicked, this, &ActivityPage::onDateChipLast7);
     connect(m_chipLast30, &QPushButton::clicked, this, &ActivityPage::onDateChipLast30);
     connect(m_chipAll, &QPushButton::clicked, this, &ActivityPage::onDateChipAll);
-
-    toolbar->addWidget(m_chipToday);
-    toolbar->addWidget(m_chipYesterday);
-    toolbar->addWidget(m_chipLast7);
-    toolbar->addWidget(m_chipLast30);
-    toolbar->addWidget(m_chipAll);
-    toolbar->addSpacing(16);
-
-    m_hostLabel = new QLabel;
-    m_hostLabel->setObjectName(QStringLiteral("ToolbarLabel"));
-    m_activeLabel = new QLabel;
-    m_activeLabel->setObjectName(QStringLiteral("ToolbarLabel"));
-    toolbar->addWidget(m_hostLabel);
-    toolbar->addSpacing(12);
-    toolbar->addWidget(m_activeLabel);
-    toolbar->addStretch(1);
-
-    auto *filtersBtn = new QPushButton(QStringLiteral("⚙ Filters"));
-    filtersBtn->setObjectName(QStringLiteral("ToolBtn"));
-    auto *refreshBtn = new QPushButton(QStringLiteral("↻ Refresh"));
-    refreshBtn->setObjectName(QStringLiteral("ToolBtn"));
-    connect(refreshBtn, &QPushButton::clicked, this, &ActivityPage::refresh);
-    auto *newViewBtn = new QPushButton(QStringLiteral("+ New view"));
-    newViewBtn->setObjectName(QStringLiteral("ToolBtn"));
-    toolbar->addWidget(filtersBtn);
-    toolbar->addWidget(refreshBtn);
-    toolbar->addWidget(newViewBtn);
-
-    root->addLayout(toolbar);
-
-    // ── 24 小时活跃柱状图 ──
-    auto *barsCard = createCard();
-    auto *barsLay = new QVBoxLayout(barsCard);
-    barsLay->setContentsMargins(12, 8, 12, 8);
-    barsLay->addWidget(createCardTitle(QStringLiteral("Activity over time")));
-    m_hourlyBars = new HourlyActivityBars;
-    barsLay->addWidget(m_hourlyBars);
-    root->addWidget(barsCard);
-
-    // ── 标签页 ──
-    m_tabs = new QTabWidget;
-
-    // === Summary 页 ===
-    auto *summaryWidget = new QWidget;
-    auto *summaryRoot = new QVBoxLayout(summaryWidget);
-    summaryRoot->setContentsMargins(10, 12, 10, 10);
-    summaryRoot->setSpacing(10);
-
-    // 上排：三个 Top
-    auto *topRow = new QHBoxLayout;
-    topRow->setSpacing(10);
-
-    auto *appsCard = createCard();
-    auto *appsLay = new QVBoxLayout(appsCard);
-    appsLay->setContentsMargins(4, 0, 8, 8);
-    appsLay->addWidget(createCardTitle(QStringLiteral("Top Applications")));
-    m_topApps = new HorizontalBarChart;
-    m_topApps->setLabelWidth(130);
-    appsLay->addWidget(m_topApps, 1);
-    topRow->addWidget(appsCard, 1);
-
-    auto *titlesCard = createCard();
-    auto *titlesLay = new QVBoxLayout(titlesCard);
-    titlesLay->setContentsMargins(4, 0, 8, 8);
-    titlesLay->addWidget(createCardTitle(QStringLiteral("Top Window Titles")));
-    m_topTitles = new HorizontalBarChart;
-    m_topTitles->setLabelWidth(170);
-    titlesLay->addWidget(m_topTitles, 1);
-    topRow->addWidget(titlesCard, 1);
-
-    auto *catsCard = createCard();
-    auto *catsLay = new QVBoxLayout(catsCard);
-    catsLay->setContentsMargins(4, 0, 8, 8);
-    catsLay->addWidget(createCardTitle(QStringLiteral("Top Categories")));
-    m_topCats = new HorizontalBarChart;
-    m_topCats->setLabelWidth(130);
-    catsLay->addWidget(m_topCats, 1);
-    topRow->addWidget(catsCard, 1);
-
-    summaryRoot->addLayout(topRow);
-
-    // 下排：CategoryBars + CategoryTree + Donut
-    auto *bottomRow = new QHBoxLayout;
-    bottomRow->setSpacing(10);
-
-    auto *cbCard = createCard();
-    auto *cbLay = new QVBoxLayout(cbCard);
-    cbLay->setContentsMargins(4, 0, 8, 8);
-    cbLay->addWidget(createCardTitle(QStringLiteral("Timeline (Barchart)")));
-    m_catBars = new CategoryBars;
-    cbLay->addWidget(m_catBars, 1);
-    bottomRow->addWidget(cbCard, 2);
-
-    auto *treeCard = createCard();
-    auto *treeLay = new QVBoxLayout(treeCard);
-    treeLay->setContentsMargins(4, 0, 8, 8);
-    treeLay->addWidget(createCardTitle(QStringLiteral("Category Tree")));
-    m_catTree = new HorizontalBarChart;
-    m_catTree->setLabelWidth(160);
-    treeLay->addWidget(m_catTree, 1);
-    bottomRow->addWidget(treeCard, 1);
-
-    auto *donutCard = createCard();
-    auto *donutLay = new QVBoxLayout(donutCard);
-    donutLay->setContentsMargins(4, 0, 8, 8);
-    donutLay->addWidget(createCardTitle(QStringLiteral("Category Sunburst")));
-    m_donut = new DonutChart;
-    donutLay->addWidget(m_donut, 1);
-    bottomRow->addWidget(donutCard, 1);
-
-    summaryRoot->addLayout(bottomRow, 1);
-    m_tabs->addTab(summaryWidget, QStringLiteral("Summary"));
-
-    // === Window 页 ===
-    auto *winWidget = new QWidget;
-    auto *winRoot = new QHBoxLayout(winWidget);
-    winRoot->setContentsMargins(10, 12, 10, 10);
-    winRoot->setSpacing(10);
-
-    auto *winAppsCard = createCard();
-    auto *winAppsLay = new QVBoxLayout(winAppsCard);
-    winAppsLay->setContentsMargins(4, 0, 8, 8);
-    winAppsLay->addWidget(createCardTitle(QStringLiteral("Top Applications")));
-    m_winApps = new HorizontalBarChart;
-    m_winApps->setLabelWidth(150);
-    winAppsLay->addWidget(m_winApps, 1);
-    winRoot->addWidget(winAppsCard, 1);
-
-    auto *winTitlesCard = createCard();
-    auto *winTitlesLay = new QVBoxLayout(winTitlesCard);
-    winTitlesLay->setContentsMargins(4, 0, 8, 8);
-    winTitlesLay->addWidget(createCardTitle(QStringLiteral("Top Window Titles")));
-    m_winTitles = new HorizontalBarChart;
-    m_winTitles->setLabelWidth(200);
-    winTitlesLay->addWidget(m_winTitles, 1);
-    winRoot->addWidget(winTitlesCard, 1);
-
-    m_tabs->addTab(winWidget, QStringLiteral("Window"));
-
-    // === Browser 页 ===
-    auto *browserWidget = new QWidget;
-    auto *browserRoot = new QHBoxLayout(browserWidget);
-    browserRoot->setContentsMargins(10, 12, 10, 10);
-    browserRoot->setSpacing(10);
-
-    auto *domCard = createCard();
-    auto *domLay = new QVBoxLayout(domCard);
-    domLay->setContentsMargins(4, 0, 8, 8);
-    domLay->addWidget(createCardTitle(QStringLiteral("Top Domains")));
-    m_topDomains = new HorizontalBarChart;
-    m_topDomains->setLabelWidth(160);
-    domLay->addWidget(m_topDomains, 1);
-    browserRoot->addWidget(domCard, 1);
-
-    auto *urlCard = createCard();
-    auto *urlLay = new QVBoxLayout(urlCard);
-    urlLay->setContentsMargins(4, 0, 8, 8);
-    urlLay->addWidget(createCardTitle(QStringLiteral("Top URLs")));
-    m_topUrls = new HorizontalBarChart;
-    m_topUrls->setLabelWidth(180);
-    urlLay->addWidget(m_topUrls, 1);
-    browserRoot->addWidget(urlCard, 1);
-
-    m_tabs->addTab(browserWidget, QStringLiteral("Browser"));
-
-    // === Editor 页 ===
-    auto *editorWidget = new QWidget;
-    auto *editorRoot = new QVBoxLayout(editorWidget);
-    editorRoot->setContentsMargins(10, 12, 10, 10);
-
-    auto *edCard = createCard();
-    auto *edLay = new QVBoxLayout(edCard);
-    edLay->setContentsMargins(4, 0, 8, 8);
-    edLay->addWidget(createCardTitle(QStringLiteral("Top Editor Files")));
-    m_editorFiles = new HorizontalBarChart;
-    m_editorFiles->setLabelWidth(260);
-    edLay->addWidget(m_editorFiles, 1);
-    editorRoot->addWidget(edCard, 1);
-
-    m_tabs->addTab(editorWidget, QStringLiteral("Editor"));
-
-    // === Trends 页（多日聚合） ===
-    auto *trendsWidget = new QWidget;
-    auto *trendsRoot = new QVBoxLayout(trendsWidget);
-    trendsRoot->setContentsMargins(10, 12, 10, 10);
-    trendsRoot->setSpacing(10);
-
-    // 占位符（无数据时显示）
-    m_trendPlaceholder = createCard();
-    auto *phLay = new QVBoxLayout(m_trendPlaceholder);
-    phLay->setContentsMargins(20, 20, 20, 20);
-    auto *phLabel = new QLabel(QStringLiteral("Select a date range to view trends\n(Today / Yesterday / Last 7 days / Last 30 days / All)"));
-    phLabel->setObjectName(QStringLiteral("ToolbarLabel"));
-    phLabel->setAlignment(Qt::AlignCenter);
-    phLay->addWidget(phLabel);
-    trendsRoot->addWidget(m_trendPlaceholder);
-
-    // Top Applications (multi-day aggregate)
-    auto *tAppsCard = createCard();
-    auto *tAppsLay = new QVBoxLayout(tAppsCard);
-    tAppsLay->setContentsMargins(4, 0, 8, 8);
-    tAppsLay->addWidget(createCardTitle(QStringLiteral("Top Applications (Trend)")));
-    m_trendApps = new HorizontalBarChart;
-    m_trendApps->setLabelWidth(150);
-    tAppsLay->addWidget(m_trendApps, 1);
-    trendsRoot->addWidget(tAppsCard, 1);
-
-    // Top Categories (multi-day aggregate)
-    auto *tCatsCard = createCard();
-    auto *tCatsLay = new QVBoxLayout(tCatsCard);
-    tCatsLay->setContentsMargins(4, 0, 8, 8);
-    tCatsLay->addWidget(createCardTitle(QStringLiteral("Top Categories (Trend)")));
-    m_trendCats = new HorizontalBarChart;
-    m_trendCats->setLabelWidth(150);
-    tCatsLay->addWidget(m_trendCats, 1);
-    trendsRoot->addWidget(tCatsCard, 1);
-
-    // Daily breakdown
-    auto *tDailyCard = createCard();
-    auto *tDailyLay = new QVBoxLayout(tDailyCard);
-    tDailyLay->setContentsMargins(4, 0, 8, 8);
-    tDailyLay->addWidget(createCardTitle(QStringLiteral("Daily Activity")));
-    m_trendDaily = new HorizontalBarChart;
-    m_trendDaily->setLabelWidth(100);
-    tDailyLay->addWidget(m_trendDaily, 1);
-    trendsRoot->addWidget(tDailyCard, 1);
-
-    m_tabs->addTab(trendsWidget, QStringLiteral("Trends"));
-
-    root->addWidget(m_tabs, 1);
+    connect(ui->refreshBtn, &QPushButton::clicked, this, &ActivityPage::refresh);
 }
 
 void ActivityPage::setDate(const QDate &date)
