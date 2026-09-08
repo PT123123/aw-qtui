@@ -1,0 +1,568 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- todopage.ui —— Todo 页布局（Qt Designer）
+     与 TodoPage::buildUi() 的静态结构一一对应。注意：
+     1. 边距/间距/固定宽度为基准值（si() 缩放几何在 buildUi() 中运行时重设）；
+     2. sortBox/dPriority/dRecur 的条目 userData、清单按钮（动态重建）、信号连接仍在 todopage.cpp -->
+<ui version="4.0">
+ <class>TodoPage</class>
+ <widget class="QWidget" name="TodoPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>980</width>
+    <height>640</height>
+   </rect>
+  </property>
+  <layout class="QHBoxLayout" name="rootLayout" stretch="0,1">
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   <item>
+    <widget class="QWidget" name="TodoSidebar" native="true">
+     <layout class="QVBoxLayout" name="sidebarLay">
+      <property name="leftMargin">
+       <number>8</number>
+      </property>
+      <property name="topMargin">
+       <number>14</number>
+      </property>
+      <property name="rightMargin">
+       <number>8</number>
+      </property>
+      <property name="bottomMargin">
+       <number>12</number>
+      </property>
+      <property name="spacing">
+       <number>4</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="TodoBrand">
+        <property name="text">
+         <string>任务</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="btnInbox">
+        <property name="text">
+         <string>📥 收集箱</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+        <property name="sizePolicy" stdset="0">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="btnToday">
+        <property name="text">
+         <string>📅 今天</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+        <property name="sizePolicy" stdset="0">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="btnNext7">
+        <property name="text">
+         <string>📆 最近 7 天</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+        <property name="sizePolicy" stdset="0">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="btnAll">
+        <property name="text">
+         <string>☰ 全部</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+        <property name="sizePolicy" stdset="0">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="listTitle">
+        <property name="text">
+         <string>清单</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="listsBox" native="true">
+        <layout class="QVBoxLayout" name="listsLay">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <property name="spacing">
+          <number>2</number>
+         </property>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <spacer name="sidebarStretch">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>40</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="newListBtn">
+        <property name="text">
+         <string>＋ 新建清单</string>
+        </property>
+        <property name="cursor">
+         <cursorShape>PointingHandCursor</cursorShape>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="taskView" native="true">
+     <layout class="QHBoxLayout" name="taskViewLay" stretch="1,0">
+      <property name="spacing">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QWidget" name="centerHost" native="true">
+        <layout class="QVBoxLayout" name="centerLay">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>12</number>
+         </property>
+         <property name="rightMargin">
+          <number>12</number>
+         </property>
+         <property name="bottomMargin">
+          <number>12</number>
+         </property>
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QWidget" name="TodoSurface" native="true">
+           <layout class="QVBoxLayout" name="surfaceLay" stretch="0,0,1,0,0">
+            <property name="leftMargin">
+             <number>16</number>
+            </property>
+            <property name="topMargin">
+             <number>16</number>
+            </property>
+            <property name="rightMargin">
+             <number>16</number>
+            </property>
+            <property name="bottomMargin">
+             <number>14</number>
+            </property>
+            <property name="spacing">
+             <number>10</number>
+            </property>
+            <item>
+             <layout class="QHBoxLayout" name="head">
+              <item>
+               <widget class="QLabel" name="TodoViewTitle"/>
+              </item>
+              <item>
+               <spacer name="headStretch">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+              <item>
+               <widget class="QComboBox" name="sortBox">
+                <property name="toolTip">
+                 <string>排序方式</string>
+                </property>
+                <item>
+                 <property name="text">
+                  <string>默认排序</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>最近添加</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>倒序</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>按优先级</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>按截止日期</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="TodoViewCount"/>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="TodoQuickAdd">
+              <property name="clearButtonEnabled">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QListWidget" name="TodoList">
+              <property name="selectionMode">
+               <enum>QAbstractItemView::NoSelection</enum>
+              </property>
+              <property name="focusPolicy">
+               <enum>Qt::NoFocus</enum>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="completedBtn">
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+              <property name="cursor">
+               <cursorShape>PointingHandCursor</cursorShape>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="TodoProgress"/>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="TodoDetail" native="true">
+        <layout class="QVBoxLayout" name="detailLay" stretch="1,1">
+         <property name="leftMargin">
+          <number>14</number>
+         </property>
+         <property name="topMargin">
+          <number>14</number>
+         </property>
+         <property name="rightMargin">
+          <number>14</number>
+         </property>
+         <property name="bottomMargin">
+          <number>14</number>
+         </property>
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="TodoDetailEmpty">
+           <property name="text">
+            <string>选择任务以查看 / 编辑</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="detailBody" native="true">
+           <layout class="QVBoxLayout" name="bodyLay">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <property name="spacing">
+             <number>8</number>
+            </property>
+            <item>
+             <widget class="QLineEdit" name="TodoTitleEdit"/>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="dDone">
+              <property name="text">
+               <string>已完成</string>
+              </property>
+              <property name="cursor">
+               <cursorShape>PointingHandCursor</cursorShape>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <layout class="QGridLayout" name="form">
+              <property name="horizontalSpacing">
+               <number>8</number>
+              </property>
+              <property name="verticalSpacing">
+               <number>6</number>
+              </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="lblList">
+                <property name="text">
+                 <string>清单</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QComboBox" name="dList"/>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="lblPriority">
+                <property name="text">
+                 <string>优先级</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QComboBox" name="dPriority">
+                <item>
+                 <property name="text">
+                  <string>无优先级</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>低</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>中</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>高</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="lblDue">
+                <property name="text">
+                 <string>截止</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <layout class="QHBoxLayout" name="dueRow" stretch="0,1">
+                <property name="spacing">
+                 <number>4</number>
+                </property>
+                <item>
+                 <widget class="QCheckBox" name="dHasDue">
+                  <property name="toolTip">
+                   <string>设置截止日期</string>
+                  </property>
+                  <property name="cursor">
+                   <cursorShape>PointingHandCursor</cursorShape>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QDateEdit" name="dDue">
+                  <property name="calendarPopup">
+                   <bool>true</bool>
+                  </property>
+                  <property name="displayFormat">
+                   <string>yyyy-MM-dd</string>
+                  </property>
+                  <property name="enabled">
+                   <bool>false</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="lblRecur">
+                <property name="text">
+                 <string>重复</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QComboBox" name="dRecur">
+                <item>
+                 <property name="text">
+                  <string>不重复</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>每天</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>每个工作日</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>每周</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>每月</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="lblTags">
+                <property name="text">
+                 <string>标签</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QLineEdit" name="dTags">
+                <property name="placeholderText">
+                 <string>逗号分隔</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QLabel" name="notesLabel">
+              <property name="text">
+               <string>备注</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPlainTextEdit" name="dNotes">
+              <property name="placeholderText">
+               <string>添加备注…</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="subLabel">
+              <property name="text">
+               <string>子任务</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QListWidget" name="TodoSubs">
+              <property name="selectionMode">
+               <enum>QAbstractItemView::NoSelection</enum>
+              </property>
+              <property name="focusPolicy">
+               <enum>Qt::NoFocus</enum>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="dSubAdd">
+              <property name="placeholderText">
+               <string>添加子任务…</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="bodyStretch">
+              <property name="orientation">
+               <enum>Qt::Vertical</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>8</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="dDelete">
+              <property name="text">
+               <string>删除任务</string>
+              </property>
+              <property name="cursor">
+               <cursorShape>PointingHandCursor</cursorShape>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

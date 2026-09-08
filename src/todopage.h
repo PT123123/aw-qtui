@@ -26,6 +26,9 @@ class QTimer;
 class QToolButton;
 class QVBoxLayout;
 
+// Qt Designer 布局（todopage.ui），全局命名空间
+namespace Ui { class TodoPage; }
+
 namespace awqtui {
 
 class FocusSource;
@@ -60,6 +63,7 @@ public:
     enum class SortMode { Default = 0, NewestFirst = 1, Reverse = 2, ByPriority = 3, ByDue = 4 };
 
     explicit TodoPage(TodoSource *source, QWidget *parent = nullptr);
+    ~TodoPage() override;
     void refresh();
     void applyUiScale();
 
@@ -76,6 +80,8 @@ private slots:
 private:
     enum ViewKind { ViewInbox, ViewToday, ViewNext7, ViewAll, ViewList };
 
+    // Qt Designer 生成的布局对象（todopage.ui -> ui_todopage.h）
+    Ui::TodoPage *ui = nullptr;
     void buildUi();
     void applyPageStyles();
     void rebuildSidebar();

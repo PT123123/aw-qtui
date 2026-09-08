@@ -1,5 +1,6 @@
 // todopage.cpp —— Todo 页实现（参照 TickTick / Super Productivity）
 #include "todopage.h"
+#include "ui_todopage.h"
 
 #include "appsettings.h"
 #include "theme.h"
@@ -199,6 +200,11 @@ TodoPage::TodoPage(TodoSource *source, QWidget *parent)
     m_source->load();
 }
 
+TodoPage::~TodoPage()
+{
+    delete ui;
+}
+
 void TodoPage::refresh()
 {
     onDataChanged();
@@ -217,288 +223,156 @@ void TodoPage::applyUiScale()
 
 void TodoPage::buildUi()
 {
-    auto *root = new QHBoxLayout(this);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(0);
+    // 静态布局来自 Qt Designer（todopage.ui -> ui_todopage.h），
+    // .ui 中的边距/间距为基准值，si() 缩放几何在此重设
+    ui = new Ui::TodoPage;
+    ui->setupUi(this);
 
-    // ── 左侧导航 ──
-    m_sidebar = new QWidget;
-    m_sidebar->setObjectName(QStringLiteral("TodoSidebar"));
-    m_sidebar->setFixedWidth(si(180));
-    auto *sl = new QVBoxLayout(m_sidebar);
-    sl->setContentsMargins(si(8), si(14), si(8), si(12));
-    sl->setSpacing(si(4));
+    // ── 运行时缩放几何（随 UI 缩放变化，无法烘焙进 .ui） ──
+    ui->TodoSidebar->setFixedWidth(si(180));
+    ui->TodoDetail->setFixedWidth(si(280));
+    ui->sidebarLay->setContentsMargins(si(8), si(14), si(8), si(12));
+    ui->sidebarLay->setSpacing(si(4));
+    ui->listsLay->setSpacing(si(2));
+    ui->centerLay->setContentsMargins(0, si(12), si(12), si(12));
+    ui->surfaceLay->setContentsMargins(si(16), si(16), si(16), si(14));
+    ui->surfaceLay->setSpacing(si(10));
+    ui->detailLay->setContentsMargins(si(14), si(14), si(14), si(14));
+    ui->detailLay->setSpacing(si(8));
+    ui->bodyLay->setSpacing(si(8));
+    ui->form->setHorizontalSpacing(si(8));
+    ui->form->setVerticalSpacing(si(6));
+    ui->dueRow->setSpacing(si(4));
+    ui->dNotes->setMinimumHeight(si(56));
+    ui->TodoSubs->setFixedHeight(si(120));
 
-    auto *brand = new QLabel(QStringLiteral("任务"));
-    brand->setObjectName(QStringLiteral("TodoBrand"));
-    sl->addWidget(brand);
+    // ── 成员别名：业务逻辑沿用 m_* 指针，静态布局归属 .ui 文件 ──
+    m_sidebar = ui->TodoSidebar;
+    m_listsBox = ui->listsBox;
+    m_listsLay = ui->listsLay;
+    m_newListBtn = ui->newListBtn;
+    m_surface = ui->TodoSurface;
+    m_viewTitle = ui->TodoViewTitle;
+    m_viewCount = ui->TodoViewCount;
+    m_quickAdd = ui->TodoQuickAdd;
+    m_list = ui->TodoList;
+    m_completedBtn = ui->completedBtn;
+    m_progress = ui->TodoProgress;
+    m_detailPanel = ui->TodoDetail;
+    m_detailEmpty = ui->TodoDetailEmpty;
+    m_detailBody = ui->detailBody;
+    m_dTitle = ui->TodoTitleEdit;
+    m_dDone = ui->dDone;
+    m_dList = ui->dList;
+    m_dPriority = ui->dPriority;
+    m_dHasDue = ui->dHasDue;
+    m_dDue = ui->dDue;
+    m_dRecur = ui->dRecur;
+    m_dTags = ui->dTags;
+    m_dNotes = ui->dNotes;
+    m_dSubs = ui->TodoSubs;
+    m_dSubAdd = ui->dSubAdd;
+    m_dDelete = ui->dDelete;
 
-    auto addViewBtn = [this, &sl](const QString &text, ViewKind k) {
-        auto *b = new QToolButton;
-        b->setText(text);
-        b->setCheckable(true);
+    // ── 侧栏视图按钮（objectName 供 applyPageStyles 匹配） ──
+    m_viewBtns = {ui->btnInbox, ui->btnToday, ui->btnNext7, ui->btnAll};
+    for (auto *b : m_viewBtns)
         b->setObjectName(QStringLiteral("TodoSideBtn"));
-        b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        connect(b, &QToolButton::clicked, this, [this, k] { selectView(k); });
-        sl->addWidget(b);
-        m_viewBtns.append(b);
-    };
-    addViewBtn(QStringLiteral("📥 收集箱"), ViewInbox);
-    addViewBtn(QStringLiteral("📅 今天"), ViewToday);
-    addViewBtn(QStringLiteral("📆 最近 7 天"), ViewNext7);
-    addViewBtn(QStringLiteral("☰ 全部"), ViewAll);
-
-    auto *listTitle = new QLabel(QStringLiteral("清单"));
-    listTitle->setObjectName(QStringLiteral("TodoSection"));
-    sl->addWidget(listTitle);
-
-    m_listsBox = new QWidget;
-    m_listsLay = new QVBoxLayout(m_listsBox);
-    m_listsLay->setContentsMargins(0, 0, 0, 0);
-    m_listsLay->setSpacing(si(2));
-    sl->addWidget(m_listsBox);
-
-    sl->addStretch(1);
-
-    m_newListBtn = new QPushButton(QStringLiteral("＋ 新建清单"));
-    m_newListBtn->setObjectName(QStringLiteral("TodoNewList"));
-    m_newListBtn->setCursor(Qt::PointingHandCursor);
+    connect(ui->btnInbox, &QToolButton::clicked, this, [this] { selectView(ViewInbox); });
+    connect(ui->btnToday, &QToolButton::clicked, this, [this] { selectView(ViewToday); });
+    connect(ui->btnNext7, &QToolButton::clicked, this, [this] { selectView(ViewNext7); });
+    connect(ui->btnAll, &QToolButton::clicked, this, [this] { selectView(ViewAll); });
     connect(m_newListBtn, &QPushButton::clicked, this, &TodoPage::onNewList);
-    sl->addWidget(m_newListBtn);
 
-    root->addWidget(m_sidebar);
+    // 字段标签 objectName（applyPageStyles 按 TodoFieldLabel findChildren 匹配）
+    for (QLabel *l : {ui->lblList, ui->lblPriority, ui->lblDue, ui->lblRecur,
+                      ui->lblTags, ui->notesLabel, ui->subLabel})
+        l->setObjectName(QStringLiteral("TodoFieldLabel"));
 
-    // ── 中间任务列表（浮动表面卡片：材质背景 + 投影 + 圆角）──
-    m_surface = new QWidget;
-    m_surface->setObjectName(QStringLiteral("TodoSurface"));
-    auto *ll = new QVBoxLayout(m_surface);
-    ll->setContentsMargins(si(16), si(16), si(16), si(14));
-    ll->setSpacing(si(10));
-
-    auto *head = new QHBoxLayout;
-    m_viewTitle = new QLabel;
-    m_viewTitle->setObjectName(QStringLiteral("TodoViewTitle"));
-    m_viewCount = new QLabel;
-    m_viewCount->setObjectName(QStringLiteral("TodoViewCount"));
-    head->addWidget(m_viewTitle);
-    head->addStretch(1);
-    // 排序模式（对齐 Android ⋮ 排序子菜单；选择持久化到 awqtui.ini）
-    m_sortBox = new QComboBox;
-    m_sortBox->setToolTip(QStringLiteral("排序方式"));
-    m_sortBox->addItem(QStringLiteral("默认排序"), static_cast<int>(SortMode::Default));
-    m_sortBox->addItem(QStringLiteral("最近添加"), static_cast<int>(SortMode::NewestFirst));
-    m_sortBox->addItem(QStringLiteral("倒序"), static_cast<int>(SortMode::Reverse));
-    m_sortBox->addItem(QStringLiteral("按优先级"), static_cast<int>(SortMode::ByPriority));
-    m_sortBox->addItem(QStringLiteral("按截止日期"), static_cast<int>(SortMode::ByDue));
+    // ── 排序模式（对齐 Android ⋮ 排序子菜单；选择持久化到 awqtui.ini） ──
+    m_sortBox = ui->sortBox;
+    m_sortBox->setItemData(0, static_cast<int>(SortMode::Default));
+    m_sortBox->setItemData(1, static_cast<int>(SortMode::NewestFirst));
+    m_sortBox->setItemData(2, static_cast<int>(SortMode::Reverse));
+    m_sortBox->setItemData(3, static_cast<int>(SortMode::ByPriority));
+    m_sortBox->setItemData(4, static_cast<int>(SortMode::ByDue));
     m_sort = static_cast<SortMode>(loadTodoSortMode());
+    // 恢复持久化选择（放在 connect 之前，避免触发保存与重建）
+    const int sortIdx = m_sortBox->findData(static_cast<int>(m_sort));
+    if (sortIdx >= 0)
+        m_sortBox->setCurrentIndex(sortIdx);
     connect(m_sortBox, &QComboBox::currentIndexChanged, this, [this](int idx) {
         const int mode = m_sortBox->itemData(idx).toInt();
         m_sort = static_cast<SortMode>(mode);
         saveTodoSortMode(mode);
         rebuildList();
     });
-    const int sortIdx = m_sortBox->findData(static_cast<int>(m_sort));
-    if (sortIdx >= 0)
-        m_sortBox->setCurrentIndex(sortIdx);
-    head->addWidget(m_sortBox);
-    head->addWidget(m_viewCount);
-    ll->addLayout(head);
 
-    m_quickAdd = new QLineEdit;
-    m_quickAdd->setObjectName(QStringLiteral("TodoQuickAdd"));
-    m_quickAdd->setClearButtonEnabled(true);
-    connect(m_quickAdd, &QLineEdit::returnPressed, this, &TodoPage::onQuickAdd);
-    ll->addWidget(m_quickAdd);
+    // ── 详情下拉条目的 userData ──
+    m_dPriority->setItemData(0, TodoPriorityNone);
+    m_dPriority->setItemData(1, TodoPriorityLow);
+    m_dPriority->setItemData(2, TodoPriorityMedium);
+    m_dPriority->setItemData(3, TodoPriorityHigh);
+    m_dRecur->setItemData(0, QString());
+    m_dRecur->setItemData(1, QStringLiteral("daily"));
+    m_dRecur->setItemData(2, QStringLiteral("weekdays"));
+    m_dRecur->setItemData(3, QStringLiteral("weekly"));
+    m_dRecur->setItemData(4, QStringLiteral("monthly"));
+    m_dDue->setDate(QDate::currentDate());
+    // API 数据源：服务端不支持重复规则（对齐 Android supportsRecurrence=false 隐藏 UI）
+    if (!m_source->supportsRecurrence()) {
+        ui->lblRecur->hide();
+        m_dRecur->hide();
+    }
 
-    m_list = new QListWidget;
-    m_list->setObjectName(QStringLiteral("TodoList"));
-    m_list->setSelectionMode(QAbstractItemView::NoSelection);
-    m_list->setFocusPolicy(Qt::NoFocus);
-    // 行控件跟随视口宽度重排（退出全屏/还原窗口时避免行右侧控件被顶出可视区）
+    // ── 行控件跟随视口宽度重排（退出全屏/还原窗口时避免行右侧控件被顶出可视区） ──
     new ItemWidgetRelayoutFilter(m_list, 60, m_list);
-    ll->addWidget(m_list, 1);
+    new ItemWidgetRelayoutFilter(m_dSubs, 60, m_dSubs);
 
-    m_completedBtn = new QPushButton;
-    m_completedBtn->setObjectName(QStringLiteral("TodoCompleted"));
-    m_completedBtn->setCheckable(true);
-    m_completedBtn->setCursor(Qt::PointingHandCursor);
+    // ── 信号连接 ──
+    connect(m_quickAdd, &QLineEdit::returnPressed, this, &TodoPage::onQuickAdd);
     connect(m_completedBtn, &QPushButton::clicked, this, [this](bool on) {
         m_showCompleted = on;
         rebuildList();
     });
-    ll->addWidget(m_completedBtn);
-
-    m_progress = new QLabel;
-    m_progress->setObjectName(QStringLiteral("TodoProgress"));
-    ll->addWidget(m_progress);
-
-    // 表面卡片四周留出空隙（顶部/右侧/底部），左侧紧贴侧栏
-    auto *centerHost = new QWidget;
-    auto *chLay = new QVBoxLayout(centerHost);
-    chLay->setContentsMargins(0, si(12), si(12), si(12));
-    chLay->setSpacing(0);
-    chLay->addWidget(m_surface);
-
-    // ── 右侧详情面板 ──
-    m_detailPanel = new QWidget;
-    m_detailPanel->setObjectName(QStringLiteral("TodoDetail"));
-    m_detailPanel->setFixedWidth(si(280));
-    auto *dl = new QVBoxLayout(m_detailPanel);
-    dl->setContentsMargins(si(14), si(14), si(14), si(14));
-    dl->setSpacing(si(8));
-
-    m_detailEmpty = new QLabel(QStringLiteral("选择任务以查看 / 编辑"));
-    m_detailEmpty->setObjectName(QStringLiteral("TodoDetailEmpty"));
-    m_detailEmpty->setAlignment(Qt::AlignCenter);
-    dl->addWidget(m_detailEmpty, 1);
-
-    m_detailBody = new QWidget;
-    auto *db = new QVBoxLayout(m_detailBody);
-    db->setContentsMargins(0, 0, 0, 0);
-    db->setSpacing(si(8));
-
-    m_dTitle = new QLineEdit;
-    m_dTitle->setObjectName(QStringLiteral("TodoTitleEdit"));
     connect(m_dTitle, &QLineEdit::editingFinished, this, &TodoPage::commitDetail);
-    db->addWidget(m_dTitle);
-
-    m_dDone = new QCheckBox(QStringLiteral("已完成"));
-    m_dDone->setCursor(Qt::PointingHandCursor);
     connect(m_dDone, &QCheckBox::toggled, this, [this](bool on) {
         if (m_loadingDetail || m_selectedTask == 0)
             return;
         m_source->setTaskCompleted(m_selectedTask, on);
     });
-    db->addWidget(m_dDone);
-
-    auto *form = new QGridLayout;
-    form->setHorizontalSpacing(si(8));
-    form->setVerticalSpacing(si(6));
-    auto addLabel = [](const QString &s) {
-        auto *l = new QLabel(s);
-        l->setObjectName(QStringLiteral("TodoFieldLabel"));
-        return l;
-    };
-
-    form->addWidget(addLabel(QStringLiteral("清单")), 0, 0);
-    m_dList = new QComboBox;
     connect(m_dList, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
         if (!m_loadingDetail)
             commitDetail();
     });
-    form->addWidget(m_dList, 0, 1);
-
-    form->addWidget(addLabel(QStringLiteral("优先级")), 1, 0);
-    m_dPriority = new QComboBox;
-    m_dPriority->addItem(QStringLiteral("无优先级"), TodoPriorityNone);
-    m_dPriority->addItem(QStringLiteral("低"), TodoPriorityLow);
-    m_dPriority->addItem(QStringLiteral("中"), TodoPriorityMedium);
-    m_dPriority->addItem(QStringLiteral("高"), TodoPriorityHigh);
     connect(m_dPriority, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
         if (!m_loadingDetail)
             commitDetail();
     });
-    form->addWidget(m_dPriority, 1, 1);
-
-    form->addWidget(addLabel(QStringLiteral("截止")), 2, 0);
-    auto *dueRow = new QHBoxLayout;
-    dueRow->setSpacing(si(4));
-    m_dHasDue = new QCheckBox;
-    m_dHasDue->setToolTip(QStringLiteral("设置截止日期"));
-    m_dHasDue->setCursor(Qt::PointingHandCursor);
     connect(m_dHasDue, &QCheckBox::toggled, this, [this](bool on) {
         m_dDue->setEnabled(on);
         if (!m_loadingDetail)
             commitDetail();
     });
-    m_dDue = new QDateEdit;
-    m_dDue->setCalendarPopup(true);
-    m_dDue->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
-    m_dDue->setDate(QDate::currentDate());
-    m_dDue->setEnabled(false);
     connect(m_dDue, &QDateEdit::dateChanged, this, [this](const QDate &) {
         if (!m_loadingDetail)
             commitDetail();
     });
-    dueRow->addWidget(m_dHasDue);
-    dueRow->addWidget(m_dDue, 1);
-    form->addLayout(dueRow, 2, 1);
-
-    QLabel *recurLabel = addLabel(QStringLiteral("重复"));
-    m_dRecur = new QComboBox;
-    m_dRecur->addItem(QStringLiteral("不重复"), QString());
-    m_dRecur->addItem(QStringLiteral("每天"), QStringLiteral("daily"));
-    m_dRecur->addItem(QStringLiteral("每个工作日"), QStringLiteral("weekdays"));
-    m_dRecur->addItem(QStringLiteral("每周"), QStringLiteral("weekly"));
-    m_dRecur->addItem(QStringLiteral("每月"), QStringLiteral("monthly"));
     connect(m_dRecur, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
         if (!m_loadingDetail)
             commitDetail();
     });
-    form->addWidget(recurLabel, 3, 0);
-    form->addWidget(m_dRecur, 3, 1);
-    // API 数据源：服务端不支持重复规则（对齐 Android supportsRecurrence=false 隐藏 UI）
-    if (!m_source->supportsRecurrence()) {
-        recurLabel->hide();
-        m_dRecur->hide();
-    }
-
-    form->addWidget(addLabel(QStringLiteral("标签")), 4, 0);
-    m_dTags = new QLineEdit;
-    m_dTags->setPlaceholderText(QStringLiteral("逗号分隔"));
     connect(m_dTags, &QLineEdit::editingFinished, this, &TodoPage::commitDetail);
-    form->addWidget(m_dTags, 4, 1);
-
-    db->addLayout(form);
-
-    auto *notesLabel = addLabel(QStringLiteral("备注"));
-    db->addWidget(notesLabel);
-    m_dNotes = new QPlainTextEdit;
-    m_dNotes->setPlaceholderText(QStringLiteral("添加备注…"));
-    m_dNotes->setMinimumHeight(si(56));
     connect(m_dNotes, &QPlainTextEdit::textChanged, this, [this] { m_commitTimer->start(); });
-    db->addWidget(m_dNotes);
-
-    auto *subLabel = addLabel(QStringLiteral("子任务"));
-    db->addWidget(subLabel);
-    m_dSubs = new QListWidget;
-    m_dSubs->setObjectName(QStringLiteral("TodoSubs"));
-    m_dSubs->setSelectionMode(QAbstractItemView::NoSelection);
-    m_dSubs->setFocusPolicy(Qt::NoFocus);
-    m_dSubs->setFixedHeight(si(120));
-    new ItemWidgetRelayoutFilter(m_dSubs, 60, m_dSubs);
-    db->addWidget(m_dSubs);
-
-    m_dSubAdd = new QLineEdit;
-    m_dSubAdd->setPlaceholderText(QStringLiteral("添加子任务…"));
     connect(m_dSubAdd, &QLineEdit::returnPressed, this, &TodoPage::onSubtaskAdd);
-    db->addWidget(m_dSubAdd);
-
-    db->addStretch(1);
-
-    m_dDelete = new QPushButton(QStringLiteral("删除任务"));
-    m_dDelete->setObjectName(QStringLiteral("DangerBtn"));
-    m_dDelete->setCursor(Qt::PointingHandCursor);
     connect(m_dDelete, &QPushButton::clicked, this, &TodoPage::onTaskDelete);
-    db->addWidget(m_dDelete);
-
-    dl->addWidget(m_detailBody, 1);
-    m_detailBody->hide();
-
-    // ── 主区：任务视图（列表 + 详情面板）──
-    auto *taskView = new QWidget;
-    auto *tvLay = new QHBoxLayout(taskView);
-    tvLay->setContentsMargins(0, 0, 0, 0);
-    tvLay->setSpacing(0);
-    tvLay->addWidget(centerHost, 1);
-    tvLay->addWidget(m_detailPanel);
-
-    root->addWidget(taskView, 1);
 
     m_commitTimer = new QTimer(this);
     m_commitTimer->setSingleShot(true);
     m_commitTimer->setInterval(250);
     connect(m_commitTimer, &QTimer::timeout, this, &TodoPage::commitDetail);
+
+    m_detailBody->hide();
 
     applyPageStyles();
     rebuildSidebar();
