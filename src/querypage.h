@@ -10,6 +10,9 @@ class QPushButton;
 class QSpinBox;
 class QPlainTextEdit;
 
+// Qt Designer 布局（querypage.ui），全局命名空间
+namespace Ui { class QueryPage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -30,6 +33,8 @@ private slots:
     void onTimeZoneChanged(int idx);
 
 private:
+    // Qt Designer 生成的布局对象（querypage.ui -> ui_querypage.h）
+    Ui::QueryPage *ui = nullptr;
     void buildUi();
     void applyStyle();
     void loadPresets();

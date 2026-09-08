@@ -1,5 +1,6 @@
 // querypage.cpp —— Query Explorer：手写 / 预置脚本 → /api/0/query → pretty-print JSON
 #include "querypage.h"
+#include "ui_querypage.h"
 
 #include "apiclient.h"
 #include "charts.h"
@@ -31,85 +32,53 @@ QueryPage::QueryPage(ApiClient *api, QWidget *parent)
     loadPresets();
 }
 
-QueryPage::~QueryPage() = default;
+QueryPage::~QueryPage()
+{
+    delete ui;
+}
 
 void QueryPage::buildUi()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(24, 24, 24, 24);
-    root->setSpacing(12);
+    // 静态布局来自 Qt Designer（querypage.ui -> ui_querypage.h）；
+    // 控件名直接使用主题 QSS 的 objectName 角色
+    ui = new Ui::QueryPage;
+    ui->setupUi(this);
 
-    // 标题
-    auto *title = new QLabel(QStringLiteral("Query Explorer"));
-    title->setObjectName(QStringLiteral("PageTitle"));
-    root->addWidget(title);
+    // ── 运行时取值：下拉 userData、默认隐藏的自定义天数、等宽字体 ──
+    ui->rangeCombo->setItemData(0, 0);
+    ui->rangeCombo->setItemData(1, 1);
+    ui->rangeCombo->setItemData(2, 7);
+    ui->rangeCombo->setItemData(3, 30);
+    ui->rangeCombo->setItemData(4, -1);
+    ui->daySpin->setVisible(false);
+    QFont mono = ui->QueryEditor->font();
+    mono.setFamily(QStringLiteral("Consolas"));
+    ui->QueryEditor->setFont(mono);
+    ui->QueryResult->setFont(mono);
 
-    // 时间范围
-    auto *rangeRow = new QHBoxLayout;
-    rangeRow->addWidget(new QLabel(QStringLiteral("范围")));
-    m_rangeCombo = new QComboBox;
-    m_rangeCombo->addItem(QStringLiteral("今日"), 0);
-    m_rangeCombo->addItem(QStringLiteral("昨日"), 1);
-    m_rangeCombo->addItem(QStringLiteral("近 7 天"), 7);
-    m_rangeCombo->addItem(QStringLiteral("近 30 天"), 30);
-    m_rangeCombo->addItem(QStringLiteral("自定义（天）"), -1);
+    // 主题色相关样式（kColor* 随主题切换，无法烘焙进 .ui）
+    m_statusLabel = ui->statusLabel;
+    m_statusLabel->setStyleSheet(QStringLiteral("color: %1;").arg(kColorFgMuted));
+
+    // ── 成员别名：业务逻辑沿用 m_* 指针 ──
+    m_rangeCombo = ui->rangeCombo;
+    m_tzCombo = ui->tzCombo;
+    m_daySpin = ui->daySpin;
+    m_presetCombo = ui->presetCombo;
+    m_scriptEdit = ui->QueryEditor;
+    m_runBtn = ui->PrimaryBtn;
+    m_formatBtn = ui->formatBtn;
+    m_copyBtn = ui->copyBtn;
+    m_resultEdit = ui->QueryResult;
+
+    // ── 信号连接 ──
     connect(m_rangeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &QueryPage::onRangeChanged);
-    rangeRow->addWidget(m_rangeCombo);
-
-    m_daySpin = new QSpinBox;
-    m_daySpin->setMinimum(1);
-    m_daySpin->setMaximum(365);
-    m_daySpin->setValue(7);
-    m_daySpin->setVisible(false);
-    rangeRow->addWidget(m_daySpin);
-
-    rangeRow->addWidget(new QLabel(QStringLiteral("时区")));
-    m_tzCombo = new QComboBox;
-    m_tzCombo->addItem(QStringLiteral("本机"), 0);
-    m_tzCombo->addItem(QStringLiteral("UTC"), 1);
     connect(m_tzCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &QueryPage::onTimeZoneChanged);
-    rangeRow->addWidget(m_tzCombo);
-    rangeRow->addStretch(1);
-    root->addLayout(rangeRow);
-
-    // 预设脚本
-    auto *presetRow = new QHBoxLayout;
-    presetRow->addWidget(new QLabel(QStringLiteral("预设")));
-    m_presetCombo = new QComboBox;
     connect(m_presetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &QueryPage::onPresetChanged);
-    presetRow->addWidget(m_presetCombo, 1);
-    root->addLayout(presetRow);
-
-    // 脚本编辑
-    auto *scriptLabel = new QLabel(QStringLiteral("查询脚本（JSON）"));
-    scriptLabel->setObjectName(QStringLiteral("SectionTitle"));
-    root->addWidget(scriptLabel);
-
-    m_scriptEdit = new QPlainTextEdit;
-    m_scriptEdit->setObjectName(QStringLiteral("QueryEditor"));
-    m_scriptEdit->setPlaceholderText(QStringLiteral(
-        "{\n"
-        "  \"query\": [\n"
-        "    \"bucket_events = query_bucket(\\\"aw-watcher-window_\\\");\n"
-        "    RETURN = bucket_events;\"\n"
-        "  ],\n"
-        "  \"timeperiods\": []\n"
-        "}"));
-    m_scriptEdit->setMinimumHeight(200);
-    QFont mono = m_scriptEdit->font();
-    mono.setFamily("Consolas");
-    m_scriptEdit->setFont(mono);
-    root->addWidget(m_scriptEdit, 1);
-
-    // 操作行
-    auto *btnRow = new QHBoxLayout;
-    m_runBtn = new QPushButton(QStringLiteral("▶ 执行查询"));
-    m_runBtn->setObjectName(QStringLiteral("PrimaryBtn"));
     connect(m_runBtn, &QPushButton::clicked, this, &QueryPage::onRun);
-    m_formatBtn = new QPushButton(QStringLiteral("格式化"));
     connect(m_formatBtn, &QPushButton::clicked, this, [this] {
         QString text = m_resultEdit->toPlainText();
         if (text.isEmpty()) return;
@@ -119,35 +88,10 @@ void QueryPage::buildUi()
             m_resultEdit->setPlainText(doc.toJson(QJsonDocument::Indented));
         }
     });
-    m_copyBtn = new QPushButton(QStringLiteral("复制结果"));
     connect(m_copyBtn, &QPushButton::clicked, this, [this] {
         QApplication::clipboard()->setText(m_resultEdit->toPlainText());
         m_statusLabel->setText(QStringLiteral("已复制到剪贴板"));
     });
-    btnRow->addWidget(m_runBtn);
-    btnRow->addWidget(m_formatBtn);
-    btnRow->addWidget(m_copyBtn);
-    btnRow->addStretch(1);
-    root->addLayout(btnRow);
-
-    // 结果
-    auto *resultLabel = new QLabel(QStringLiteral("结果"));
-    resultLabel->setObjectName(QStringLiteral("SectionTitle"));
-    root->addWidget(resultLabel);
-
-    m_resultEdit = new QPlainTextEdit;
-    m_resultEdit->setReadOnly(true);
-    m_resultEdit->setObjectName(QStringLiteral("QueryResult"));
-    m_resultEdit->setPlaceholderText(QStringLiteral("查询结果将显示在这里…"));
-    m_resultEdit->setMinimumHeight(200);
-    m_resultEdit->setFont(mono);
-    root->addWidget(m_resultEdit, 2);
-
-    m_statusLabel = new QLabel(QStringLiteral("就绪"));
-    m_statusLabel->setStyleSheet(QStringLiteral("color: %1;").arg(kColorFgMuted));
-    root->addWidget(m_statusLabel);
-
-    root->addStretch(0);
 }
 
 void QueryPage::applyStyle()
