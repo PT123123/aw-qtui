@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- inboxpage.ui —— 收件箱页布局（Qt Designer）
+     与 InboxPage::buildUi() 的静态结构一一对应。注意：
+     1. 边距/间距/固定宽度为基准值（si() 缩放几何在 buildUi() 中运行时重设）；
+     2. 玻璃背景/内联主题样式（scaleQss + glassBg）全部保留在 applyStyles() 运行时应用；
+     3. sortBox 的条目 userData（created/updated/content）与全部信号连接仍在 inboxpage.cpp -->
+<ui version="4.0">
+ <class>InboxPage</class>
+ <widget class="QWidget" name="InboxPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>980</width>
+    <height>640</height>
+   </rect>
+  </property>
+  <layout class="QHBoxLayout" name="rootLayout" stretch="0,1">
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   <item>
+    <widget class="QWidget" name="TagPanel" native="true">
+     <layout class="QVBoxLayout" name="tagLay" stretch="0,1,0,0">
+      <property name="leftMargin">
+       <number>10</number>
+      </property>
+      <property name="topMargin">
+       <number>12</number>
+      </property>
+      <property name="rightMargin">
+       <number>10</number>
+      </property>
+      <property name="bottomMargin">
+       <number>12</number>
+      </property>
+      <property name="spacing">
+       <number>8</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="TagTitle">
+        <property name="text">
+         <string>标签</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QTreeWidget" name="TagTree">
+        <property name="headerHidden">
+         <bool>true</bool>
+        </property>
+        <property name="columnCount">
+         <number>1</number>
+        </property>
+        <property name="selectionMode">
+         <enum>QAbstractItemView::SingleSelection</enum>
+        </property>
+        <column>
+         <property name="text">
+          <string/>
+         </property>
+        </column>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnClear">
+        <property name="text">
+         <string>清除过滤</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnSettings">
+        <property name="text">
+         <string>⚙  设置</string>
+        </property>
+        <property name="toolTip">
+         <string>设置（全局快捷键）</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="host" native="true">
+     <layout class="QVBoxLayout" name="hostLay" stretch="1,0">
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <property name="spacing">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QWidget" name="main" native="true">
+        <layout class="QVBoxLayout" name="mainLay" stretch="0,0,1">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <item>
+          <layout class="QHBoxLayout" name="toolbar">
+           <property name="leftMargin">
+            <number>20</number>
+           </property>
+           <property name="topMargin">
+            <number>16</number>
+           </property>
+           <property name="rightMargin">
+            <number>16</number>
+           </property>
+           <property name="bottomMargin">
+            <number>12</number>
+           </property>
+           <property name="spacing">
+            <number>10</number>
+           </property>
+           <item>
+            <widget class="QLabel" name="InboxTitle">
+             <property name="text">
+              <string>收件箱</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="search">
+             <property name="placeholderText">
+              <string>搜索…</string>
+             </property>
+             <property name="clearButtonEnabled">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="toolbarStretch">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btnSidebar">
+             <property name="text">
+              <string>☰</string>
+             </property>
+             <property name="toolTip">
+              <string>显示 / 隐藏标签侧栏</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="sortBox">
+             <item>
+              <property name="text">
+               <string>最新创建</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>最新更新</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>按内容</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btnCopy">
+             <property name="text">
+              <string>复制全部</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btnRefresh">
+             <property name="text">
+              <string>⟳</string>
+             </property>
+             <property name="toolTip">
+              <string>刷新 (F5)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="awqtui::StatusBadge" name="badge"/>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QWidget" name="filterBar" native="true">
+           <layout class="QHBoxLayout" name="filterLay">
+            <property name="leftMargin">
+             <number>20</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>16</number>
+            </property>
+            <property name="bottomMargin">
+             <number>6</number>
+            </property>
+            <property name="spacing">
+             <number>6</number>
+            </property>
+            <item>
+             <widget class="QLabel" name="filterText"/>
+            </item>
+            <item>
+             <spacer name="filterStretch">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnFilterUp">
+              <property name="text">
+               <string>↑ 返回上级</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnFilterClear">
+              <property name="text">
+               <string>✕ 清除</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="stackHost" native="true">
+           <layout class="QStackedLayout" name="stack">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <property name="spacing">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QListWidget" name="InboxList">
+              <property name="selectionMode">
+               <enum>QAbstractItemView::NoSelection</enum>
+              </property>
+              <property name="verticalScrollMode">
+               <enum>QAbstractItemView::ScrollPerPixel</enum>
+              </property>
+              <property name="horizontalScrollBarPolicy">
+               <enum>Qt::ScrollBarAlwaysOff</enum>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QWidget" name="empty" native="true">
+              <layout class="QVBoxLayout" name="emptyLay">
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <property name="spacing">
+                <number>8</number>
+               </property>
+               <item>
+                <widget class="QLabel" name="emptyIcon">
+                 <property name="text">
+                  <string>📝</string>
+                 </property>
+                 <property name="alignment">
+                  <set>Qt::AlignCenter</set>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="emptyText">
+                 <property name="text">
+                  <string>还没有笔记</string>
+                 </property>
+                 <property name="alignment">
+                  <set>Qt::AlignCenter</set>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="emptyHint">
+                 <property name="text">
+                  <string>点击右下角 ＋ 新建一条</string>
+                 </property>
+                 <property name="alignment">
+                  <set>Qt::AlignCenter</set>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="fabRow" native="true">
+        <layout class="QHBoxLayout" name="fabLay">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <item>
+          <spacer name="fabStretch">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item alignment="Qt::AlignBottom|Qt::AlignRight">
+          <widget class="QPushButton" name="Fab">
+           <property name="text">
+            <string>＋</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>awqtui::StatusBadge</class>
+   <extends>QWidget</extends>
+   <header>widgets.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>
