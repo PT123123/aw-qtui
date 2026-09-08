@@ -1,5 +1,6 @@
 // cloudbackuppage.cpp —— 云备份（冷备）页实现
 #include "cloudbackuppage.h"
+#include "ui_cloudbackuppage.h"
 
 #include "apiclient.h"
 #include "config.h"
@@ -33,7 +34,10 @@ CloudBackupPage::CloudBackupPage(ApiClient *api, QWidget *parent)
     applyTheme();
 }
 
-CloudBackupPage::~CloudBackupPage() = default;
+CloudBackupPage::~CloudBackupPage()
+{
+    delete ui;
+}
 
 void CloudBackupPage::applyTheme()
 {
@@ -87,167 +91,55 @@ void CloudBackupPage::applyTheme()
 
 void CloudBackupPage::buildUi()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(20, 20, 20, 20);
-    root->setSpacing(14);
+    // 静态布局来自 Qt Designer（cloudbackuppage.ui -> ui_cloudbackuppage.h）
+    ui = new Ui::CloudBackupPage;
+    ui->setupUi(this);
 
-    // ── 顶部工具栏 ──
-    auto *toolbar = new QHBoxLayout;
-    toolbar->setSpacing(8);
+    // ── 成员别名：业务逻辑沿用 m_* 指针，静态布局归属 .ui 文件 ──
+    m_serverEdit = ui->serverEdit;
+    m_tabs = ui->tabs;
+    m_kind = ui->kind;
+    m_webdavUrl = ui->webdavUrl;
+    m_webdavUser = ui->webdavUser;
+    m_webdavPass = ui->webdavPass;
+    m_webdavPath = ui->webdavPath;
+    m_s3Endpoint = ui->s3Endpoint;
+    m_s3AccessKey = ui->s3AccessKey;
+    m_s3SecretKey = ui->s3SecretKey;
+    m_s3Bucket = ui->s3Bucket;
+    m_s3Region = ui->s3Region;
+    m_s3Path = ui->s3Path;
+    m_s3PathStyle = ui->s3PathStyle;
+    m_s3Tls = ui->s3Tls;
+    m_btnTest = ui->btnTest;
+    m_btnSave = ui->btnSave;
+    m_btnBackupNow = ui->btnBackupNow;
+    m_lblStatus = ui->statusLabel;
+    m_chkAutoBackup = ui->chkAutoBackup;
+    m_intervalHours = ui->intervalHours;
+    m_lblLastBackup = ui->lblLastBackup;
+    m_log = ui->log;
 
-    auto *title = new QLabel(QStringLiteral("❄ 云备份（冷备）"));
-    title->setObjectName(QStringLiteral("Heading"));
-    toolbar->addWidget(title);
-
-    auto *subtitle = new QLabel(QStringLiteral("WebDAV / S3 低频冷备份"));
-    subtitle->setObjectName(QStringLiteral("SubHeading"));
-    toolbar->addWidget(subtitle);
-    toolbar->addStretch(1);
-
-    m_serverEdit = new QLineEdit(m_api ? m_api->baseUrl() : kDefaultServerUrl);
-    m_serverEdit->setFixedWidth(240);
-    toolbar->addWidget(new QLabel(QStringLiteral("服务端")));
-    toolbar->addWidget(m_serverEdit);
-
-    auto *btnApply = new QPushButton(QStringLiteral("应用"));
-    btnApply->setObjectName(QStringLiteral("ToolBtn"));
-    connect(btnApply, &QPushButton::clicked, this, [this] {
-        setServerUrl(m_serverEdit->text().trimmed());
-    });
-    toolbar->addWidget(btnApply);
-
-    root->addLayout(toolbar);
-
-    // ── 状态栏 ──
-    auto *statusBar = new QHBoxLayout;
-    statusBar->setSpacing(8);
-    m_lblStatus = new QLabel(QStringLiteral("未配置"));
+    // 主题样式角色（applyTheme 的 QSS 按 objectName 选择器匹配）
+    ui->title->setObjectName(QStringLiteral("Heading"));
+    ui->subtitle->setObjectName(QStringLiteral("SubHeading"));
     m_lblStatus->setObjectName(QStringLiteral("StatusLabel"));
-    statusBar->addWidget(m_lblStatus);
-    statusBar->addStretch(1);
-    root->addLayout(statusBar);
-
-    // ── Tab 区域 ──
-    m_tabs = new QTabWidget;
-
-    // ── 连接配置 Tab ──
-    auto *connTab = new QWidget;
-    auto *connLay = new QVBoxLayout(connTab);
-    connLay->setContentsMargins(12, 12, 12, 12);
-    connLay->setSpacing(8);
-
-    auto *connBox = new QGroupBox(QStringLiteral("备份目标"));
-    auto *connForm = new QFormLayout(connBox);
-    connForm->setSpacing(10);
-
-    m_kind = new QComboBox;
-    m_kind->addItem(QStringLiteral("未启用"), static_cast<int>(CloudNone));
-    m_kind->addItem(QStringLiteral("WebDAV"), static_cast<int>(CloudWebDAV));
-    m_kind->addItem(QStringLiteral("S3 / MinIO"), static_cast<int>(CloudS3));
-    connForm->addRow(QStringLiteral("协议"), m_kind);
-
-    // WebDAV 字段
-    m_webdavUrl = new QLineEdit;
-    m_webdavUrl->setPlaceholderText(QStringLiteral("https://dav.example.com/"));
-    m_webdavUser = new QLineEdit;
-    m_webdavPass = new QLineEdit;
-    m_webdavPass->setEchoMode(QLineEdit::Password);
-    m_webdavPath = new QLineEdit(QStringLiteral("/aw-qtui/"));
-    connForm->addRow(QStringLiteral("WebDAV URL"), m_webdavUrl);
-    connForm->addRow(QStringLiteral("用户名"), m_webdavUser);
-    connForm->addRow(QStringLiteral("密码"), m_webdavPass);
-    connForm->addRow(QStringLiteral("远程路径"), m_webdavPath);
-
-    // S3 字段
-    m_s3Endpoint = new QLineEdit;
-    m_s3Endpoint->setPlaceholderText(QStringLiteral("https://s3.amazonaws.com"));
-    m_s3AccessKey = new QLineEdit;
-    m_s3SecretKey = new QLineEdit;
-    m_s3SecretKey->setEchoMode(QLineEdit::Password);
-    m_s3Bucket = new QLineEdit;
-    m_s3Region = new QLineEdit(QStringLiteral("us-east-1"));
-    m_s3Path = new QLineEdit(QStringLiteral("aw-qtui/"));
-    m_s3PathStyle = new QCheckBox(QStringLiteral("路径风格（MinIO）"));
-    m_s3PathStyle->setChecked(true);
-    m_s3Tls = new QCheckBox(QStringLiteral("使用 TLS"));
-    m_s3Tls->setChecked(true);
-    connForm->addRow(QStringLiteral("Endpoint"), m_s3Endpoint);
-    connForm->addRow(QStringLiteral("Access Key"), m_s3AccessKey);
-    connForm->addRow(QStringLiteral("Secret Key"), m_s3SecretKey);
-    connForm->addRow(QStringLiteral("Bucket"), m_s3Bucket);
-    connForm->addRow(QStringLiteral("Region"), m_s3Region);
-    connForm->addRow(QStringLiteral("对象前缀"), m_s3Path);
-    connForm->addRow(m_s3PathStyle);
-    connForm->addRow(m_s3Tls);
-
-    // 操作行
-    auto *btnRow = new QHBoxLayout;
-    btnRow->setSpacing(8);
-    m_btnTest = new QPushButton(QStringLiteral("测试连接"));
+    ui->btnApply->setObjectName(QStringLiteral("ToolBtn"));
     m_btnTest->setObjectName(QStringLiteral("PrimaryBtn"));
-    m_btnSave = new QPushButton(QStringLiteral("保存配置"));
     m_btnSave->setObjectName(QStringLiteral("ToolBtn"));
-    m_btnBackupNow = new QPushButton(QStringLiteral("立即备份"));
     m_btnBackupNow->setObjectName(QStringLiteral("ToolBtn"));
-    btnRow->addWidget(m_btnTest);
-    btnRow->addWidget(m_btnSave);
-    btnRow->addWidget(m_btnBackupNow);
-    btnRow->addStretch(1);
-    connForm->addRow(btnRow);
 
-    connLay->addWidget(connBox);
-    connLay->addStretch(1);
-
-    m_tabs->addTab(connTab, QStringLiteral("🔌 连接"));
-
-    // ── 冷备设置 Tab ──
-    auto *settingsTab = new QWidget;
-    auto *settingsLay = new QVBoxLayout(settingsTab);
-    settingsLay->setContentsMargins(12, 12, 12, 12);
-    settingsLay->setSpacing(8);
-
-    auto *schedBox = new QGroupBox(QStringLiteral("自动备份计划"));
-    auto *schedForm = new QFormLayout(schedBox);
-    schedForm->setSpacing(10);
-
-    m_chkAutoBackup = new QCheckBox(QStringLiteral("启用自动备份"));
-    schedForm->addRow(m_chkAutoBackup);
-
-    m_intervalHours = new QSpinBox;
-    m_intervalHours->setMinimum(1);
-    m_intervalHours->setMaximum(720);
-    m_intervalHours->setSuffix(QStringLiteral(" 小时"));
-    m_intervalHours->setValue(24);
-    schedForm->addRow(QStringLiteral("备份间隔"), m_intervalHours);
-
-    m_lblLastBackup = new QLabel(QStringLiteral("从未备份"));
-    schedForm->addRow(QStringLiteral("上次备份"), m_lblLastBackup);
-
-    auto *hint = new QLabel(QStringLiteral("冷备按小时间隔自动执行，不影响高频的局域网/D1 同步。"));
-    hint->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;").arg(kColorFgMuted));
-    schedForm->addRow(hint);
-
-    settingsLay->addWidget(schedBox);
-    settingsLay->addStretch(1);
-
-    m_tabs->addTab(settingsTab, QStringLiteral("⏰ 计划"));
-
-    // ── 日志 Tab ──
-    auto *logTab = new QWidget;
-    auto *logLay = new QVBoxLayout(logTab);
-    logLay->setContentsMargins(12, 12, 12, 12);
-    logLay->setSpacing(8);
-
-    m_log = new QPlainTextEdit;
-    m_log->setReadOnly(true);
-    m_log->setPlaceholderText(QStringLiteral("操作日志将在此显示…"));
-    logLay->addWidget(m_log, 1);
-
-    m_tabs->addTab(logTab, QStringLiteral("📜 日志"));
-
-    root->addWidget(m_tabs, 1);
+    // uic 不便表达的运行时属性
+    m_serverEdit->setText(m_api ? m_api->baseUrl() : kDefaultServerUrl);
+    m_kind->setItemData(0, static_cast<int>(CloudNone));
+    m_kind->setItemData(1, static_cast<int>(CloudWebDAV));
+    m_kind->setItemData(2, static_cast<int>(CloudS3));
+    ui->hint->setStyleSheet(QStringLiteral("color: %1; font-size: 11px;").arg(kColorFgMuted));
 
     // 信号连接
+    connect(ui->btnApply, &QPushButton::clicked, this, [this] {
+        setServerUrl(m_serverEdit->text().trimmed());
+    });
     connect(m_kind, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &CloudBackupPage::onKindChanged);
     connect(m_btnTest, &QPushButton::clicked, this, &CloudBackupPage::onTestConnection);

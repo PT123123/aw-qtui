@@ -14,6 +14,9 @@ class QTabWidget;
 class QComboBox;
 class QSpinBox;
 
+// Qt Designer 布局（syncdetailspage.ui），全局命名空间
+namespace Ui { class SyncDetailsPage; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -48,6 +51,8 @@ private slots:
     void onRefreshLatestSync();
 
 private:
+    // Qt Designer 生成的布局对象（syncdetailspage.ui -> ui_syncdetailspage.h）
+    Ui::SyncDetailsPage *ui = nullptr;
     void buildUi();
     void log(const QString &line);
     void populateLogTable(const QJsonArray &logs, qint64 total, const QString &kindFilter);
