@@ -434,7 +434,9 @@ QNetworkReply *ApiClient::getTodo(qint64 id)
     return get(QStringLiteral("/inbox/todos/%1").arg(id));
 }
 
-QNetworkReply *ApiClient::createTodo(const QString &title, const QString &content, const QStringList &tags)
+QNetworkReply *ApiClient::createTodo(const QString &title, const QString &content,
+                                     const QStringList &tags, qint64 listId,
+                                     const QString &dueDate)
 {
     QJsonObject body;
     body.insert(QStringLiteral("title"), title);
@@ -446,6 +448,12 @@ QNetworkReply *ApiClient::createTodo(const QString &title, const QString &conten
             arr.append(t);
         body.insert(QStringLiteral("tags"), arr);
     }
+    if (listId > 0)
+        body.insert(QStringLiteral("list_id"), listId);
+    // due_date 服务端是 DateTime<Utc>（RFC3339），裸 yyyy-MM-dd 会被 422 拒绝；
+    // 日期按当天零点 UTC 表示（与 Android 端 String.toRfc3339() 同约定）
+    if (!dueDate.isEmpty())
+        body.insert(QStringLiteral("due_date"), dueDate + QStringLiteral("T00:00:00Z"));
     return sendJson("POST", QStringLiteral("/inbox/todos"), body);
 }
 
@@ -462,6 +470,33 @@ QNetworkReply *ApiClient::deleteTodo(qint64 id)
 QNetworkReply *ApiClient::restoreTodo(qint64 id)
 {
     return sendJson("PUT", QStringLiteral("/inbox/todos/%1/restore").arg(id), QJsonObject());
+}
+
+// ── Inbox Todo Lists（清单实体） ───────────────────────────────
+
+QNetworkReply *ApiClient::getTodoLists()
+{
+    return get(QStringLiteral("/inbox/todo-lists"));
+}
+
+QNetworkReply *ApiClient::createTodoList(const QString &name, const QString &color, int sortOrder)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("name"), name);
+    if (!color.isEmpty())
+        body.insert(QStringLiteral("color"), color);
+    body.insert(QStringLiteral("sort_order"), sortOrder);
+    return sendJson("POST", QStringLiteral("/inbox/todo-lists"), body);
+}
+
+QNetworkReply *ApiClient::updateTodoList(qint64 id, const QJsonObject &patch)
+{
+    return sendJson("PUT", QStringLiteral("/inbox/todo-lists/%1").arg(id), patch);
+}
+
+QNetworkReply *ApiClient::deleteTodoList(qint64 id)
+{
+    return sendJson("DELETE", QStringLiteral("/inbox/todo-lists/%1").arg(id), QJsonObject());
 }
 
 } // namespace awqtui
