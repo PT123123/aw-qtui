@@ -332,6 +332,24 @@ struct SyncDevice {
             return name + QStringLiteral("（本机）");
         return name;
     }
+
+    // 序列化为服务端 Device 形状（配对码 join 请求里携带本机信息用）。
+    // paired_at/last_sync_at/last_seen_at 等时间字段服务端均有 serde 默认值，可省略。
+    QJsonObject toJson() const
+    {
+        QJsonObject o;
+        o.insert(QStringLiteral("id"), id);
+        o.insert(QStringLiteral("name"), name);
+        o.insert(QStringLiteral("device_kind"), deviceKind);
+        o.insert(QStringLiteral("ip"), ip);
+        o.insert(QStringLiteral("port"), port);
+        o.insert(QStringLiteral("is_online"), isOnline);
+        o.insert(QStringLiteral("is_self"), isSelf);
+        o.insert(QStringLiteral("paired"), paired);
+        if (!alias.isEmpty())
+            o.insert(QStringLiteral("alias"), alias);
+        return o;
+    }
 };
 
 // ── 云存储同步（实验性） ──

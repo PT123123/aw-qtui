@@ -22,6 +22,11 @@ public:
     QString baseUrl() const { return m_baseUrl; }
     QString deviceId() const { return m_deviceId; }
 
+signals:
+    // 本机数据写操作成功（notes/todo 等路径），局域网同步页据此做去抖即时推送
+    void localDataChanged();
+
+public:
     // 笔记 CRUD
     QNetworkReply *getNotes(int limit, int offset, const QString &tag, const QString &search,
                             const QString &sortBy);
