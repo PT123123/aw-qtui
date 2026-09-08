@@ -405,6 +405,48 @@ inline QString materialBg(const char *hex, qreal /*tint*/ = 0.0)
     return glassBg(hex, gGlassLevel);
 }
 
+// ---------------------------------------------------------------- //
+// Segoe 图标字体渲染：把单色字形画成 QIcon。
+// Win11 为 "Segoe Fluent Icons"，Win10 为 "Segoe MDL2 Assets"，基础码位
+// 两代共享；颜色由调用方传入（随主题 accent/muted 变化时重绘即可）。
+// 2x 超采样 + devicePixelRatio 保证高 DPI 下边缘平滑。
+// ---------------------------------------------------------------- //
+inline QIcon glyphIcon(const QString &glyph, const QColor &color, int px)
+{
+    QFont f;
+    f.setFamilies({QStringLiteral("Segoe Fluent Icons"), QStringLiteral("Segoe MDL2 Assets")});
+    f.setPixelSize(px * 2);
+    QPixmap pm(px * 2, px * 2);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::TextAntialiasing);
+    p.setFont(f);
+    p.setPen(color);
+    p.drawText(pm.rect(), Qt::AlignCenter, glyph);
+    p.end();
+    pm.setDevicePixelRatio(2.0);
+    return QIcon(pm);
+}
+
+// 常用码位（详见 Segoe MDL2 Assets / Fluent Icons cheat sheet）
+namespace glyph {
+inline const QString Inbox      = QStringLiteral("\uE715"); // Mail
+inline const QString Settings   = QStringLiteral("\uE713"); // Settings
+inline const QString Checkbox   = QStringLiteral("\uE73A"); // Checkbox
+inline const QString Stopwatch  = QStringLiteral("\uE916"); // Stopwatch
+inline const QString BarChart   = QStringLiteral("\uE9D2"); // BarChart
+inline const QString Recent     = QStringLiteral("\uE81C"); // Recent
+inline const QString Sync       = QStringLiteral("\uE895"); // Sync
+inline const QString Cloud      = QStringLiteral("\uE753"); // Cloud
+inline const QString Save       = QStringLiteral("\uE74E"); // Save
+inline const QString ChevDown   = QStringLiteral("\uE70D"); // ChevronDown
+inline const QString ChevRight  = QStringLiteral("\uE70E"); // ChevronRight
+inline const QString Menu       = QStringLiteral("\uE700"); // GlobalNavButton
+inline const QString ChevLeft   = QStringLiteral("\uE76B"); // ChevronLeft
+} // namespace glyph
+
+
 // 创建并附加投影阴影（受全局阴影强度控制；关闭时返回 nullptr 且不附加）。
 // level < 0 时使用全局 gShadowLevel。
 // fixShadowAdaptive 开启时：深色主题阴影更淡、偏移更收敛；浅色主题用深灰而非纯黑。
@@ -516,8 +558,8 @@ inline QString themeQss(const Theme &t)
         QGroupBox { border: 1px solid @BORDER@; border-radius: 8px; margin-top: 12px; padding-top: 10px; }
         QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color: @MUTED@; }
         QWidget#NavSidebar {
-            background: @BGEL@;
-            border-right: 1px solid rgba(255,255,255,0.06);
+            background: @GLASSBG@;
+            border-right: 1px solid @GLASSBORDER@;
         }
         QPushButton {
             background: @BGL2@; border: 1px solid @BORDER@; border-radius: 6px;
@@ -539,15 +581,13 @@ inline QString themeQss(const Theme &t)
         QPushButton#DangerBtn { background: transparent; border: 1px solid @DANGER@; color: @DANGER@; }
         QPushButton#DangerBtn:hover { background: @DANGERA@; }
         QPushButton#NavBtn {
-            text-align: left;
-            padding: 9px 14px;
-            border: 3px solid transparent;
-            border-radius: 8px;
-            background: transparent;
+            background: transparent; border: none; border-radius: 8px;
             color: @MUTED@;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
-            margin: 1px 6px;
+            padding: 8px 12px;
+            margin: 1px 8px;
+            text-align: left;
         }
         QPushButton#NavBtn:hover { background: @BGL2@; color: @FG@; }
         QPushButton#NavBtn:checked {
@@ -555,27 +595,13 @@ inline QString themeQss(const Theme &t)
             color: @NAVSELTXT@;
             font-weight: 600;
         }
-        QPushButton#NavBtn:checked {
-            border-left-color: @ACCENT@;
-            border-radius: 0 8px 8px 0;
-            margin-left: 0;
-            padding-left: 17px;
-        }
         QPushButton#NavBtn[expanded="false"] {
-            text-align: center; font-size: 16px; padding: 9px 0; margin: 1px 0;
-            border-radius: 0; font-weight: 400;
-        }
-        QPushButton#NavBtn[expanded="false"]:checked {
-            border-left: none;
-            border-bottom: 3px solid @ACCENT@;
-            border-radius: 0;
-            padding-bottom: 6px;
-            margin-bottom: 0;
+            text-align: center; padding: 8px 0;
         }
         QToolButton#NavSection {
             text-align: left;
             color: @MUTED2@;
-            font-size: 10px;
+            font-size: 11px;
             font-weight: 600;
             letter-spacing: 0.5px;
             padding: 10px 12px 4px 12px;
@@ -587,17 +613,10 @@ inline QString themeQss(const Theme &t)
         QToolButton#NavToggle {
             border: none; border-radius: 6px; background: transparent;
             color: @MUTED@; font-size: 16px; text-align: center;
-            padding: 8px 0; margin: 2px 6px;
+            padding: 8px 0; margin: 2px 8px;
         }
         QToolButton#NavToggle:hover { background: @BGL2@; color: @FG@; border-radius: 6px; }
         QToolButton#NavToggle:pressed { background: @PRESSED@; }
-        QPushButton#NavBtn[expanded="false"] {
-            text-align: center; font-size: 16px; padding: 9px 0;
-        }
-        QPushButton#NavBtn[expanded="false"]:checked {
-            border-left: none;
-            border-bottom: 3px solid @ACCENT@;
-        }
         QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox {
             background: @BGEL@; border: 1px solid @BORDER@; border-radius: 6px;
             padding: 6px 10px; selection-background-color: @ACCENT@; selection-color: white;
@@ -667,6 +686,10 @@ inline QString themeQss(const Theme &t)
     substIn(q, "LISTSEL", listSel);
     substIn(q, "SCROLLH", scrollHover);
     substIn(q, "DANGERA", dangerA);
+    // 玻璃材质 token（glassBg/glassBorder 依赖 gTheme/kColorBorder，
+    // 两处调用点均先设 gTheme、kColorBorder 再生成 QSS，此处取值即当前主题）
+    substIn(q, "GLASSBG", glassBg(t.bgElev));
+    substIn(q, "GLASSBORDER", glassBorder());
     Q_UNUSED(chartBg);
     Q_UNUSED(axis);
     return q;
