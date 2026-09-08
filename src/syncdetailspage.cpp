@@ -205,24 +205,25 @@ void SyncDetailsPage::buildUi()
     filterBar->addWidget(new QLabel(QStringLiteral("方向")));
     m_filterDirection = new QComboBox;
     m_filterDirection->addItem(QStringLiteral("全部"), QString());
-    m_filterDirection->addItem(QStringLiteral("发送"), QStringLiteral("send"));
-    m_filterDirection->addItem(QStringLiteral("接收"), QStringLiteral("recv"));
+    m_filterDirection->addItem(QStringLiteral("发出"), QStringLiteral("out"));
+    m_filterDirection->addItem(QStringLiteral("接收"), QStringLiteral("in"));
     filterBar->addWidget(m_filterDirection);
 
     filterBar->addWidget(new QLabel(QStringLiteral("协议")));
     m_filterProtocol = new QComboBox;
     m_filterProtocol->addItem(QStringLiteral("全部"), QString());
-    m_filterProtocol->addItem(QStringLiteral("LAN"), QStringLiteral("lan"));
-    m_filterProtocol->addItem(QStringLiteral("WebDAV"), QStringLiteral("webdav"));
-    m_filterProtocol->addItem(QStringLiteral("S3"), QStringLiteral("s3"));
+    m_filterProtocol->addItem(QStringLiteral("HTTP"), QStringLiteral("http"));
+    m_filterProtocol->addItem(QStringLiteral("UDP 广播"), QStringLiteral("udp_broadcast"));
+    m_filterProtocol->addItem(QStringLiteral("mDNS"), QStringLiteral("mdns"));
     filterBar->addWidget(m_filterProtocol);
 
     filterBar->addWidget(new QLabel(QStringLiteral("事件")));
     m_filterEvent = new QComboBox;
     m_filterEvent->addItem(QStringLiteral("全部"), QString());
-    m_filterEvent->addItem(QStringLiteral("sync"), QStringLiteral("sync"));
-    m_filterEvent->addItem(QStringLiteral("pair"), QStringLiteral("pair"));
-    m_filterEvent->addItem(QStringLiteral("error"), QStringLiteral("error"));
+    m_filterEvent->addItem(QStringLiteral("发现"), QStringLiteral("discovery"));
+    m_filterEvent->addItem(QStringLiteral("配对"), QStringLiteral("pairing"));
+    m_filterEvent->addItem(QStringLiteral("同步"), QStringLiteral("sync"));
+    m_filterEvent->addItem(QStringLiteral("冲突"), QStringLiteral("conflict"));
     filterBar->addWidget(m_filterEvent);
 
     filterBar->addWidget(new QLabel(QStringLiteral("类型")));

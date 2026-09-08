@@ -302,6 +302,9 @@ struct SyncDevice {
     bool paired = false;
     QString alias;
 
+    bool pairRequestPending = false;
+
+
     static SyncDevice fromJson(const QJsonObject &o)
     {
         SyncDevice d;
@@ -317,6 +320,7 @@ struct SyncDevice {
         d.isSelf = o.value(QLatin1String("is_self")).toBool();
         d.paired = o.value(QLatin1String("paired")).toBool();
         d.alias = o.value(QLatin1String("alias")).toString();
+        d.pairRequestPending = o.value(QLatin1String("incoming_pair_request")).toBool();
         return d;
     }
 

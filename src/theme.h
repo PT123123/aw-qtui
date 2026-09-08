@@ -521,6 +521,7 @@ inline QString themeQss(const Theme &t)
         }
         QPushButton {
             background: @BGL2@; border: 1px solid @BORDER@; border-radius: 6px;
+            color: @FG@; /* 显式声明：表格 cell widget 内不依赖通配规则继承，防止文字落入默认 ButtonText 而看不清 */
             padding: 6px 14px; outline: none;
         }
         QPushButton:hover { background: @HOVER@; border-color: @ACCENT@; }

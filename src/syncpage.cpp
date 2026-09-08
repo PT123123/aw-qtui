@@ -131,12 +131,13 @@ void SyncPage::buildUi()
     // 设备注册表
     auto *devBox = new QGroupBox(QStringLiteral("已配对 / 已发现设备"));
     auto *dl = new QVBoxLayout(devBox);
-    m_devTable = new QTableWidget(0, 7);
+    m_devTable = new QTableWidget(0, 8);
     m_devTable->setHorizontalHeaderLabels({QStringLiteral("设备"), QStringLiteral("类型"),
                                            QStringLiteral("IP"), QStringLiteral("端口"),
                                            QStringLiteral("最后在线"), QStringLiteral("最后同步"),
-                                           QStringLiteral("状态")});
+                                           QStringLiteral("状态"), QStringLiteral("操作")});
     m_devTable->verticalHeader()->setVisible(false);
+    m_devTable->verticalHeader()->setDefaultSectionSize(si(42)); // 行高容纳操作列 34px 按钮（setCellWidget 不会自动撑高行）
     m_devTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_devTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_devTable->horizontalHeader()->setStretchLastSection(true);
@@ -146,6 +147,7 @@ void SyncPage::buildUi()
     m_devTable->setColumnWidth(3, 60);
     m_devTable->setColumnWidth(4, 140);
     m_devTable->setColumnWidth(5, 140);
+    m_devTable->setColumnWidth(7, si(240));
     dl->addWidget(m_devTable);
 
     auto *dlRow = new QHBoxLayout;
@@ -168,18 +170,6 @@ void SyncPage::buildUi()
     dlRow->addWidget(btnDevRefresh);
     dl->addLayout(dlRow);
     devLay->addWidget(devBox);
-
-    // 配对（对齐 Android：addDevice + pair/initiate + pair/accept；无配对码）
-    auto *pairBox = new QGroupBox(QStringLiteral("配对"));
-    auto *pl = new QHBoxLayout(pairBox);
-    m_btnInitiatePair = new QPushButton(QStringLiteral("发起配对"));
-    connect(m_btnInitiatePair, &QPushButton::clicked, this, &SyncPage::onInitiatePair);
-    m_btnAcceptPair = new QPushButton(QStringLiteral("接受配对"));
-    connect(m_btnAcceptPair, &QPushButton::clicked, this, &SyncPage::onAcceptPair);
-    pl->addWidget(m_btnInitiatePair);
-    pl->addWidget(m_btnAcceptPair);
-    pl->addStretch(1);
-    devLay->addWidget(pairBox);
 
     // 快照传输（WiFi 热点点对点：导出本机快照 / 导入合并对端快照）
     auto *snapBox = new QGroupBox(QStringLiteral("快照传输（WiFi 热点点对点）"));
@@ -208,8 +198,7 @@ void SyncPage::buildUi()
     auto *discoverBox = new QGroupBox(QStringLiteral("设备发现（UDP 广播，端口 46000）"));
     auto *ml = new QVBoxLayout(discoverBox);
     auto *discoverHint = new QLabel(QStringLiteral(
-        "进入本页面即开启服务端 UDP 广播与监听；同一局域网内的对端（如 Android）会自动出现在上方设备表中（状态「未配对」）。\n"
-        "选中未配对设备后，使用上方「发起配对」/「接受配对」完成配对即可同步。"));
+        "进入本页面即开启服务端 UDP 广播与监听；同一局域网内的对端（如 Android）会自动出现在上方设备表中（状态「未配对」）。\n"));
     discoverHint->setWordWrap(true);
     discoverHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
     ml->addWidget(discoverHint);
@@ -402,6 +391,7 @@ void SyncPage::refreshDevices()
         int row = 0;
         for (const SyncDevice &d : m_devices) {
             m_devTable->insertRow(row);
+            m_devTable->setRowHeight(row, si(42)); // 逐行显式设高，保证操作列 34px 按钮完整可见（cell widget 不会自动撑高行）
             const auto put = [&](int col, const QString &s, bool bold = false) {
                 auto *it = new QTableWidgetItem(s);
                 if (bold)
@@ -431,6 +421,37 @@ void SyncPage::refreshDevices()
             else
                 status = QStringLiteral("离线");
             put(6, status);
+            // 操作列：按需显示配对按钮
+            auto *opCell = new QWidget;
+            auto *opLay = new QHBoxLayout(opCell);
+            opLay->setContentsMargins(4, 0, 4, 0);
+            opLay->setSpacing(4);
+            if (!d.isSelf && !d.paired) {
+                auto *btnInitiate = new QPushButton(QStringLiteral("发起配对"));
+                btnInitiate->setProperty("deviceId", d.id);
+                connect(btnInitiate, &QPushButton::clicked, this, &SyncPage::onInitiatePair);
+                btnInitiate->setMinimumWidth(si(110));
+                btnInitiate->setFixedHeight(si(34));
+                QFont f1 = btnInitiate->font();
+                f1.setPixelSize(si(14));
+                f1.setWeight(QFont::Medium);
+                btnInitiate->setFont(f1);
+                opLay->addWidget(btnInitiate);
+            }
+            if (d.pairRequestPending) {
+                auto *btnAccept = new QPushButton(QStringLiteral("接受配对"));
+                btnAccept->setProperty("deviceId", d.id);
+                connect(btnAccept, &QPushButton::clicked, this, &SyncPage::onAcceptPair);
+                btnAccept->setMinimumWidth(si(110));
+                btnAccept->setFixedHeight(si(34));
+                QFont f2 = btnAccept->font();
+                f2.setPixelSize(si(14));
+                f2.setWeight(QFont::Medium);
+                btnAccept->setFont(f2);
+                opLay->addWidget(btnAccept);
+            }
+            opLay->addStretch(1);
+            m_devTable->setCellWidget(row, 7, opCell);
             ++row;
         }
         if (m_devices.isEmpty())
@@ -597,12 +618,12 @@ void SyncPage::onInitiatePair()
 {
     if (!m_api)
         return;
-    const int row = m_devTable->currentRow();
-    if (row < 0 || row >= m_devices.size()) {
+    auto *btn = qobject_cast<QPushButton*>(sender());
+    const QString devId = btn ? btn->property("deviceId").toString() : QString();
+    if (devId.isEmpty()) {
         log(QStringLiteral("请先选择目标设备"));
         return;
     }
-    const QString devId = m_devices[row].id;
     QNetworkReply *r = m_api->initiatePair(devId);
     connect(r, &QNetworkReply::finished, this, [this, r] {
         QJsonDocument doc;
@@ -620,12 +641,12 @@ void SyncPage::onAcceptPair()
 {
     if (!m_api)
         return;
-    const int row = m_devTable->currentRow();
-    if (row < 0 || row >= m_devices.size()) {
+    auto *btn = qobject_cast<QPushButton*>(sender());
+    const QString devId = btn ? btn->property("deviceId").toString() : QString();
+    if (devId.isEmpty()) {
         log(QStringLiteral("请先选择要接受的设备"));
         return;
     }
-    const QString devId = m_devices[row].id;
     QNetworkReply *r = m_api->acceptPair(devId);
     connect(r, &QNetworkReply::finished, this, [this, r] {
         QJsonDocument doc;
