@@ -70,6 +70,7 @@ add_executable(awqtui WIN32
     src/todostore.h
     src/todopage.cpp
     src/todopage.h
+    src/todopage.ui
     src/focusmodels.h
     src/focusstore.cpp
     src/focusstore.h
