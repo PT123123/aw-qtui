@@ -1,5 +1,6 @@
 // timelinepage.cpp —— ActivityWatch Timeline / Tockler 风格可交互时间线页
 #include "timelinepage.h"
+#include "ui_timelinepage.h"
 
 #include "apiclient.h"
 #include "awdatastore.h"
@@ -22,19 +23,11 @@
 
 namespace awqtui {
 
-static QFrame *createStatCard(QWidget *parent = nullptr)
-{
-    auto *card = new QFrame(parent);
-    card->setObjectName(QStringLiteral("StatCard"));
-    return card;
-}
-
 TimelinePage::TimelinePage(ApiClient *api, QWidget *parent)
     : QWidget(parent), m_api(api), m_date(QDate::currentDate())
 {
     qDebug() << "[TimelinePage] ctor start";
-    applyTheme();
-    qDebug() << "[TimelinePage] stylesheet set, calling buildUi...";
+    qDebug() << "[TimelinePage] calling buildUi...";
     buildUi();
     applyTheme();
     qDebug() << "[TimelinePage] buildUi done, calling reloadData...";
@@ -80,46 +73,54 @@ void TimelinePage::applyTheme()
 
 void TimelinePage::buildUi()
 {
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(16, 12, 16, 12);
-    root->setSpacing(10);
+    // 静态布局来自 Qt Designer（timelinepage.ui -> ui_timelinepage.h）
+    ui = new Ui::TimelinePage;
+    ui->setupUi(this);
 
-    // ── 顶部工具栏 ──
-    auto *toolbar = new QHBoxLayout;
-    toolbar->setSpacing(8);
+    // 主题样式角色（applyTheme 的 QSS 按 objectName 选择器匹配；.ui 中名称保持唯一）
+    for (auto *c : {ui->StatCard, ui->afkCard, ui->firstCard, ui->lastCard})
+        c->setObjectName(QStringLiteral("StatCard"));
+    for (auto *l : {ui->StatLabel, ui->afkLabel, ui->firstLabel, ui->lastLabel})
+        l->setObjectName(QStringLiteral("StatLabel"));
+    for (auto *v : {ui->totalTracked, ui->afkTime, ui->firstActivity, ui->lastActivity})
+        v->setObjectName(QStringLiteral("StatValue"));
+    for (auto *l : {ui->intervalLabel, ui->showLabel, ui->eventsLabel, ui->hintLabel})
+        l->setObjectName(QStringLiteral("ToolbarLabel"));
+    for (auto *b : {ui->prevBtn, ui->nextBtn})
+        b->setObjectName(QStringLiteral("NavArrow"));
+    for (auto *b : {ui->todayBtn, ui->resetBtn})
+        b->setObjectName(QStringLiteral("ToolBtn"));
 
-    m_prevBtn = new QPushButton(QStringLiteral("◀"));
-    m_prevBtn->setObjectName(QStringLiteral("NavArrow"));
-    m_dateLabel = new QLabel;
-    m_nextBtn = new QPushButton(QStringLiteral("▶"));
-    m_nextBtn->setObjectName(QStringLiteral("NavArrow"));
-    m_todayBtn = new QPushButton(QStringLiteral("Today"));
-    m_todayBtn->setObjectName(QStringLiteral("ToolBtn"));
+    // 主题色相关样式（kColor* 随主题切换，无法烘焙进 .ui）
+    m_dateLabel = ui->dateLabel;
+    m_dateLabel->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 14px; font-weight: 600; padding: 0 4px;")
+            .arg(kColorFg));
+    ui->hintLabel->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 11px; font-style: italic;").arg(kColorMuted2));
 
+    // ── 成员别名：业务逻辑沿用 m_* 指针 ──
+    m_prevBtn = ui->prevBtn;
+    m_nextBtn = ui->nextBtn;
+    m_todayBtn = ui->todayBtn;
+    m_intervalCombo = ui->intervalCombo;
+    m_showLastCombo = ui->showLastCombo;
+    m_eventsLabel = ui->eventsLabel;
+    m_resetBtn = ui->resetBtn;
+    m_totalTracked = ui->totalTracked;
+    m_afkTime = ui->afkTime;
+    m_firstActivity = ui->firstActivity;
+    m_lastActivity = ui->lastActivity;
+
+    // 时间线控件本体在 .ui 中，仅设置运行时行为
+    m_timeline = ui->timeline;
+    m_timeline->setLaneHeight(44);
+
+    // ── 信号连接 ──
     connect(m_prevBtn, &QPushButton::clicked, this, &TimelinePage::onPrevDay);
     connect(m_nextBtn, &QPushButton::clicked, this, &TimelinePage::onNextDay);
     connect(m_todayBtn, &QPushButton::clicked, this, &TimelinePage::onToday);
-
-    toolbar->addWidget(m_prevBtn);
-    toolbar->addWidget(m_dateLabel);
-    toolbar->addWidget(m_nextBtn);
-    toolbar->addWidget(m_todayBtn);
-    toolbar->addSpacing(20);
-
-    // Interval mode
-    auto *intervalLabel = new QLabel(QStringLiteral("Interval mode:"));
-    intervalLabel->setObjectName(QStringLiteral("ToolbarLabel"));
-    m_intervalCombo = new QComboBox;
-    m_intervalCombo->addItems({QStringLiteral("Last duration"), QStringLiteral("Merged duration"), QStringLiteral("First event")});
-    toolbar->addWidget(intervalLabel);
-    toolbar->addWidget(m_intervalCombo);
-    toolbar->addSpacing(12);
-
-    // Show last
-    auto *showLabel = new QLabel(QStringLiteral("Show last:"));
-    showLabel->setObjectName(QStringLiteral("ToolbarLabel"));
-    m_showLastCombo = new QComboBox;
-    m_showLastCombo->addItems({QStringLiteral("24h"), QStringLiteral("12h"), QStringLiteral("6h"), QStringLiteral("48h"), QStringLiteral("7d")});
+    connect(m_resetBtn, &QPushButton::clicked, this, &TimelinePage::onResetView);
     connect(m_showLastCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
         const qint64 base = QDateTime(m_date, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
         qint64 range = 86400000LL;
@@ -132,83 +133,7 @@ void TimelinePage::buildUi()
         }
         m_timeline->setTimeRange(base, base + range);
     });
-    toolbar->addWidget(showLabel);
-    toolbar->addWidget(m_showLastCombo);
-    toolbar->addSpacing(12);
-
-    m_eventsLabel = new QLabel;
-    m_eventsLabel->setObjectName(QStringLiteral("ToolbarLabel"));
-    toolbar->addWidget(m_eventsLabel);
-    toolbar->addStretch(1);
-
-    auto *hintLabel = new QLabel(QStringLiteral("Drag to pan and scroll to zoom"));
-    hintLabel->setObjectName(QStringLiteral("ToolbarLabel"));
-    hintLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 11px; font-style: italic;").arg(kColorMuted2));
-    toolbar->addWidget(hintLabel);
-    toolbar->addSpacing(8);
-
-    m_resetBtn = new QPushButton(QStringLiteral("⟲ Reset view"));
-    m_resetBtn->setObjectName(QStringLiteral("ToolBtn"));
-    connect(m_resetBtn, &QPushButton::clicked, this, &TimelinePage::onResetView);
-    toolbar->addWidget(m_resetBtn);
-
-    root->addLayout(toolbar);
-
-    // ── 时间线 ──
-    m_timeline = new TimelineWidget;
-    m_timeline->setLaneHeight(44);
     connect(m_timeline, &TimelineWidget::timeRangeChanged, this, &TimelinePage::onRangeChanged);
-    root->addWidget(m_timeline, 1);
-
-    // ── 底部统计卡片（Tockler 风格） ──
-    auto *statsRow = new QHBoxLayout;
-    statsRow->setSpacing(10);
-
-    auto *totalCard = createStatCard();
-    auto *totalLay = new QVBoxLayout(totalCard);
-    totalLay->setContentsMargins(0, 0, 0, 0);
-    auto *totalLbl = new QLabel(QStringLiteral("Total tracked"));
-    totalLbl->setObjectName(QStringLiteral("StatLabel"));
-    m_totalTracked = new QLabel(QStringLiteral("—"));
-    m_totalTracked->setObjectName(QStringLiteral("StatValue"));
-    totalLay->addWidget(totalLbl);
-    totalLay->addWidget(m_totalTracked);
-    statsRow->addWidget(totalCard, 1);
-
-    auto *afkCard = createStatCard();
-    auto *afkLay = new QVBoxLayout(afkCard);
-    afkLay->setContentsMargins(0, 0, 0, 0);
-    auto *afkLbl = new QLabel(QStringLiteral("AFK"));
-    afkLbl->setObjectName(QStringLiteral("StatLabel"));
-    m_afkTime = new QLabel(QStringLiteral("—"));
-    m_afkTime->setObjectName(QStringLiteral("StatValue"));
-    afkLay->addWidget(afkLbl);
-    afkLay->addWidget(m_afkTime);
-    statsRow->addWidget(afkCard, 1);
-
-    auto *firstCard = createStatCard();
-    auto *firstLay = new QVBoxLayout(firstCard);
-    firstLay->setContentsMargins(0, 0, 0, 0);
-    auto *firstLbl = new QLabel(QStringLiteral("First activity"));
-    firstLbl->setObjectName(QStringLiteral("StatLabel"));
-    m_firstActivity = new QLabel(QStringLiteral("—"));
-    m_firstActivity->setObjectName(QStringLiteral("StatValue"));
-    firstLay->addWidget(firstLbl);
-    firstLay->addWidget(m_firstActivity);
-    statsRow->addWidget(firstCard, 1);
-
-    auto *lastCard = createStatCard();
-    auto *lastLay = new QVBoxLayout(lastCard);
-    lastLay->setContentsMargins(0, 0, 0, 0);
-    auto *lastLbl = new QLabel(QStringLiteral("Last activity"));
-    lastLbl->setObjectName(QStringLiteral("StatLabel"));
-    m_lastActivity = new QLabel(QStringLiteral("—"));
-    m_lastActivity->setObjectName(QStringLiteral("StatValue"));
-    lastLay->addWidget(lastLbl);
-    lastLay->addWidget(m_lastActivity);
-    statsRow->addWidget(lastCard, 1);
-
-    root->addLayout(statsRow);
 }
 
 void TimelinePage::setDate(const QDate &date)
