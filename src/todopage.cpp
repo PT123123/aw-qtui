@@ -31,6 +31,8 @@
 #include <QRegularExpression>
 #include <QSizePolicy>
 #include <QStackedWidget>
+#include <QAbstractTextDocumentLayout>
+#include <QTextDocument>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -135,9 +137,12 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor, QWidget 
                  task.completed ? QStringLiteral("color:%1; text-decoration:line-through;").arg(kColorMuted2)
                                 : QStringLiteral("color:%1;").arg(kColorFg)));
     title->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    // 关键：让标题/标签区域鼠标事件穿透到行自身，确保 :hover 高亮可靠触发
+    title->setAttribute(Qt::WA_TransparentForMouseEvents);
     mid->addWidget(title);
     if (!task.tags.isEmpty()) {
         auto *tags = new QLabel(task.tags.join(QStringLiteral(" · ")));
+        tags->setAttribute(Qt::WA_TransparentForMouseEvents);
         tags->setStyleSheet(
             QStringLiteral("color:%1; font-size:%2;").arg(kColorFgMuted, sp(11)));
         mid->addWidget(tags);
@@ -186,10 +191,10 @@ void TodoTaskRow::setHighlighted(bool on)
     const QString sub = QStringLiteral(
         "QWidget#TodoRow QLabel,QWidget#TodoRow QCheckBox{background:transparent;}");
     const QString base = on
-        ? QStringLiteral("QWidget#TodoRow{background:rgba(76,139,245,0.14);border-radius:6px;}"
-                         "QWidget#TodoRow:hover{background:rgba(76,139,245,0.20);}")
-        : QStringLiteral("QWidget#TodoRow{background:transparent;border-radius:6px;}"
-                         "QWidget#TodoRow:hover{background:%1;}").arg(kColorHover);
+        ? QStringLiteral("QWidget#TodoRow{background:rgba(76,139,245,0.14);border:1px solid rgba(76,139,245,0.55);border-radius:6px;}"
+                         "QWidget#TodoRow:hover{background:rgba(76,139,245,0.22);border:1px solid rgba(76,139,245,0.8);}")
+        : QStringLiteral("QWidget#TodoRow{background:transparent;border:1px solid transparent;border-radius:6px;}"
+                         "QWidget#TodoRow:hover{background:rgba(255,255,255,0.09);border:1px solid rgba(148,163,184,0.6);}");
     setStyleSheet(sub + base);
 }
 
@@ -281,6 +286,18 @@ void TodoPage::buildUi()
     m_detailPanel->setMinimumWidth(0);
     m_detailPanel->hide();
     m_dTitle = ui->TodoTitleEdit;
+    // 标题框高度随内容自适应（多行完全展开），且内容变化时提交
+    if (m_dTitle) {
+        auto *layout = m_dTitle->document()->documentLayout();
+        const auto updateH = [this, layout] {
+            const int docH = int(layout->documentSize().height());
+            m_dTitle->setFixedHeight(qMax(si(32), docH + si(14)));
+            m_dTitle->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            m_dTitle->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        };
+        connect(m_dTitle->document(), &QTextDocument::contentsChanged, this, updateH);
+        updateH();
+    }
     m_dDone = ui->dDone;
     m_dList = ui->dList;
     m_dPriority = ui->dPriority;
@@ -362,7 +379,7 @@ void TodoPage::buildUi()
         m_showCompleted = on;
         rebuildList();
     });
-    connect(m_dTitle, &QLineEdit::editingFinished, this, &TodoPage::commitDetail);
+    connect(m_dTitle, &QPlainTextEdit::textChanged, this, [this] { m_commitTimer->start(); });
     connect(m_dDone, &QCheckBox::toggled, this, [this](bool on) {
         if (m_loadingDetail || m_selectedTask == 0)
             return;
@@ -401,6 +418,13 @@ void TodoPage::buildUi()
 
     m_detailBody->hide();
 
+    // 详情页顶部的「收起」按钮：收起详情面板（回到仅任务列表）
+    if (auto *closeBtn = ui->detailClose)
+        connect(closeBtn, &QPushButton::clicked, this, [this] {
+            if (m_selectedTask)
+                clearDetail();
+        });
+
     applyPageStyles();
     rebuildListsMenu();
 }
@@ -411,14 +435,13 @@ void TodoPage::applyPageStyles()
     if (auto *topBar = ui ? ui->TodoTopBar : nullptr)
         topBar->setStyleSheet(QStringLiteral("QWidget#TodoTopBar{background:transparent;}"));
 
-    // 视图/清单切换按钮：文字胶囊，选中 accent 染色（有"圈"无符号）
+    // 视图/清单切换按钮：下划线 Tab 风格，选中项 accent 文字 + 底部强调线
     const QString viewStyle =
-        QStringLiteral("QToolButton#TodoSideBtn{padding:%1 %2;border:none;"
-                       "border-radius:%7px;color:%3;background:transparent;font-size:%4;font-weight:500;}"
-                       "QToolButton#TodoSideBtn:hover{background:%5;color:%6;}"
-                       "QToolButton#TodoSideBtn:checked{background:%8;color:%6;font-weight:600;}")
-            .arg(sp(7), sp(12), kColorFgMuted, sp(13), kColorBgElev2, kColorFg,
-                 sp(16), withAlpha(kColorAccent, 0.18));
+        QStringLiteral("QToolButton#TodoSideBtn{padding:%1 %2;border:none;border-radius:%3px;color:%4;"
+                       "background:transparent;font-size:%5;font-weight:500;}"
+                       "QToolButton#TodoSideBtn:hover{background:rgba(255,255,255,0.06);color:%7;}"
+                       "QToolButton#TodoSideBtn:checked{color:%8;font-weight:700;border-bottom:2px solid %8;}")
+            .arg(sp(7), sp(14), sp(6), kColorFgMuted, sp(13), sp(1), kColorFg, kColorAccent);
     for (auto *b : m_viewBtns)
         b->setStyleSheet(viewStyle);
     if (m_listsBtn)
@@ -454,17 +477,36 @@ void TodoPage::applyPageStyles()
         m_progress->setStyleSheet(QStringLiteral("color:%1;font-size:%2;padding-left:%3;").arg(kColorFgMuted, sp(11), sp(8)));
 
     if (m_detailPanel)
+        // 详情面板：透明背景 + 极淡左分隔线，与主内容区融为一体
         m_detailPanel->setStyleSheet(
-            QStringLiteral("QWidget#TodoDetail{background:%1;border-left:1px solid %2;}")
-                .arg(glassBg(kColorBgElev), glassBorder()));
+            QStringLiteral("QWidget#TodoDetail{background:transparent;border-left:1px solid %1;}")
+                .arg(glassBorder()));
     if (m_detailEmpty)
         m_detailEmpty->setStyleSheet(QStringLiteral("color:%1;font-size:%2;").arg(kColorFgMuted, sp(12)));
+    // 详情面板内所有输入控件：透明底 + 细边框，去掉灰色块
+    if (m_detailBody)
+        m_detailBody->setStyleSheet(
+            QStringLiteral("QWidget#detailBody QLineEdit,QWidget#detailBody QPlainTextEdit,"
+                           "QWidget#detailBody QComboBox,QWidget#detailBody QDateEdit{"
+                           "background:transparent;border:1px solid %1;border-radius:6px;}"
+                           "QWidget#detailBody QComboBox::drop-down{border:none;width:20px;}"
+                           "QWidget#detailBody QDateEdit{padding:4px 6px;}")
+                .arg(kColorBorder));
+    if (auto *head = ui->detailHeadTitle)
+        head->setStyleSheet(
+            QStringLiteral("color:%1;font-size:%2;font-weight:700;").arg(kColorFg, sp(13)));
+    if (auto *closeBtn = ui->detailClose)
+        closeBtn->setStyleSheet(
+            QStringLiteral("QPushButton#detailClose{border:none;border-radius:6px;color:%1;"
+                           "background:transparent;font-size:%2;padding:2px 6px;}"
+                           "QPushButton#detailClose:hover{background:%3;color:%4;}")
+                .arg(kColorFgMuted, sp(14), kColorBgElev2, kColorFg));
     if (m_dTitle)
         m_dTitle->setStyleSheet(
-            QStringLiteral("QLineEdit#TodoTitleEdit{font-size:%1;font-weight:700;border:1px solid transparent;"
+            QStringLiteral("QPlainTextEdit#TodoTitleEdit{font-size:%1;font-weight:700;border:1px solid transparent;"
                            "background:transparent;padding:4px 2px;border-radius:6px;}"
-                           "QLineEdit#TodoTitleEdit:focus{border:1px solid %2;background:%3;}")
-                .arg(sp(16), kColorAccent, kColorBg));
+                           "QPlainTextEdit#TodoTitleEdit:focus{border:1px solid %2;background:transparent;}")
+                .arg(sp(16), kColorAccent));
     if (m_dSubs)
         m_dSubs->setStyleSheet(
             QStringLiteral("QListWidget#TodoSubs{background:transparent;border:1px solid %1;border-radius:6px;}"
@@ -880,7 +922,7 @@ void TodoPage::loadDetail(qint64 id)
     m_detailEmpty->hide();
     m_detailBody->show();
 
-    m_dTitle->setText(t->title);
+    m_dTitle->setPlainText(t->title);
     m_dDone->setChecked(t->completed);
 
     int li = m_dList->findData(t->listId);
@@ -963,7 +1005,7 @@ void TodoPage::commitDetail()
         return;
 
     TodoTask t = *cur;
-    t.title = m_dTitle->text().trimmed();
+    t.title = m_dTitle->toPlainText().trimmed();
     t.listId = m_dList->currentData().toLongLong();
     t.priority = m_dPriority->currentData().toInt();
     t.dueDate = m_dHasDue->isChecked() ? m_dDue->date().toString(Qt::ISODate) : QString();

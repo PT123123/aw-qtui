@@ -139,7 +139,7 @@ private:
     QWidget *m_detailPanel;
     QLabel *m_detailEmpty;
     QWidget *m_detailBody;
-    QLineEdit *m_dTitle;
+    QPlainTextEdit *m_dTitle;
     QCheckBox *m_dDone;
     QComboBox *m_dList;
     QComboBox *m_dPriority;
