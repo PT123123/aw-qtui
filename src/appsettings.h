@@ -44,7 +44,7 @@ QString loadThemeId();
 // 持久化主题 ID
 void saveThemeId(const QString &id);
 
-// 读取程序图标 ID（默认 "amber"，见 theme.h kAppIconVariants）
+// 读取程序图标 ID（默认 "green" 森林绿，见 theme.h kAppIconVariants）
 QString loadAppIconId();
 // 持久化程序图标 ID
 void saveAppIconId(const QString &id);

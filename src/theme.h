@@ -178,23 +178,21 @@ inline const Theme kThemes[] = {
 inline const Theme *gTheme = &kThemes[0];
 
 // ---------------------------------------------------------------- //
-// 程序图标：纯代码绘制、零外部资源，设计对齐 aw-android-native 启动图标。
-// Android 端是自适应图标：白色 background 被桌面遮罩裁掉，实际可见的是
-// 顶满遮罩圆的彩色圆盘 + 大表盘（按 108dp 画布 72dp 遮罩换算：
-// 表盘 ≈ 可见圆盘的 65%）。故此处不留白圈，圆盘占满整个图标圆。
+// 程序图标：纯代码绘制、零外部资源。
+// 设计：透明背景 + 单色描边「带折角的文档 + L 形时钟指针（3:00）」，
+// 呼应「记录 + 时间」；线条颜色由图标变体决定（默认森林绿）。
+// 所有尺寸按 100 单位坐标系定义，绘制时按实际像素等比缩放。
 // ---------------------------------------------------------------- //
 struct AppIconVariant {
     const char *id;
-    const char *name; // 中文名（设置界面显示）
-    const char *disc; // 圆盘色
-    const char *face; // 表盘色
-    const char *hand; // 指针色
+    const char *name;   // 中文名（设置界面显示）
+    const char *stroke; // 线条色
 };
 
 inline const AppIconVariant kAppIconVariants[] = {
-    { "amber", "琥珀（默认）", "#fec830", "#17b298", "#ffd84d" }, // default / version_01：黄盘 + 青绿表盘 + 黄针
-    { "blue",  "晴空蓝",      "#45bdf0", "#f8c830", "#0eb59a" }, // version_02：蓝盘 + 黄表盘 + 青针
-    { "green", "薄荷青",      "#0eb8a0", "#f8c020", "#30b8f0" }, // version_03：青盘 + 黄表盘 + 蓝针
+    { "green", "森林绿（默认）", "#22c55e" },
+    { "teal",  "薄荷青",        "#2dd4bf" },
+    { "blue",  "晴空蓝",        "#45bdf0" },
 };
 
 // 当前选中的程序图标（启动时从设置载入，设置对话框切换后更新）
@@ -212,34 +210,61 @@ inline QIcon makeAppIcon(const AppIconVariant *variant = nullptr)
 {
     if (!variant)
         variant = gAppIcon;
-    const QColor discC(variant->disc);
-    const QColor faceC(variant->face);
-    const QColor handC(variant->hand);
+    const QColor strokeC(variant->stroke);
 
     QIcon icon;
     const int sizes[] = {256, 128, 64, 48, 32, 16};
     for (const int px : sizes) {
         QPixmap pm(px, px);
-        pm.fill(Qt::transparent);
+        pm.fill(Qt::transparent); // 透明背景：只有轮廓线条
         QPainter p(&pm);
         p.setRenderHint(QPainter::Antialiasing);
-        const qreal d = px;
+        p.scale(px / 100.0, px / 100.0); // 切到 100 单位坐标系
 
-        // 彩色圆盘顶满整个图标圆（对齐 Android 遮罩后的真实观感：无白圈）
-        p.setPen(Qt::NoPen);
-        p.setBrush(discC);
-        p.drawEllipse(0, 0, d, d);
+        // 小尺寸下保证最小笔宽，避免 16px 任务栏里线条发虚消失
+        const qreal outlineW = qMax(5.0, 1.5 * 100.0 / px);
+        const qreal handW    = qMax(6.5, 1.8 * 100.0 / px);
 
-        // 大表盘：约占圆盘直径 65%
-        const qreal faceDia = d * 0.65;
-        p.setBrush(faceC);
-        p.drawEllipse((d - faceDia) / 2, (d - faceDia) / 2, faceDia, faceDia);
+        // —— 文档外形（圆角矩形 + 右上角折角），仅描边、无填充 ——
+        const qreal L = 14, T = 15, R = 86, B = 85, rad = 9;
+        const qreal foldX = 62; // 折痕在顶边的起点
+        const qreal foldY = 32; // 折痕在右边的终点
 
-        // 指针：时针指右（3 点）、分针指上（12 点），圆头
-        const QPointF c((d) / 2, (d) / 2);
-        p.setPen(QPen(handC, qMax(1.5, faceDia * 0.11), Qt::SolidLine, Qt::RoundCap));
-        p.drawLine(c, c + QPointF(faceDia * 0.28, 0));
-        p.drawLine(c, c + QPointF(0, -faceDia * 0.36));
+        p.setBrush(Qt::NoBrush);
+        p.setPen(QPen(strokeC, outlineW, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+
+        QPainterPath doc;
+        doc.moveTo(L + rad, T);
+        doc.lineTo(foldX, T);
+        // 折角翻页：沿原右上角圆角外缘（顶边 → 圆角 → 右边）
+        doc.lineTo(R - rad, T);
+        doc.arcTo(QRectF(R - rad * 2, T, rad * 2, rad * 2), 90, -90);
+        doc.lineTo(R, foldY);
+        // 右边 → 右下圆角 → 底边 → 左下圆角 → 左边 → 左上圆角
+        doc.lineTo(R, B - rad);
+        doc.arcTo(QRectF(R - rad * 2, B - rad * 2, rad * 2, rad * 2), 0, -90);
+        doc.lineTo(L + rad, B);
+        doc.arcTo(QRectF(L, B - rad * 2, rad * 2, rad * 2), -90, -90);
+        doc.lineTo(L, T + rad);
+        doc.arcTo(QRectF(L, T, rad * 2, rad * 2), 180, -90);
+        doc.closeSubpath();
+        p.drawPath(doc);
+
+        // 折痕：顶边折点 → 右边折点
+        QPainterPath crease;
+        crease.moveTo(foldX, T);
+        crease.lineTo(R, foldY);
+        p.drawPath(crease);
+
+        // —— L 形时钟指针：指上（12 点）+ 指右（3 点），圆头粗线 ——
+        p.setPen(QPen(strokeC, handW, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        const QPointF c(47, 53);
+        QPainterPath hands;
+        hands.moveTo(c.x(), c.y() - 20);    // 12 点方向
+        hands.lineTo(c);
+        hands.lineTo(c.x() + 20.5, c.y());  // 3 点方向
+        p.drawPath(hands);
+
         p.end();
         icon.addPixmap(pm);
     }

@@ -175,8 +175,8 @@ int main(int argc, char *argv[])
     gTheme = findTheme(themeId);
     applyThemeColors(*gTheme);
     app.setStyleSheet(gGlobalQss);
-    // 程序图标（纯代码渲染，无需额外资源文件）：对齐 aw-android-native 启动图标
-    // —— 白底圆 + 彩色圆盘 + 时钟（3:00），款式可在设置中切换，详见 theme.h makeAppIcon()
+    // 程序图标（纯代码渲染，无需额外资源文件）
+    // —— 透明底 + 绿色描边：带折角的文档 + L 形时钟指针，款式可在设置中切换，详见 theme.h makeAppIcon()
     gAppIcon = findAppIcon(loadAppIconId());
     app.setWindowIcon(makeAppIcon());
     qDebug() << "stylesheet set, theme =" << gTheme->id;
