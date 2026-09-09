@@ -69,17 +69,7 @@
         </property>
        </widget>
       </item>
-      <item>
-       <widget class="QPushButton" name="btnSettings">
-        <property name="text">
-         <string>⚙  设置</string>
-        </property>
-        <property name="toolTip">
-         <string>设置（全局快捷键）</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
+      </layout>
     </widget>
    </item>
    <item>

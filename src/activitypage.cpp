@@ -9,12 +9,14 @@
 #include "theme.h"
 
 #include <QDateTime>
+#include <QAction>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMenu>
 #include <QNetworkReply>
 #include <QPushButton>
 #include <QScrollArea>
@@ -25,7 +27,7 @@ namespace awqtui {
 
 ActivityPage::ActivityPage(ApiClient *api, QWidget *parent)
     : QWidget(parent), m_api(api), m_dateStart(QDate::currentDate()), m_dateEnd(QDate::currentDate()),
-      m_rangeLabel(QStringLiteral("Today"))
+      m_rangeLabel(QStringLiteral("今天"))
 {
     qDebug() << "[ActivityPage] ctor start";
     applyTheme();
@@ -44,50 +46,61 @@ ActivityPage::~ActivityPage()
 
 void ActivityPage::applyTheme()
 {
+    // 所有尺寸用 sp()/si() 按 gUiScale 缩放，保证 Ctrl± 放大时按钮内边距/最小尺寸与字号同步增长，文字不被裁剪
     setStyleSheet(QStringLiteral(R"(
         QFrame#Card {
             background: %1;
             border: 1px solid %2;
-            border-radius: 8px;
+            border-radius: %3;
         }
         QLabel#CardTitle {
-            color: %3;
-            font-size: 13px;
+            color: %4;
+            font-size: %5;
             font-weight: 600;
-            padding: 10px 12px 2px;
+            padding: %6 %7 %8;
         }
-        QLabel#ToolbarLabel { color: %4; font-size: 12px; }
+        QLabel#ToolbarLabel { color: %9; font-size: %10; }
         QPushButton#NavArrow {
-            background: transparent; border: 1px solid %2; border-radius: 4px;
-            padding: 4px 10px; color: %5; font-size: 14px;
+            background: transparent; border: 1px solid %11; border-radius: %12;
+            padding: %13 %14; color: %15; font-size: %16; min-height: %17;
         }
-        QPushButton#NavArrow:hover { background: %6; border-color: %7; }
+        QPushButton#NavArrow:hover { background: %18; border-color: %19; }
         QPushButton#ToolBtn {
-            background: %6; border: 1px solid %2; border-radius: 6px;
-            padding: 5px 12px; color: %5; font-size: 12px;
+            background: %18; border: 1px solid %11; border-radius: %20;
+            padding: %21 %22; color: %15; font-size: %16; min-height: %17;
         }
-        QPushButton#ToolBtn:hover { background: %8; border-color: %7; }
-        QPushButton#ChipBtn {
-            background: transparent; border: 1px solid %2; border-radius: 14px;
-            padding: 4px 14px; color: %4; font-size: 12px; min-width: 36px;
+        QPushButton#ToolBtn:hover { background: %23; border-color: %19; }
+        QMenu {
+            background: %1; border: 1px solid %2; border-radius: %3; padding: %12;
         }
-        QPushButton#ChipBtn:hover { background: %6; border-color: %7; color: %5; }
-        QPushButton#ChipBtn:checked { background: %7; border-color: %7; color: %9; font-weight: 600; }
-        QTabWidget::pane { border: 1px solid %2; border-radius: 8px; background: %9; }
+        QMenu::item {
+            padding: %21 %25; border-radius: %24; color: %4; font-size: %10;
+        }
+        QMenu::item:selected { background: %23; }
+        QMenu::item:checked { color: %19; font-weight: 600; }
+        QMenu::separator { height: 1px; background: %2; margin: %29 %30; }
+        QTabWidget::pane { border: 1px solid %11; border-radius: %28; background: %27; }
         QTabBar::tab {
-            background: transparent; color: %4; padding: 8px 18px;
-            border: none; border-bottom: 2px solid transparent; font-size: 12px;
+            background: transparent; color: %9; padding: %29 %30;
+            border: none; border-bottom: %31 solid transparent; font-size: %10;
         }
-        QTabBar::tab:selected { color: %7; border-bottom-color: %7; }
-        QTabBar::tab:hover { color: %3; }
+        QTabBar::tab:selected { color: %19; border-bottom-color: %19; }
+        QTabBar::tab:hover { color: %4; }
     )")
-                                  .arg(kColorBgElev, kColorBorder, kColorFg, kColorFgMuted,
-                                       kColorFgSoft, kColorBgElev2, kColorAccent, kColorHover,
-                                       kColorBg));
+                                  .arg(kColorBgElev, kColorBorder, sp(8), kColorFg, sp(13), sp(10), sp(12), sp(2),
+                                       kColorFgMuted, sp(12), kColorBorder, sp(4), sp(4), sp(10), kColorFgSoft,
+                                       sp(14), sp(26), kColorBgElev2, kColorAccent, sp(6),
+                                       sp(5), sp(12), kColorHover, sp(14), sp(14), sp(36),
+                                       kColorBg, sp(8), sp(8), sp(18), sp(2)));
     if (m_dateLabel)
         m_dateLabel->setStyleSheet(
-            QStringLiteral("color: %1; font-size: 14px; font-weight: 600; padding: 0 4px;")
-                .arg(kColorFg));
+            QStringLiteral("color: %1; font-size: %2; font-weight: 600; padding: 0 %3;")
+                .arg(kColorFg, sp(14), sp(4)));
+}
+
+void ActivityPage::applyUiScale()
+{
+    applyTheme();
 }
 
 void ActivityPage::buildUi()
@@ -101,11 +114,7 @@ void ActivityPage::buildUi()
     m_dateLabel = ui->dateLabel;
     m_nextBtn = ui->nextBtn;
     m_todayBtn = ui->todayBtn;
-    m_chipToday = ui->chipToday;
-    m_chipYesterday = ui->chipYesterday;
-    m_chipLast7 = ui->chipLast7;
-    m_chipLast30 = ui->chipLast30;
-    m_chipAll = ui->chipAll;
+    m_rangeBtn = ui->rangeBtn;
     m_hostLabel = ui->hostLabel;
     m_activeLabel = ui->activeLabel;
     m_hourlyBars = ui->hourlyBars;
@@ -140,17 +149,28 @@ void ActivityPage::buildUi()
     m_prevBtn->setObjectName(QStringLiteral("NavArrow"));
     m_nextBtn->setObjectName(QStringLiteral("NavArrow"));
     m_todayBtn->setObjectName(QStringLiteral("ToolBtn"));
-    m_chipToday->setObjectName(QStringLiteral("ChipBtn"));
-    m_chipYesterday->setObjectName(QStringLiteral("ChipBtn"));
-    m_chipLast7->setObjectName(QStringLiteral("ChipBtn"));
-    m_chipLast30->setObjectName(QStringLiteral("ChipBtn"));
-    m_chipAll->setObjectName(QStringLiteral("ChipBtn"));
+    m_rangeBtn->setObjectName(QStringLiteral("ToolBtn"));
     m_hostLabel->setObjectName(QStringLiteral("ToolbarLabel"));
     m_activeLabel->setObjectName(QStringLiteral("ToolbarLabel"));
     ui->filtersBtn->setObjectName(QStringLiteral("ToolBtn"));
     ui->refreshBtn->setObjectName(QStringLiteral("ToolBtn"));
     ui->newViewBtn->setObjectName(QStringLiteral("ToolBtn"));
     ui->phLabel->setObjectName(QStringLiteral("ToolbarLabel"));
+
+    // 日期范围筛选：收起为下拉菜单（今天 / 昨天 / 最近 7 天 / 最近 30 天 / 全部）
+    m_rangeMenu = new QMenu(m_rangeBtn);
+    const QStringList rangeLabels = {QStringLiteral("今天"), QStringLiteral("昨天"),
+                                     QStringLiteral("最近 7 天"), QStringLiteral("最近 30 天"),
+                                     QStringLiteral("全部")};
+    for (int i = 0; i < rangeLabels.size(); ++i) {
+        QAction *act = m_rangeMenu->addAction(rangeLabels[i]);
+        act->setCheckable(true);
+        act->setData(i);
+        m_rangeActions.append(act);
+        connect(act, &QAction::triggered, this, &ActivityPage::onRangeAction);
+    }
+    m_rangeBtn->setMenu(m_rangeMenu);
+    setRangeChecked(0);
 
     // 图表参数（自定义方法，非 Q_PROPERTY，无法进 .ui）
     m_topApps->setLabelWidth(130);
@@ -170,11 +190,6 @@ void ActivityPage::buildUi()
     connect(m_prevBtn, &QPushButton::clicked, this, &ActivityPage::onPrevDay);
     connect(m_nextBtn, &QPushButton::clicked, this, &ActivityPage::onNextDay);
     connect(m_todayBtn, &QPushButton::clicked, this, &ActivityPage::onToday);
-    connect(m_chipToday, &QPushButton::clicked, this, &ActivityPage::onDateChipToday);
-    connect(m_chipYesterday, &QPushButton::clicked, this, &ActivityPage::onDateChipYesterday);
-    connect(m_chipLast7, &QPushButton::clicked, this, &ActivityPage::onDateChipLast7);
-    connect(m_chipLast30, &QPushButton::clicked, this, &ActivityPage::onDateChipLast30);
-    connect(m_chipAll, &QPushButton::clicked, this, &ActivityPage::onDateChipAll);
     connect(ui->refreshBtn, &QPushButton::clicked, this, &ActivityPage::refresh);
 }
 
@@ -182,9 +197,8 @@ void ActivityPage::setDate(const QDate &date)
 {
     m_dateStart = date;
     m_dateEnd = date;
-    m_rangeLabel = QStringLiteral("Today");
-    uncheckAllChips();
-    if (m_chipToday) m_chipToday->setChecked(true);
+    m_rangeLabel = QStringLiteral("今天");
+    setRangeChecked(0);
     reloadData();
 }
 
@@ -215,69 +229,57 @@ void ActivityPage::onToday()
 {
     m_dateStart = QDate::currentDate();
     m_dateEnd = QDate::currentDate();
-    m_rangeLabel = QStringLiteral("Today");
-    uncheckAllChips();
-    if (m_chipToday) m_chipToday->setChecked(true);
+    m_rangeLabel = QStringLiteral("今天");
+    setRangeChecked(0);
     reloadData();
 }
 
-void ActivityPage::onDateChipToday()
+void ActivityPage::onRangeAction()
 {
-    uncheckAllChips();
-    m_chipToday->setChecked(true);
-    m_dateStart = QDate::currentDate();
-    m_dateEnd = QDate::currentDate();
-    m_rangeLabel = QStringLiteral("Today");
+    auto *act = qobject_cast<QAction *>(sender());
+    if (!act)
+        return;
+    setRangeChecked(act->data().toInt());
+    switch (act->data().toInt()) {
+    case 0:
+        m_dateStart = QDate::currentDate();
+        m_dateEnd = m_dateStart;
+        m_rangeLabel = QStringLiteral("今天");
+        break;
+    case 1:
+        m_dateStart = QDate::currentDate().addDays(-1);
+        m_dateEnd = m_dateStart;
+        m_rangeLabel = QStringLiteral("昨天");
+        break;
+    case 2:
+        m_dateEnd = QDate::currentDate();
+        m_dateStart = m_dateEnd.addDays(-6);
+        m_rangeLabel = QStringLiteral("最近 7 天");
+        break;
+    case 3:
+        m_dateEnd = QDate::currentDate();
+        m_dateStart = m_dateEnd.addDays(-29);
+        m_rangeLabel = QStringLiteral("最近 30 天");
+        break;
+    default:
+        m_dateStart = QDate(2020, 1, 1);
+        m_dateEnd = QDate::currentDate();
+        m_rangeLabel = QStringLiteral("全部");
+        break;
+    }
     reloadData();
 }
 
-void ActivityPage::onDateChipYesterday()
+void ActivityPage::setRangeChecked(int index)
 {
-    uncheckAllChips();
-    m_chipYesterday->setChecked(true);
-    m_dateStart = QDate::currentDate().addDays(-1);
-    m_dateEnd = m_dateStart;
-    m_rangeLabel = QStringLiteral("Yesterday");
-    reloadData();
-}
-
-void ActivityPage::onDateChipLast7()
-{
-    uncheckAllChips();
-    m_chipLast7->setChecked(true);
-    m_dateEnd = QDate::currentDate();
-    m_dateStart = m_dateEnd.addDays(-6);
-    m_rangeLabel = QStringLiteral("Last 7 days");
-    reloadData();
-}
-
-void ActivityPage::onDateChipLast30()
-{
-    uncheckAllChips();
-    m_chipLast30->setChecked(true);
-    m_dateEnd = QDate::currentDate();
-    m_dateStart = m_dateEnd.addDays(-29);
-    m_rangeLabel = QStringLiteral("Last 30 days");
-    reloadData();
-}
-
-void ActivityPage::onDateChipAll()
-{
-    uncheckAllChips();
-    m_chipAll->setChecked(true);
-    m_dateStart = QDate(2020, 1, 1);
-    m_dateEnd = QDate::currentDate();
-    m_rangeLabel = QStringLiteral("All time");
-    reloadData();
+    for (int i = 0; i < m_rangeActions.size(); ++i)
+        m_rangeActions[i]->setChecked(i == index);
 }
 
 void ActivityPage::uncheckAllChips()
 {
-    if (m_chipToday) m_chipToday->setChecked(false);
-    if (m_chipYesterday) m_chipYesterday->setChecked(false);
-    if (m_chipLast7) m_chipLast7->setChecked(false);
-    if (m_chipLast30) m_chipLast30->setChecked(false);
-    if (m_chipAll) m_chipAll->setChecked(false);
+    for (QAction *act : m_rangeActions)
+        act->setChecked(false);
 }
 
 void ActivityPage::reloadData()
@@ -287,6 +289,9 @@ void ActivityPage::reloadData()
         : m_dateStart.toString(QStringLiteral("yyyy-MM-dd")) + QStringLiteral(" → ") +
           m_dateEnd.toString(QStringLiteral("yyyy-MM-dd"));
     m_dateLabel->setText(dateText);
+    // 菜单按钮文字跟随当前范围（单日翻页时为具体日期）
+    if (m_rangeBtn)
+        m_rangeBtn->setText(m_rangeLabel + QStringLiteral(" ▾"));
 
     if (!m_api) {
         // Mock 模式：用 mockdata 生成
@@ -297,8 +302,8 @@ void ActivityPage::reloadData()
     }
 
     m_loading = true;
-    m_hostLabel->setText(QStringLiteral("Host: loading…"));
-    m_activeLabel->setText(QStringLiteral("time active: —"));
+    m_hostLabel->setText(QStringLiteral("主机：加载中…"));
+    m_activeLabel->setText(QStringLiteral("活跃时间：—"));
 
     QNetworkReply *reply = m_api->getBuckets();
     connect(reply, &QNetworkReply::finished, this, &ActivityPage::onBucketsLoaded);
@@ -312,7 +317,7 @@ void ActivityPage::onBucketsLoaded()
     QJsonDocument doc;
     QString err;
     if (!ApiClient::parseReply(reply, &doc, &err)) {
-        showEmptyState(QStringLiteral("Failed to load buckets: %1").arg(err));
+        showEmptyState(QStringLiteral("加载数据集失败：%1").arg(err));
         reply->deleteLater();
         return;
     }
@@ -320,10 +325,10 @@ void ActivityPage::onBucketsLoaded()
 
     m_buckets = parseBuckets(doc.object());
     if (m_buckets.isEmpty()) {
-        showEmptyState(QStringLiteral("No buckets — run aw-watcher to start tracking."));
+        showEmptyState(QStringLiteral("暂无数据集 — 请启动 aw-watcher 开始追踪。"));
         return;
     }
-    m_hostLabel->setText(QStringLiteral("Host: %1").arg(m_buckets.first().hostname));
+    m_hostLabel->setText(QStringLiteral("主机：%1").arg(m_buckets.first().hostname));
     fetchAllEvents();
 }
 
@@ -372,7 +377,7 @@ void ActivityPage::updateUiFromLanes()
     qint64 totalActive = 0;
     for (qint64 s : hourly)
         totalActive += s;
-    m_activeLabel->setText(QStringLiteral("time active: %1").arg(formatDuration(totalActive)));
+    m_activeLabel->setText(QStringLiteral("活跃时间：%1").arg(formatDuration(totalActive)));
 
     m_hourlyBars->setData(hourly);
 
@@ -444,13 +449,13 @@ void ActivityPage::showEmptyState(const QString &msg)
 {
     m_loading = false;
     m_lanes.clear();
-    m_hostLabel->setText(QStringLiteral("Host: —"));
-    m_activeLabel->setText(QStringLiteral("time active: —"));
+    m_hostLabel->setText(QStringLiteral("主机：—"));
+    m_activeLabel->setText(QStringLiteral("活跃时间：—"));
     m_hourlyBars->setData(QList<qint64>(24, 0));
     m_topApps->setItems({});
     m_topTitles->setItems({});
     m_topCats->setItems({});
-    m_catBars->setData(QList<qint64>(24, 0), QStringList(24, QStringLiteral("Uncategorized")));
+    m_catBars->setData(QList<qint64>(24, 0), QStringList(24, QStringLiteral("未分类")));
     m_catTree->setItems({});
     m_donut->setItems({});
     m_winApps->setItems({});
@@ -466,7 +471,7 @@ void ActivityPage::showEmptyState(const QString &msg)
 
 QStringList ActivityPage::computeHourlyCategories() const
 {
-    QStringList result(24, QStringLiteral("Uncategorized"));
+    QStringList result(24, QStringLiteral("未分类"));
     for (const auto &lane : m_lanes) {
         if (!lane.name.startsWith(QStringLiteral("aw-watcher-window"))) continue;
         QVector<qint64> hourDur(24, 0);
