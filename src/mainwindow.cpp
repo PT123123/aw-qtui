@@ -198,7 +198,7 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
-// 系统托盘：图标用 makeAppIcon()（对齐 aw-android-native 启动图标：白底圆 + 琥珀黄盘 + 青绿时钟），
+// 系统托盘：图标用 makeAppIcon()（透明底绿色描边：折角文档 + L 形时钟指针），
 // 已含 16/32px 托盘尺寸，零外部资源。
 // 交互：左键/双击切换显示隐藏；右键菜单「显示/隐藏主窗口」「退出」；关窗默认最小化到托盘。
 void MainWindow::setupTray()

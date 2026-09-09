@@ -101,7 +101,7 @@ void saveThemeId(const QString &id)
 QString loadAppIconId()
 {
     QSettings s(settingsFilePath(), QSettings::IniFormat);
-    return s.value(QStringLiteral("ui/appIcon"), QStringLiteral("amber")).toString();
+    return s.value(QStringLiteral("ui/appIcon"), QStringLiteral("green")).toString();
 }
 
 void saveAppIconId(const QString &id)
