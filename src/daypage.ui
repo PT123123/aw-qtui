@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- daypage.ui —— Day 视图布局（Qt Designer）
-     与 DayPage::buildUi() 的静态结构一一对应。注意：
-     1. 控件名保持唯一，主题 QSS 的 objectName 角色（ToolBtn/PrimaryBtn）在 buildUi() 统一映射；
-     2. QSplitter 子项拉伸经 <attribute name="stretch"> 声明（3,2）；
-     3. awqtui::TimelineWidget 经 customwidget 声明，setTimeRange 运行时处理；
+<!-- daypage.ui —— 合并后的【时间线/日审阅】页布局（Qt Designer）
+     由原 Day 视图合并原 Timeline 页，支持 浏览/编辑 两种模式。静态结构注意：
+     1. 控件名保持唯一，主题 QSS 的 objectName 角色（ToolBtn/PrimaryBtn/StatCard/StatLabel/StatValue/ToolbarLabel/ModeBtn）
+        在 DayPage::buildUi() 统一映射；StatCard/StatValue/ToolbarLabel/ModeBtn 样式由 DayPage::applyTheme() 内联定义；
+     2. 顶部日期导航行含「浏览/编辑」两个 checkable 排他按钮（browseModeBtn/editModeBtn，QButtonGroup 运行时维护）；
+     3. 条状内容以 QWidget 包裹以便随模式显隐：
+        browseBar（interval/showLast/eventsLabel/reset）与 statsBar（4 张统计卡）仅浏览模式可见；
+        editBar（选择/打标签/过滤）与 stack 主区（timeline+bottomTabs / untaggedScroll）仅在编辑模式生效；
+     4. awqtui::TimelineWidget 经 customwidget 声明，浏览模式只读、编辑模式可框选（运行时可配置）；
         UntaggedView 构造需 TagStore*，.ui 中 QScrollArea 留空、运行时 setWidget；
-     4. 表格表头文字/行为属性进 .ui，列宽与 Interactive 调整模式保留在 buildUi() -->
+     5. QSplitter 子项拉伸经 <attribute name="stretch"> 声明（3,2） -->
 <ui version="4.0">
  <class>DayPage</class>
  <widget class="QWidget" name="DayPage">
@@ -13,11 +17,11 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>980</width>
-    <height>680</height>
+    <width>1080</width>
+    <height>720</height>
    </rect>
   </property>
-  <layout class="QVBoxLayout" name="rootLayout" stretch="0,0,1">
+  <layout class="QVBoxLayout" name="rootLayout" stretch="0,0,0,0,1">
    <property name="leftMargin">
     <number>12</number>
    </property>
@@ -89,12 +93,306 @@
       </spacer>
      </item>
      <item>
+      <spacer name="gap3">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeType">
+        <enum>QSizePolicy::Fixed</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>8</width>
+         <height>1</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="browseModeBtn">
+       <property name="text">
+        <string>浏览</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="editModeBtn">
+       <property name="text">
+        <string>编辑</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QLabel" name="statusLabel"/>
      </item>
     </layout>
    </item>
    <item>
-    <layout class="QHBoxLayout" name="row2">
+    <widget class="QWidget" name="browseBar">
+     <layout class="QHBoxLayout" name="browseToolbar">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="intervalLabel">
+       <property name="text">
+        <string>Interval mode:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="intervalCombo">
+       <item>
+        <property name="text">
+         <string>Last duration</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>Merged duration</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>First event</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <spacer name="gap4">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeType">
+        <enum>QSizePolicy::Fixed</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>12</width>
+         <height>1</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="showLabel">
+       <property name="text">
+        <string>Show last:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="showLastCombo">
+       <item>
+        <property name="text">
+         <string>24h</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>12h</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>6h</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>48h</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>7d</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="eventsLabel"/>
+     </item>
+     <item>
+      <spacer name="browseStretch">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="hintLabel">
+       <property name="text">
+        <string>拖拽平移 / 滚轮缩放</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="resetBtn">
+       <property name="text">
+        <string>⟲ Reset view</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="statsBar">
+     <layout class="QHBoxLayout" name="statsRow" stretch="1,1,1,1">
+     <property name="spacing">
+      <number>10</number>
+     </property>
+     <item>
+      <widget class="QFrame" name="totalCard">
+       <layout class="QVBoxLayout" name="totalLay">
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="totalLabel">
+          <property name="text">
+           <string>Total tracked</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="totalTracked">
+          <property name="text">
+           <string>—</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QFrame" name="afkCard">
+       <layout class="QVBoxLayout" name="afkLay">
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="afkLabel">
+          <property name="text">
+           <string>AFK</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="afkTime">
+          <property name="text">
+           <string>—</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QFrame" name="firstCard">
+       <layout class="QVBoxLayout" name="firstLay">
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="firstLabel">
+          <property name="text">
+           <string>First activity</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="firstActivity">
+          <property name="text">
+           <string>—</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QFrame" name="lastCard">
+       <layout class="QVBoxLayout" name="lastLay">
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="lastLabel">
+          <property name="text">
+           <string>Last activity</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="lastActivity">
+          <property name="text">
+           <string>—</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="editBar">
+     <layout class="QHBoxLayout" name="row2">
      <item>
       <widget class="QPushButton" name="selectToggle">
        <property name="text">
@@ -223,6 +521,7 @@
       </widget>
      </item>
     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QStackedWidget" name="stack">

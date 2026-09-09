@@ -1,4 +1,5 @@
-// daypage.h —— Day 视图：时间线选择 → 打标签 → 明细/汇总勾选 → 过滤 → 未标记/高级搜索
+// daypage.h —— 合并后的【时间线/日审阅】页：浏览/编辑双模式。
+// 浏览：统计卡 + showLast 缩放 + reset（只读）；编辑：时间线选择 → 打标签 → 明细/汇总 → 过滤 → 未标记。
 #pragma once
 
 #include <QDate>
@@ -54,6 +55,8 @@ private slots:
     void onPrevDay();
     void onNextDay();
     void onToday();
+    void onBrowseMode();
+    void onEditMode();
     void toggleSelectMode(bool on);
     void onSelModeChanged(int);
     void onAddTag();
@@ -87,6 +90,9 @@ private:
     // Qt Designer 生成的布局对象（daypage.ui -> ui_daypage.h）
     Ui::DayPage *ui = nullptr;
     void buildUi();
+    void setMode(bool browse);
+    void applyShowLast(int idx);
+    void updateStats();
     void reload();
     void rebuildTagsLane();
     void rebuildDetails();
@@ -117,6 +123,19 @@ private:
     QPushButton *m_prevBtn = nullptr;
     QPushButton *m_nextBtn = nullptr;
     QPushButton *m_todayBtn = nullptr;
+    // 浏览/编辑模式
+    QPushButton *m_browseModeBtn = nullptr;
+    QPushButton *m_editModeBtn = nullptr;
+    bool m_browseMode = true;
+    // 浏览模式控件（统计卡 + showLast/reset/events）
+    QComboBox *m_intervalCombo = nullptr;
+    QComboBox *m_showLastCombo = nullptr;
+    QPushButton *m_resetBtn = nullptr;
+    QLabel *m_eventsLabel = nullptr;
+    QLabel *m_totalTracked = nullptr;
+    QLabel *m_afkTime = nullptr;
+    QLabel *m_firstActivity = nullptr;
+    QLabel *m_lastActivity = nullptr;
     QPushButton *m_selectToggle = nullptr;
     QComboBox *m_selModeCombo = nullptr;
     QPushButton *m_addTagBtn = nullptr;

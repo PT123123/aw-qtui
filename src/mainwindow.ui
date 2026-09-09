@@ -6,7 +6,8 @@
      2. pageStack 中仅声明 4 个容器页（设置/专注统计/活动/同步），其子标签页
         均为空 host 容器，需要构造参数的真实页面运行时经 insertWidget 按枚举
         升序插入栈中、经 hostLay 装入子标签；
-     3. 通用设置 Tab 的静态文案与按钮在 .ui 中，光标/主题样式/信号在运行时 -->
+     3. 通用设置 Tab 的静态结构在 .ui 中（为空 host generalHostLay），
+        设置编辑组件与保存按钮在运行时构建（见 MainWindow::buildSettingsEditor）。 -->
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -103,80 +104,22 @@
            <attribute name="title">
             <string>通用设置</string>
            </attribute>
-           <layout class="QVBoxLayout" name="generalLay" stretch="1,0,0,1">
-            <item>
-             <spacer name="generalTopStretch">
-              <property name="orientation">
-               <enum>Qt::Vertical</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>20</width>
-                <height>40</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
-            <item>
-             <widget class="QLabel" name="generalHint">
-              <property name="text">
-               <string>主题、界面效果、快捷键与应用图标等全局设置在对话框中调整</string>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignCenter</set>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <layout class="QHBoxLayout" name="generalBtnLay">
-              <item>
-               <spacer name="generalBtnLeft">
-                <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
-                </property>
-                <property name="sizeHint" stdset="0">
-                 <size>
-                  <width>40</width>
-                  <height>20</height>
-                 </size>
-                </property>
-               </spacer>
-              </item>
-              <item>
-               <widget class="QPushButton" name="generalOpenBtn">
-                <property name="text">
-                 <string>打开设置对话框</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <spacer name="generalBtnRight">
-                <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
-                </property>
-                <property name="sizeHint" stdset="0">
-                 <size>
-                  <width>40</width>
-                  <height>20</height>
-                 </size>
-                </property>
-               </spacer>
-              </item>
-             </layout>
-            </item>
-            <item>
-             <spacer name="generalBottomStretch">
-              <property name="orientation">
-               <enum>Qt::Vertical</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>20</width>
-                <height>40</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
+           <layout class="QVBoxLayout" name="generalHostLay">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <property name="spacing">
+             <number>0</number>
+            </property>
            </layout>
           </widget>
          </widget>
@@ -383,25 +326,6 @@
             </property>
            </layout>
           </widget>
-          <widget class="QWidget" name="awTimelineHost">
-           <attribute name="title">
-            <string>⏱ Timeline</string>
-           </attribute>
-           <layout class="QVBoxLayout" name="awTimelineHostLay">
-            <property name="leftMargin">
-             <number>0</number>
-            </property>
-            <property name="topMargin">
-             <number>0</number>
-            </property>
-            <property name="rightMargin">
-             <number>0</number>
-            </property>
-            <property name="bottomMargin">
-             <number>0</number>
-            </property>
-           </layout>
-          </widget>
           <widget class="QWidget" name="awDayHost">
            <attribute name="title">
             <string>🏷 Day 标签</string>
@@ -426,25 +350,6 @@
             <string>📈 统计</string>
            </attribute>
            <layout class="QVBoxLayout" name="awStatsHostLay">
-            <property name="leftMargin">
-             <number>0</number>
-            </property>
-            <property name="topMargin">
-             <number>0</number>
-            </property>
-            <property name="rightMargin">
-             <number>0</number>
-            </property>
-            <property name="bottomMargin">
-             <number>0</number>
-            </property>
-           </layout>
-          </widget>
-          <widget class="QWidget" name="awStopwatchHost">
-           <attribute name="title">
-            <string>⏱ 秒表</string>
-           </attribute>
-           <layout class="QVBoxLayout" name="awStopwatchHostLay">
             <property name="leftMargin">
              <number>0</number>
             </property>

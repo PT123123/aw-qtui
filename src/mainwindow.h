@@ -12,6 +12,7 @@ class QLabel;
 class QPushButton;
 class QSystemTrayIcon;
 class QTabWidget;
+class QTimer;
 class QToolButton;
 class QWheelEvent;
 
@@ -28,14 +29,12 @@ class TodoSource;
 class FocusSource;
 class LocalStore;
 class ActivityPage;
-class TimelinePage;
 class DayPage;
 class StatsPage;
 class InboxPage;
 class InboxSettingsPage;
 class SyncPage;
 class D1SyncPage;
-class StopwatchPage;
 class QueryPage;
 class SyncDetailsPage;
 class CloudBackupPage;
@@ -48,6 +47,7 @@ class FocusHeatmapPage;
 class FocusBestPage;
 class FocusCalendarPage;
 class FocusMemorialPage;
+class SettingsWidget;
 
 class MainWindow : public QMainWindow
 {
@@ -60,12 +60,10 @@ public:
     InboxSettingsPage *inboxSettingsPage() const { return m_inboxSettings; }
     SyncPage *syncPage() const { return m_sync; }
     D1SyncPage *d1SyncPage() const { return m_d1Sync; }
-    StopwatchPage *stopwatchPage() const { return m_stopwatch; }
     QueryPage *queryPage() const { return m_query; }
     SyncDetailsPage *syncDetailsPage() const { return m_syncDetails; }
     CloudBackupPage *cloudBackupPage() const { return m_cloudBackup; }
     ActivityPage *activityPage() const { return m_activity; }
-    TimelinePage *timelinePage() const { return m_timeline; }
     DayPage *dayPage() const { return m_day; }
     StatsPage *statsPage() const { return m_stats; }
     TodoPage *todoPage() const { return m_todo; }
@@ -108,12 +106,25 @@ private:
     QStringList applyShortcuts();
     // 打开设置对话框：编辑期间暂停热键，保存/取消后重新注册
     void openSettings();
+    // 在设置页「通用设置」Tab 内构建设置编辑组件 + 保存按钮（把原设置对话框内嵌）
+    void buildSettingsEditor();
+    // 应用后按当前设置重建编辑组件，同步新主题/图标/效果的配色与已保存值
+    void rebuildSettingsEditor();
+    // 「通用设置」内嵌编辑器的保存按钮处理：校验 + 应用
+    void doSaveSettings();
+    // 应用内嵌/对话框编辑器携带的值：主题/图标/效果/快捷键/同步设置
+    void applySettingsValues(const SettingsWidget &w);
+    // 内嵌设置滑块触发的缩放：应用并回显吸附后的实际值
+    void applySettingsZoom(SettingsWidget *ed, double v);
     // 全局热键唤醒：还原/置前窗口并激活
     void wakeUpAndShow();
-    // 页面缩放：以 factor 倍率放大/缩小整体 UI（Ctrl+滚轮 / +/-）
-    void zoomBy(qreal factor, bool underMouse);
+    // 页面缩放：以 factor 倍率放大/缩小整体 UI（Ctrl+/-）
     // 设置绝对缩放比并应用（0.3 ~ 3.0），持久化并显示右下角百分比提示
     void setZoom(qreal zoom, bool underMouse);
+    // 只为当前可见页面应用缩放样式（其余页延迟到切回时再应用，缓解 Ctrl± 整页重建卡顿）
+    void scaleCurrentView();
+    // 键盘 Ctrl+加/减：把新目标累计到待应用值并防抖，停顿后再真正重建（避免长按逐键重建）
+    void queueZoomBy(qreal factor);
     // 把当前缩放比落到位：重生成全局 QSS + 放大基准字体，并通知页面重应用其缩放样式
     void applyUiScale();
     // Windows DWM 系统背景（Mica/Acrylic）：开启时窗口背景透明让 DWM 模糊透出，失败静默回退
@@ -122,10 +133,6 @@ private:
     void showZoomBadge();
     // 非模态 toast 提示：右上角短暂显示后自动消失，无需用户点击，ms 为显示时长
     void showToast(const QString &text, int ms = 4000);
-    // 事件目标是否属于可缩放的主窗口内容区
-    bool isInsideZoomable(QObject *obj) const;
-    // 焦点控件是否为文本输入类（此时无修饰 +/- 应交给输入，不做缩放）
-    bool isTextEditingWidget(const QWidget *w) const;
 
     // 页面索引枚举
     enum {
@@ -151,13 +158,11 @@ private:
     InboxPage *m_inbox = nullptr;
     InboxSettingsPage *m_inboxSettings = nullptr;
     ActivityPage *m_activity = nullptr;
-    TimelinePage *m_timeline = nullptr;
     SyncPage *m_sync = nullptr;
     D1SyncPage *m_d1Sync = nullptr;
     DayPage *m_day = nullptr;
     StatsPage *m_stats = nullptr;
     TodoPage *m_todo = nullptr;
-    StopwatchPage *m_stopwatch = nullptr;
     QueryPage *m_query = nullptr;
     SyncDetailsPage *m_syncDetails = nullptr;
     CloudBackupPage *m_cloudBackup = nullptr;
@@ -171,10 +176,18 @@ private:
     bool m_navExpanded = false; // 默认收起（窄栏图标模式）
     // 上一次显示的页面索引（用于检测「离开局域网同步页」以停止广播）
     int m_prevPage = PAGE_INBOX;
+    // 页面枚举 → QStackedWidget 栈索引映射。因 PAGE_FOCUS_TIMER 无独立页面，
+    // 栈索引与页面枚举并不一致（栈索引 0..7 连续，枚举有跳号），切页须经此映射。
+    QHash<int, int> m_pageToStack;
+    // 当前显示页的枚举值（用于 F5 按当前页分发刷新）
+    int m_currentPage = PAGE_INBOX;
     // 页面缩放：当前缩放比（1.0 = 100%）与右下角百分比提示
     qreal m_zoom = 1.0;
     QLabel *m_zoomBadge = nullptr;
     QLabel *m_toast = nullptr;
+    // 键盘 Ctrl± 缩放防抖：长按/连按时先累计到待应用值，停顿后才真正 applyUiScale
+    QTimer *m_zoomInputTimer = nullptr;
+    qreal m_zoomPending = -1.0; // <0 表示当前无待应用的目标
     // 左侧导航按钮
     QPushButton *m_navInbox = nullptr;
     QPushButton *m_navSettings = nullptr;
@@ -193,6 +206,8 @@ private:
     QTabWidget *m_syncTabs = nullptr;
     // 设置容器页内部的子标签容器（收件箱设置 / 通用设置共用一个导航入口）
     QTabWidget *m_settingsTabs = nullptr;
+    // 「通用设置」Tab 内嵌的设置编辑组件（原设置对话框内容）
+    SettingsWidget *m_settingsEditor = nullptr;
     // 子标签样式（随主题/缩放重建），专注统计与 ActivityWatch 容器共用
     void styleSubTabs(QTabWidget *tabs);
     // 专注模块页面指针（Todo 内部持有，这里也存一份供快捷键/刷新用）
