@@ -3,6 +3,7 @@
 #include "ui_daypage.h"
 
 #include <QComboBox>
+#include <QButtonGroup>
 #include <QDateTime>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -103,6 +104,33 @@ DayPage::~DayPage()
 
 void DayPage::applyTheme()
 {
+    // 浏览模式内容（统计卡/工具栏标签/模式切换）的 QSS 角色由内联样式定义
+    setStyleSheet(QStringLiteral(R"(
+        QFrame#StatCard {
+            background: %1;
+            border: 1px solid %2;
+            border-radius: 8px;
+        }
+        QLabel#StatLabel { color: %4; font-size: 11px; padding: 8px 12px 0; }
+        QLabel#StatValue { color: %3; font-size: 18px; font-weight: 700; padding: 2px 12px 10px; }
+        QLabel#ToolbarLabel { color: %4; font-size: 12px; }
+        QComboBox {
+            background: %6; border: 1px solid %2; border-radius: 6px;
+            padding: 4px 8px; color: %5; font-size: 12px; min-width: 100px;
+        }
+        QComboBox:hover { border-color: %7; }
+        QComboBox QAbstractItemView { background: %6; border: 1px solid %2; selection-background-color: %7; }
+        QPushButton#ModeBtn {
+            background: %6; border: 1px solid %2; border-radius: 6px;
+            padding: 5px 14px; color: %5; font-size: 12px;
+        }
+        QPushButton#ModeBtn:hover { background: %8; border-color: %7; }
+        QPushButton#ModeBtn:checked {
+            background: %7; border-color: %7; color: white; font-weight: 600;
+        }
+    )")
+                                  .arg(kColorBgElev, kColorBorder, kColorFg, kColorFgMuted,
+                                       kColorFgSoft, kColorBgElev2, kColorAccent, kColorHover));
     if (m_dateLabel)
         m_dateLabel->setStyleSheet(
             QStringLiteral("color:%1;font-size:15px;font-weight:600;").arg(kColorFg));
@@ -131,6 +159,18 @@ void DayPage::buildUi()
         b->setObjectName(QStringLiteral("ToolBtn"));
     ui->addTagBtn->setObjectName(QStringLiteral("PrimaryBtn"));
 
+    // 浏览模式角色映射（对象名保持唯一，此处映射到主题 QSS 角色）
+    for (auto *c : {ui->totalCard, ui->afkCard, ui->firstCard, ui->lastCard})
+        c->setObjectName(QStringLiteral("StatCard"));
+    for (auto *l : {ui->totalLabel, ui->afkLabel, ui->firstLabel, ui->lastLabel})
+        l->setObjectName(QStringLiteral("StatLabel"));
+    for (auto *v : {ui->totalTracked, ui->afkTime, ui->firstActivity, ui->lastActivity})
+        v->setObjectName(QStringLiteral("StatValue"));
+    for (auto *l : {ui->intervalLabel, ui->showLabel, ui->eventsLabel, ui->hintLabel})
+        l->setObjectName(QStringLiteral("ToolbarLabel"));
+    for (auto *b : {ui->browseModeBtn, ui->editModeBtn})
+        b->setObjectName(QStringLiteral("ModeBtn"));
+
     // 主题色相关样式（kColor* 随主题切换，无法烘焙进 .ui）
     m_dateLabel = ui->dateLabel;
     m_dateLabel->setStyleSheet(QStringLiteral("color:%1;font-size:15px;font-weight:600;").arg(kColorFg));
@@ -140,6 +180,8 @@ void DayPage::buildUi()
     m_bottomSummary->setStyleSheet(QStringLiteral("color:%1;font-size:11px;").arg(kColorFgMuted));
     m_untaggedScroll = ui->untaggedScroll;
     m_untaggedScroll->setStyleSheet(QStringLiteral("QScrollArea{background:%1;border:none;}").arg(kColorChartBg));
+    ui->hintLabel->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 11px; font-style: italic;").arg(kColorMuted2));
 
     // ── 成员别名：业务逻辑沿用 m_* 指针 ──
     m_prevBtn = ui->prevBtn;
@@ -161,6 +203,23 @@ void DayPage::buildUi()
     m_bottomTabs = ui->bottomTabs;
     m_detailsTable = ui->detailsTable;
     m_summaryTable = ui->summaryTable;
+    // 浏览模式别名
+    m_browseModeBtn = ui->browseModeBtn;
+    m_editModeBtn = ui->editModeBtn;
+    m_intervalCombo = ui->intervalCombo;
+    m_showLastCombo = ui->showLastCombo;
+    m_resetBtn = ui->resetBtn;
+    m_eventsLabel = ui->eventsLabel;
+    m_totalTracked = ui->totalTracked;
+    m_afkTime = ui->afkTime;
+    m_firstActivity = ui->firstActivity;
+    m_lastActivity = ui->lastActivity;
+
+    // 浏览/编辑模式：排他按钮组
+    auto *modeGroup = new QButtonGroup(this);
+    modeGroup->setExclusive(true);
+    modeGroup->addButton(m_browseModeBtn);
+    modeGroup->addButton(m_editModeBtn);
 
     // ── 运行时行为：分割器拉伸、表格列宽与表头交互模式、未标记视图 ──
     ui->split->setStretchFactor(0, 3);
@@ -181,6 +240,11 @@ void DayPage::buildUi()
     connect(m_prevBtn, &QPushButton::clicked, this, &DayPage::onPrevDay);
     connect(m_nextBtn, &QPushButton::clicked, this, &DayPage::onNextDay);
     connect(m_todayBtn, &QPushButton::clicked, this, &DayPage::onToday);
+    connect(m_browseModeBtn, &QPushButton::clicked, this, &DayPage::onBrowseMode);
+    connect(m_editModeBtn, &QPushButton::clicked, this, &DayPage::onEditMode);
+    connect(m_resetBtn, &QPushButton::clicked, this, [this] { m_timeline->resetView(); });
+    connect(m_showLastCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &DayPage::applyShowLast);
     connect(m_selectToggle, &QPushButton::toggled, this, &DayPage::toggleSelectMode);
     connect(m_selModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &DayPage::onSelModeChanged);
@@ -202,6 +266,9 @@ void DayPage::buildUi()
         m_stack->setCurrentIndex(0);
         setDate(d);
     });
+
+    // 默认进入浏览模式
+    setMode(true);
 }
 
 void DayPage::setDate(const QDate &date)
@@ -233,6 +300,88 @@ void DayPage::onNextDay()
 void DayPage::onToday()
 {
     setDate(QDate::currentDate());
+}
+
+// ── 浏览/编辑模式 ──────────────────────────────────────────
+void DayPage::onBrowseMode()
+{
+    setMode(true);
+}
+
+void DayPage::onEditMode()
+{
+    setMode(false);
+}
+
+void DayPage::setMode(bool browse)
+{
+    m_browseMode = browse;
+    m_browseModeBtn->setChecked(browse);
+    m_editModeBtn->setChecked(!browse);
+    // 条状内容随模式显隐
+    ui->browseBar->setVisible(browse);
+    ui->statsBar->setVisible(browse);
+    ui->editBar->setVisible(!browse);
+    m_bottomTabs->setVisible(!browse);
+    if (browse) {
+        // 浏览模式回到主视图（dayPane），时间轴只读
+        m_stack->setCurrentIndex(0);
+        m_timeline->setSelectMode(false);
+        setStatus(QStringLiteral("浏览模式：查看当天时间线、统计卡，可拖拽平移/滚轮缩放"));
+        updateStats();
+    } else {
+        m_timeline->setSelectMode(m_selectToggle->isChecked());
+        setStatus(QStringLiteral("编辑模式：在时间线上框选→打标签，或勾选明细/汇总"));
+    }
+}
+
+void DayPage::applyShowLast(int idx)
+{
+    const qint64 base = QDateTime(m_date, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
+    qint64 range = 86400000LL;
+    switch (idx) {
+    case 0: range = 86400000LL; break;      // 24h
+    case 1: range = 43200000LL; break;      // 12h
+    case 2: range = 21600000LL; break;      // 6h
+    case 3: range = 172800000LL; break;     // 48h
+    case 4: range = 7 * 86400000LL; break;  // 7d
+    }
+    m_timeline->setTimeRange(base, base + range);
+}
+
+void DayPage::updateStats()
+{
+    if (!m_totalTracked)
+        return;
+    qint64 activeMs = 0;
+    qint64 afkMs = 0;
+    qint64 firstActive = -1;
+    qint64 lastActive = -1;
+
+    for (const auto &lane : m_lanes) {
+        if (lane.name != QStringLiteral("afk-status"))
+            continue;
+        for (const auto &ev : lane.events) {
+            if (ev.label == QStringLiteral("not-afk")) {
+                activeMs += ev.endMs - ev.startMs;
+                if (firstActive < 0 || ev.startMs < firstActive) firstActive = ev.startMs;
+                if (ev.endMs > lastActive) lastActive = ev.endMs;
+            } else {
+                afkMs += ev.endMs - ev.startMs;
+            }
+        }
+    }
+
+    m_totalTracked->setText(formatDuration(activeMs / 1000));
+    m_afkTime->setText(formatDuration(afkMs / 1000));
+    m_firstActivity->setText(firstActive >= 0
+                                 ? QDateTime::fromMSecsSinceEpoch(firstActive, Qt::LocalTime)
+                                       .toString(QStringLiteral("HH:mm:ss"))
+                                 : QStringLiteral("—"));
+    m_lastActivity->setText(lastActive >= 0
+                                ? QDateTime::fromMSecsSinceEpoch(lastActive, Qt::LocalTime)
+                                      .toString(QStringLiteral("HH:mm:ss"))
+                                : QStringLiteral("—"));
 }
 
 void DayPage::toggleSelectMode(bool on)
@@ -276,6 +425,12 @@ void DayPage::reload()
         rebuildSummary();
         m_updating = false;
         refreshStatus();
+        int totalEvents = 0;
+        for (const auto &lane : m_lanes)
+            totalEvents += lane.events.size();
+        if (m_eventsLabel)
+            m_eventsLabel->setText(QStringLiteral("Events shown: %1").arg(totalEvents));
+        updateStats();
         return;
     }
 
@@ -344,6 +499,12 @@ void DayPage::onEventLoaded()
         rebuildSummary();
         m_updating = false;
         refreshStatus();
+        int totalEvents = 0;
+        for (const auto &lane : m_lanes)
+            totalEvents += lane.events.size();
+        if (m_eventsLabel)
+            m_eventsLabel->setText(QStringLiteral("Events shown: %1").arg(totalEvents));
+        updateStats();
     }
 }
 
@@ -357,6 +518,9 @@ void DayPage::showEmptyState(const QString &msg)
     rebuildSummary();
     m_updating = false;
     setStatus(msg);
+    if (m_eventsLabel)
+        m_eventsLabel->setText(QStringLiteral("Events shown: 0"));
+    updateStats();
     qWarning() << "[DayPage]" << msg;
 }
 

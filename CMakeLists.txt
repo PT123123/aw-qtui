@@ -60,9 +60,6 @@ add_executable(awqtui WIN32
     src/activitypage.cpp
     src/activitypage.h
     src/activitypage.ui
-    src/timelinepage.cpp
-    src/timelinepage.h
-    src/timelinepage.ui
     src/mainwindow.cpp
     src/mainwindow.h
     src/mainwindow.ui
@@ -111,9 +108,6 @@ add_executable(awqtui WIN32
     src/trashpage.cpp
     src/trashpage.h
     src/trashpage.ui
-    src/stopwatchpage.cpp
-    src/stopwatchpage.h
-    src/stopwatchpage.ui
     src/querypage.cpp
     src/querypage.h
     src/querypage.ui

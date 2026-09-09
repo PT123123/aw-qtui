@@ -21,12 +21,10 @@
 #include "syncpage.h"
 #include "syncdetailspage.h"
 #include "cloudbackuppage.h"
-#include "stopwatchpage.h"
 #include "querypage.h"
 #include "d1syncpage.h"
 #include "tagstore.h"
 #include "theme.h"
-#include "timelinepage.h"
 #include "todopage.h"
 #include "todostore.h"
 #include "watcher.h"
@@ -48,10 +46,12 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QScreen>
+#include <QScrollArea>
 #include <QSizePolicy>
 #include <QSpinBox>
 #include <QSystemTrayIcon>
@@ -142,11 +142,8 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
 
     // 左侧导航展开状态：读取上次设置（默认收起 → 窄栏图标模式）
     m_navExpanded = !loadNavCollapsed();
-    buildUi();
-    // 按读取到的状态应用窄栏/展开（buildUi 默认构建窄栏）
-    setNavExpanded(m_navExpanded);
 
-    // 页面缩放：应用上次保存的比例（0.3~3.0），并安装全局事件过滤器拦截 Ctrl+滚轮 / +- 键
+    // 页面缩放：先于 buildUi 载入，确保设置编辑组件里的滑块初始化为已保存的比例
     m_zoom = loadUiZoom();
     // 缩放对齐开启时，把历史保存的非整数缩放吸附到干净档位并持久化（避免边缘发虚）
     if (gFixSnapZoom) {
@@ -156,8 +153,25 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
             saveUiZoom(m_zoom);
         }
     }
+
+    buildUi();
+    // 按读取到的状态应用窄栏/展开（buildUi 默认构建窄栏）
+    setNavExpanded(m_navExpanded);
+
     applyUiScale();
     qApp->installEventFilter(this);
+
+    // 键盘 Ctrl± 缩放防抖：连按/长按时累计目标值，停顿约 80ms 后才真正 applyUiScale
+    m_zoomInputTimer = new QTimer(this);
+    m_zoomInputTimer->setSingleShot(true);
+    m_zoomInputTimer->setInterval(80);
+    connect(m_zoomInputTimer, &QTimer::timeout, this, [this] {
+        if (m_zoomPending >= 0.0) {
+            const qreal target = m_zoomPending;
+            m_zoomPending = -1.0;
+            setZoom(target, false); // 落位：吸附 + 持久化 + 重建当前可见页
+        }
+    });
 
     // 全局热键：注册到主窗口 HWND，应用失焦/最小化时仍能触发（WM_HOTKEY -> nativeEvent）
     m_hotkey = new GlobalHotkey(this);
@@ -373,10 +387,9 @@ void MainWindow::buildUi()
     connect(m_navSettings, &QPushButton::clicked, this, [this] { switchPage(PAGE_SETTINGS); });
 
     // ---- 页面堆栈 ----
-    // .ui 中 pageStack 已含 4 个容器页（声明顺序 = 最终索引 1/4/5/6）：
-    //   pageSettings / pageFocusStats / pageActivity / pageSync
-    // 其余页面构造参数依赖运行时对象，按枚举索引升序 insertWidget 插入，
-    // 保证最终顺序与 switchPage 的枚举一致
+    // .ui 中 pageStack 已声明 4 个容器页（pageSettings/pageFocusStats/pageActivity/PageSync），
+    // 它们占紧凑索引 0..3，与页面枚举 (SETTINGS=1/FOCUS_STATS=4/ACTIVITY=5/SYNC=6) 不对应。
+    // 先移除这 4 个容器页，再按「枚举→栈索引」紧凑映射重建（见下），否则侧边栏切页会错位。
     m_stack = ui->pageStack;
     m_settingsTabs = ui->settingsTabs;
     m_focusTabs = ui->focusTabs;
@@ -407,9 +420,13 @@ void MainWindow::buildUi()
     // 计时专注并入「专注」统计页，作为第一个子标签
     m_focusTabs->insertTab(0, m_timerPage, QStringLiteral("🍅 计时"));
     styleSubTabs(m_focusTabs);
+    // 专注容器内切换子标签时，把该页按当前缩放补齐（switchPage 只覆盖到容器层）
+    connect(m_focusTabs, &QTabWidget::currentChanged, this, [this] {
+        if (m_currentPage == PAGE_FOCUS_STATS)
+            scaleCurrentView();
+    });
 
     m_activity = new ActivityPage(m_api);
-    m_timeline = new TimelinePage(m_api);
     m_day = new DayPage(m_api, m_tagStore);
     m_stats = new StatsPage(m_api, m_tagStore);
     m_sync = new SyncPage(m_api, m_mdns);
@@ -423,14 +440,11 @@ void MainWindow::buildUi()
     m_d1Sync = new D1SyncPage(m_api);
     m_syncDetails = new SyncDetailsPage(m_api);
     m_cloudBackup = new CloudBackupPage(m_api);
-    m_stopwatch = new StopwatchPage(m_api);
     m_query = new QueryPage(m_api);
 
     ui->awActivityHostLay->addWidget(m_activity);
-    ui->awTimelineHostLay->addWidget(m_timeline);
     ui->awDayHostLay->addWidget(m_day);
     ui->awStatsHostLay->addWidget(m_stats);
-    ui->awStopwatchHostLay->addWidget(m_stopwatch);
     ui->awQueryHostLay->addWidget(m_query);
     styleSubTabs(m_awTabs);
 
@@ -439,17 +453,35 @@ void MainWindow::buildUi()
     styleSubTabs(m_syncTabs);
 
     ui->inboxHostLay->addWidget(m_inboxSettings);
-    // 通用设置 Tab：静态文案与按钮在 .ui 中，仅接光标/主题色/信号
-    ui->generalOpenBtn->setCursor(Qt::PointingHandCursor);
-    ui->generalHint->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 13px;").arg(kColorFgMuted)));
-    connect(ui->generalOpenBtn, &QPushButton::clicked, this, &MainWindow::openSettings);
+    // 通用设置 Tab：内嵌设置编辑组件（原设置对话框内容），运行时构建
+    buildSettingsEditor();
     styleSubTabs(m_settingsTabs);
 
-    // 其余 5 个页面按枚举索引升序插入（最终索引 = 枚举值）
-    m_stack->insertWidget(PAGE_INBOX, m_inbox);              // PAGE_INBOX = 0
-    m_stack->insertWidget(PAGE_TODO, m_todo);                // PAGE_TODO = 2
-    m_stack->insertWidget(PAGE_D1_SYNC, m_d1Sync);           // PAGE_D1_SYNC = 7
-    m_stack->insertWidget(PAGE_CLOUD_BACKUP, m_cloudBackup); // PAGE_CLOUD_BACKUP = 8
+    // 其余 8 个页面按「枚举→栈索引」紧凑映射重建：先移开 .ui 容器的 4 个页面，
+    // 再从空栈 addWidget 依次追加（栈索引自 0 连续递增），登记各页枚举对应的栈索引。
+    // 注意：不能用 addWidget 按枚举值 1:1 摆放，因为 PAGE_FOCUS_TIMER=3 无独立页面，
+    // 栈里不存在该槽位 —— 统一用 m_pageToStack 映射切页（见 switchPage）。
+    QWidget *settingsContainer = qobject_cast<QWidget *>(ui->settingsTabs->parentWidget());
+    QWidget *focusContainer   = qobject_cast<QWidget *>(ui->focusTabs->parentWidget());
+    QWidget *awContainer      = qobject_cast<QWidget *>(ui->awTabs->parentWidget());
+    QWidget *syncContainer    = qobject_cast<QWidget *>(ui->syncTabs->parentWidget());
+    m_stack->removeWidget(settingsContainer);
+    m_stack->removeWidget(focusContainer);
+    m_stack->removeWidget(awContainer);
+    m_stack->removeWidget(syncContainer);
+
+    auto reg = [this](int page, QWidget *w) {
+        m_pageToStack.insert(page, m_stack->count());
+        m_stack->addWidget(w);
+    };
+    reg(PAGE_INBOX, m_inbox);               // 栈 0
+    reg(PAGE_SETTINGS, settingsContainer);  // 栈 1
+    reg(PAGE_TODO, m_todo);                 // 栈 2
+    reg(PAGE_FOCUS_STATS, focusContainer);  // 栈 3
+    reg(PAGE_ACTIVITY, awContainer);        // 栈 4
+    reg(PAGE_SYNC, syncContainer);          // 栈 5
+    reg(PAGE_D1_SYNC, m_d1Sync);            // 栈 6
+    reg(PAGE_CLOUD_BACKUP, m_cloudBackup);  // 栈 7
 
     connect(m_inbox, &InboxPage::settingsRequested, this, &MainWindow::openSettings);
 
@@ -569,7 +601,15 @@ void MainWindow::switchPage(int index)
 {
     if (index < 0 || index >= PAGE_COUNT)
         return;
-    m_stack->setCurrentIndex(index);
+    // 页面枚举 → 栈索引映射（PAGE_FOCUS_TIMER 无独立页，未登记 → 不切页）
+    const auto it = m_pageToStack.constFind(index);
+    if (it == m_pageToStack.constEnd())
+        return;
+    const int stackIndex = it.value();
+    m_stack->setCurrentIndex(stackIndex);
+    m_currentPage = index;
+    // 切到新页：把之前延迟重建的页面按当前缩放补齐
+    scaleCurrentView();
 
     // 更新导航按钮状态
     m_navInbox->setChecked(index == PAGE_INBOX);
@@ -600,7 +640,7 @@ void MainWindow::switchPage(int index)
 
     // 淡入动画
     if (gFxAnimations) {
-        if (QWidget *page = m_stack->widget(index)) {
+        if (QWidget *page = m_stack->widget(stackIndex)) {
             auto *eff = new QGraphicsOpacityEffect(page);
             eff->setOpacity(0.0);
             page->setGraphicsEffect(eff);
@@ -676,14 +716,21 @@ void MainWindow::openSettings()
     const QString curTheme = gTheme ? QString::fromLatin1(gTheme->id) : QStringLiteral("midnight");
     const QString curIconId = gAppIcon ? QLatin1String(gAppIcon->id) : QStringLiteral("amber");
     const UiEffects curFx = loadUiEffects();
-    SettingsDialog dlg(loadShortcuts(), curTheme, curFx, curIconId, this);
+    SettingsDialog dlg(loadShortcuts(), curTheme, curFx, curIconId, m_zoom, this);
     if (dlg.exec() != QDialog::Accepted) {
         applyShortcuts(); // 取消：恢复原注册
         return;
     }
+    applySettingsValues(*dlg.widget());
+}
+
+void MainWindow::applySettingsValues(const SettingsWidget &w)
+{
+    const QString curTheme = gTheme ? QString::fromLatin1(gTheme->id) : QStringLiteral("midnight");
+    const QString curIconId = gAppIcon ? QLatin1String(gAppIcon->id) : QStringLiteral("amber");
     // 主题变更：应用并持久化
-    const QString newTheme = dlg.themeId();
-    const UiEffects newFx = dlg.uiEffects();
+    const QString newTheme = w.themeId();
+    const UiEffects newFx = w.uiEffects();
     const bool fxChanged = newFx.shadowLevel != gShadowLevel || newFx.glassLevel != gGlassLevel
                            || newFx.animations != gFxAnimations || newFx.dwmBackdrop != gDwmBackdrop
                            || newFx.fixEdgeLowContrast != gFixEdgeLowContrast
@@ -693,7 +740,7 @@ void MainWindow::openSettings()
     if (newTheme != curTheme)
         saveThemeId(newTheme);
     // 程序图标变更：更新全局变体并持久化，窗口 / 托盘图标立即切换
-    const QString newIconId = dlg.appIconId();
+    const QString newIconId = w.appIconId();
     if (newIconId != curIconId) {
         gAppIcon = findAppIcon(newIconId);
         saveAppIconId(newIconId);
@@ -720,11 +767,14 @@ void MainWindow::openSettings()
     if (newTheme != curTheme || fxChanged)
         applyTheme(newTheme); // 重建全局 QSS + 页面内联样式（阴影/玻璃/动画随之生效）
 
-    saveShortcuts(dlg.config());
+    saveShortcuts(w.config());
     const QStringList failed = applyShortcuts();
 
+    // 界面缩放比：滑块取值（含缩放对齐吸附）作为新的目标比例
+    setZoom(w.zoom(), false);
+
     // 同步设置（sync_inbox / sync_activity / sync_todo）保存到 aw-server-rust
-    const SyncSettingsConfig syncCfg = dlg.syncSettings();
+    const SyncSettingsConfig syncCfg = w.syncSettings();
     QNetworkReply *rg = m_api->getSyncConfig();
     connect(rg, &QNetworkReply::finished, this, [this, rg, syncCfg] {
         QJsonDocument doc;
@@ -752,6 +802,75 @@ void MainWindow::openSettings()
                       .arg(failed.join(QLatin1Char(' '))));
 }
 
+// 设置组件触发的缩放（内嵌设置实时预览）：应用缩放并让滑块回显吸附后的实际值，避免因缩放对齐造成错位
+void MainWindow::applySettingsZoom(SettingsWidget *ed, double v)
+{
+    setZoom(v, false);
+    if (ed)
+        ed->setZoomValue(m_zoom);
+}
+
+// 在设置页「通用设置」Tab 内构建设置编辑组件 + 保存按钮（把原设置对话框内容内嵌）
+void MainWindow::buildSettingsEditor()
+{
+    const QString curTheme = gTheme ? QString::fromLatin1(gTheme->id) : QStringLiteral("midnight");
+    const QString curIconId = gAppIcon ? QLatin1String(gAppIcon->id) : QStringLiteral("amber");
+    const UiEffects curFx = loadUiEffects();
+    m_settingsEditor = new SettingsWidget(loadShortcuts(), curTheme, curFx, curIconId, m_zoom, this);
+    // 内嵌设置：拖动滑块实时预览缩放（经防抖），并同步滑块与吸附后的实际值
+    connect(m_settingsEditor, &SettingsWidget::zoomChanged, this,
+            [this](double v) { applySettingsZoom(m_settingsEditor, v); });
+
+    auto *scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidget(m_settingsEditor);
+
+    auto *saveBtn = new QPushButton(QStringLiteral("保存并应用"));
+    saveBtn->setObjectName(QStringLiteral("PrimaryBtn"));
+    saveBtn->setCursor(Qt::PointingHandCursor);
+    saveBtn->setMinimumHeight(si(34));
+    saveBtn->setMaximumWidth(si(180));
+    connect(saveBtn, &QPushButton::clicked, this, &MainWindow::doSaveSettings);
+
+    auto *lay = new QVBoxLayout;
+    lay->setContentsMargins(12, 12, 12, 12);
+    lay->setSpacing(10);
+    lay->addWidget(scroll, 1);
+    auto *btnRow = new QHBoxLayout;
+    btnRow->addStretch(1);
+    btnRow->addWidget(saveBtn);
+    lay->addLayout(btnRow);
+    auto *host = new QWidget;
+    host->setLayout(lay);
+    ui->generalHostLay->addWidget(host);
+}
+
+// 应用后按当前设置重建编辑组件，同步新主题/图标/效果的配色与已保存值
+void MainWindow::rebuildSettingsEditor()
+{
+    if (QLayoutItem *item = ui->generalHostLay->takeAt(0)) {
+        if (QWidget *w = item->widget())
+            w->deleteLater();
+        delete item;
+    }
+    buildSettingsEditor();
+}
+
+void MainWindow::doSaveSettings()
+{
+    if (!m_settingsEditor)
+        return;
+    const QString err = SettingsWidget::validate(m_settingsEditor->config());
+    if (!err.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("快捷键无效"), err);
+        return;
+    }
+    applySettingsValues(*m_settingsEditor);
+    // 应用后重建编辑器：让主题/图标/效果的内联配色与控件取值保持最新
+    rebuildSettingsEditor();
+}
+
 void MainWindow::applyTheme(const QString &themeId)
 {
     const Theme *t = findTheme(themeId);
@@ -766,10 +885,12 @@ void MainWindow::applyTheme(const QString &themeId)
     styleSubTabs(m_settingsTabs); // 设置子标签按新主题重建
 
     // 页面级内联样式按新主题重建
+    if (m_inbox)
+        m_inbox->applyUiScale();
+    if (m_todo)
+        m_todo->applyUiScale();
     if (m_activity)
         m_activity->applyTheme();
-    if (m_timeline)
-        m_timeline->applyTheme();
     if (m_day)
         m_day->applyTheme();
     if (m_stats)
@@ -890,18 +1011,16 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     case Qt::Key_9: switchPage(PAGE_CLOUD_BACKUP); return;
     case Qt::Key_F5:
         // AW 容器页：刷新当前子标签
-        if (m_stack->currentIndex() == PAGE_ACTIVITY) {
+        if (m_currentPage == PAGE_ACTIVITY) {
             switch (m_awTabs->currentIndex()) {
             case 0: m_activity->refresh(); break;
-            case 1: m_timeline->refresh(); break;
-            case 2: m_day->refresh(); break;
-            case 3: m_stats->refresh(); break;
-            case 4: m_stopwatch->refresh(); break;
-            case 5: m_query->refresh(); break;
+            case 1: m_day->refresh(); break;
+            case 2: m_stats->refresh(); break;
+            case 3: m_query->refresh(); break;
             }
             return;
         }
-        if (m_stack->currentIndex() == PAGE_SYNC) {
+        if (m_currentPage == PAGE_SYNC) {
             // 同步容器页：按当前子标签分发刷新
             if (m_syncTabs->currentIndex() == 0)
                 m_sync->refreshDevices();
@@ -909,8 +1028,8 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
                 m_syncDetails->refreshLogs();
             return;
         }
-        if (m_stack->currentIndex() == PAGE_INBOX) m_inbox->refreshAll();
-        else if (m_stack->currentIndex() == PAGE_TODO) m_todo->refresh();
+        if (m_currentPage == PAGE_INBOX) m_inbox->refreshAll();
+        else if (m_currentPage == PAGE_TODO) m_todo->refresh();
         return;
     default: break;
     }
@@ -919,36 +1038,27 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *event)
 {
-    // 缩放仅支持快捷键：Ctrl+加 / Ctrl+减 / Ctrl+0 复位。
+    // 缩放快捷键：Ctrl+加 / Ctrl+减 / Ctrl+0 复位。
     // 滚轮缩放已移除：按住 Ctrl 滚动会重建整页（Inbox 列表全部重渲染）导致卡顿。
-    if (event->type() == QEvent::KeyPress && isInsideZoomable(obj)) {
+    // 只要焦点不在「快捷键录入框」（避免把 Ctrl+加/减 录进全局热键），Ctrl+± 即全局生效，
+    // 无论是否处于文本输入态，保证在主窗口任意页面都能调节比例。
+    if (event->type() == QEvent::KeyPress && !qobject_cast<ShortcutEdit *>(obj)) {
         auto *ke = static_cast<QKeyEvent *>(event);
         const bool ctrl = ke->modifiers().testFlag(Qt::ControlModifier);
         const int key = ke->key();
-        if (ctrl) {
-            bool handled = true;
-            if (key == Qt::Key_Plus || key == Qt::Key_Equal) {
-                zoomBy(1.15, false);
-            } else if (key == Qt::Key_Minus) {
-                zoomBy(1.0 / 1.15, false);
-            } else if (key == Qt::Key_0) {
+        if (ctrl && (key == Qt::Key_Plus || key == Qt::Key_Equal || key == Qt::Key_Minus
+                     || key == Qt::Key_0)) {
+            if (key == Qt::Key_Plus || key == Qt::Key_Equal)
+                queueZoomBy(1.15);
+            else if (key == Qt::Key_Minus)
+                queueZoomBy(1.0 / 1.15);
+            else
                 setZoom(1.0, false);
-            } else {
-                handled = false;
-            }
-            if (handled) {
-                ke->accept();
-                return true;
-            }
+            ke->accept();
+            return true;
         }
     }
     return QMainWindow::eventFilter(obj, event);
-}
-
-void MainWindow::zoomBy(qreal factor, bool underMouse)
-{
-    Q_UNUSED(underMouse);
-    setZoom(m_zoom * factor, false);
 }
 
 void MainWindow::setZoom(qreal zoom, bool underMouse)
@@ -965,6 +1075,52 @@ void MainWindow::setZoom(qreal zoom, bool underMouse)
     applyUiScale();
     saveUiZoom(m_zoom);
     showZoomBadge();
+}
+
+// 键盘 Ctrl+加/减：目标值先累计到 m_zoomPending 并防抖，停顿后才真正落位重建。
+// 长按/连按时只做加减算术（零窗口重建），真正重建合并到约 80ms 一次，兼顾流畅与反馈
+void MainWindow::queueZoomBy(qreal factor)
+{
+    if (m_zoomPending < 0.0)
+        m_zoomPending = m_zoom; // 以当前已生效的比例为基准开始累计
+    m_zoomPending = qBound(0.3, m_zoomPending * factor, 3.0);
+    if (m_zoomInputTimer)
+        m_zoomInputTimer->start();
+}
+
+// 只为当前可见页面应用缩放样式（延迟重建的其余页在 switchPage / 子标签切换时通过本函数补齐）
+void MainWindow::scaleCurrentView()
+{
+    switch (m_currentPage) {
+    case PAGE_INBOX:
+        if (m_inbox) m_inbox->applyUiScale();
+        break;
+    case PAGE_SETTINGS:
+        if (m_inboxSettings) m_inboxSettings->applyUiScale();
+        break;
+    case PAGE_TODO:
+        if (m_todo) m_todo->applyUiScale();
+        break;
+    case PAGE_FOCUS_STATS: {
+        // 专注容器：仅重建当前激活子标签对应的页面（tab 下标由 .ui 顺序决定，故用指针互比）
+        QWidget *w = m_focusTabs ? m_focusTabs->currentWidget() : nullptr;
+        if (w == m_timerPage) m_timerPage->applyUiScale();
+        else if (w == m_overviewPage) m_overviewPage->applyUiScale();
+        else if (w == m_detailPage) m_detailPage->applyUiScale();
+        else if (w == m_weekPage) m_weekPage->applyUiScale();
+        else if (w == m_heatmapPage) m_heatmapPage->applyUiScale();
+        else if (w == m_bestPage) m_bestPage->applyUiScale();
+        else if (w == m_calendarPage) m_calendarPage->applyUiScale();
+        else if (w == m_memorialPage) m_memorialPage->applyUiScale();
+        break;
+    }
+    case PAGE_ACTIVITY:
+        if (m_activity) m_activity->applyUiScale();
+        break;
+    default:
+        // 同步 / D1 / 云备份等页未登记到整页重建列表，仅靠全局 QSS/字体缩放
+        break;
+    }
 }
 
 void MainWindow::applyUiScale()
@@ -990,18 +1146,9 @@ void MainWindow::applyUiScale()
         updateNavIcons();
     }
 
-    // 页面级缩放样式
-    if (m_inbox) m_inbox->applyUiScale();
-    if (m_inboxSettings) m_inboxSettings->applyUiScale();
-    if (m_todo) m_todo->applyUiScale();
-    if (m_timerPage) m_timerPage->applyUiScale();
-    if (m_overviewPage) m_overviewPage->applyUiScale();
-    if (m_detailPage) m_detailPage->applyUiScale();
-    if (m_weekPage) m_weekPage->applyUiScale();
-    if (m_heatmapPage) m_heatmapPage->applyUiScale();
-    if (m_bestPage) m_bestPage->applyUiScale();
-    if (m_calendarPage) m_calendarPage->applyUiScale();
-    if (m_memorialPage) m_memorialPage->applyUiScale();
+    // 页面级缩放样式：只重建当前可见页，其余页延迟到切回时（switchPage/子标签切换）再应用，
+    // 避免 Ctrl± 或拖动滑块时对所有页面（尤其收件箱整表）反复全量重建导致卡顿
+    scaleCurrentView();
 }
 
 void MainWindow::applyDwmBackdrop()
@@ -1012,12 +1159,13 @@ void MainWindow::applyDwmBackdrop()
         return;
     // DWMWA_SYSTEMBACKDROP_TYPE = 38（Win11 22H2+）
     // DWMSBT_AUTO=0, DWMSBT_NONE=1, DWMSBT_MAINWINDOW=2(Mica), DWMSBT_TRANSIENTWINDOW=3(Acrylic)
-    const DWORD type = gDwmBackdrop ? 2 : 1;
+    // 玻璃背景使用 Acrylic(3)：对窗口背后内容做模糊 + 调色，呈现系统级玻璃质感
+    const DWORD type = gDwmBackdrop ? 3 : 1;
     HRESULT hr = DwmSetWindowAttribute(hwnd, 38, &type, sizeof(type));
     if (gDwmBackdrop && SUCCEEDED(hr)) {
         setAttribute(Qt::WA_TranslucentBackground, true);
         // alpha=1 极淡背景：Qt 会在重绘时用它填充整个区域（正确擦除旧像素，避免残影），
-        // 但 alpha=1 人眼几乎不可见，DWM Mica 背景仍能透出。
+        // 但 alpha=1 人眼几乎不可见，DWM Acrylic 玻璃仍能透出。
         // 不能用 background: transparent —— Qt 会跳过背景绘制，导致旧帧残留（残影）。
         const QString faint = QStringLiteral("background: rgba(0,0,0,1);");
         if (auto *cw = centralWidget())
@@ -1095,22 +1243,6 @@ void MainWindow::showToast(const QString &text, int ms)
     m_toast->show();
     m_toast->raise();
     QTimer::singleShot(ms, m_toast, [this] { m_toast->hide(); });
-}
-
-bool MainWindow::isInsideZoomable(QObject *obj) const
-{
-    auto *w = qobject_cast<QWidget *>(obj);
-    // 主窗口内容为普通 QWidget 层级，window() 即主窗口；对话框等顶层窗口除外
-    return w && w->window() == static_cast<const QWidget *>(this);
-}
-
-bool MainWindow::isTextEditingWidget(const QWidget *w) const
-{
-    if (!w)
-        return false;
-    return qobject_cast<const QLineEdit *>(w) || qobject_cast<const QTextEdit *>(w)
-        || qobject_cast<const QPlainTextEdit *>(w) || qobject_cast<const QComboBox *>(w)
-        || qobject_cast<const QSpinBox *>(w);
 }
 
 } // namespace awqtui
