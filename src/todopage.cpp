@@ -26,6 +26,8 @@
 #include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QEasingCurve>
+#include <QPropertyAnimation>
 #include <QRegularExpression>
 #include <QSizePolicy>
 #include <QStackedWidget>
@@ -170,17 +172,25 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor, QWidget 
         dot->setPixmap(pm);
         lay->addWidget(dot);
     }
+    // 首屏即应用底/hover 样式，保证鼠标移到任务项时有高亮
+    setHighlighted(false);
 }
 
 void TodoTaskRow::setHighlighted(bool on)
 {
-    if (m_highlighted == on)
+    if (m_rowStyled && m_highlighted == on)
         return;
+    m_rowStyled = true;
     m_highlighted = on;
-    setStyleSheet(on ? QStringLiteral("QWidget#TodoRow{background:rgba(76,139,245,0.14);border-radius:6px;}"
-                                      "QWidget#TodoRow:hover{background:rgba(76,139,245,0.20);}")
-                     : QStringLiteral("QWidget#TodoRow{background:transparent;border-radius:6px;}"
-                                      "QWidget#TodoRow:hover{background:%1;}").arg(kColorHover));
+    // 行内文字/勾选框等子控件背景透明，避免与行高亮叠加出深色块
+    const QString sub = QStringLiteral(
+        "QWidget#TodoRow QLabel,QWidget#TodoRow QCheckBox{background:transparent;}");
+    const QString base = on
+        ? QStringLiteral("QWidget#TodoRow{background:rgba(76,139,245,0.14);border-radius:6px;}"
+                         "QWidget#TodoRow:hover{background:rgba(76,139,245,0.20);}")
+        : QStringLiteral("QWidget#TodoRow{background:transparent;border-radius:6px;}"
+                         "QWidget#TodoRow:hover{background:%1;}").arg(kColorHover);
+    setStyleSheet(sub + base);
 }
 
 void TodoTaskRow::mousePressEvent(QMouseEvent *event)
@@ -212,13 +222,20 @@ void TodoPage::refresh()
 
 void TodoPage::applyUiScale()
 {
-    if (m_sidebar)
-        m_sidebar->setFixedWidth(si(180));
-    if (m_detailPanel)
-        m_detailPanel->setFixedWidth(si(280));
-    updateSideIcons();
+    ui->TodoTopBar->setFixedHeight(si(46));
+    ui->topBarLay->setContentsMargins(si(16), 0, si(16), 0);
+    ui->topBarLay->setSpacing(si(2));
+    if (m_detailPanel) {
+        m_detailW = si(280);
+        // 展开状态下跟随缩放刷新宽度
+        if (m_detailPanel->isVisible()) {
+            m_detailPanel->setMaximumWidth(m_detailW);
+            m_detailPanel->setMinimumWidth(m_detailW);
+        }
+    }
+    
     applyPageStyles();
-    rebuildSidebar();
+    rebuildListsMenu();
     rebuildList();
 }
 
@@ -230,12 +247,11 @@ void TodoPage::buildUi()
     ui->setupUi(this);
 
     // ── 运行时缩放几何（随 UI 缩放变化，无法烘焙进 .ui） ──
-    ui->TodoSidebar->setFixedWidth(si(180));
+    ui->TodoTopBar->setFixedHeight(si(46));
+    ui->topBarLay->setContentsMargins(si(16), 0, si(16), 0);
+    ui->topBarLay->setSpacing(si(2));
     ui->TodoDetail->setFixedWidth(si(280));
-    ui->sidebarLay->setContentsMargins(si(8), si(14), si(8), si(12));
-    ui->sidebarLay->setSpacing(si(4));
-    ui->listsLay->setSpacing(si(2));
-    ui->centerLay->setContentsMargins(0, si(12), si(12), si(12));
+    ui->centerLay->setContentsMargins(si(12), si(12), si(12), si(12));
     ui->surfaceLay->setContentsMargins(si(16), si(16), si(16), si(14));
     ui->surfaceLay->setSpacing(si(10));
     ui->detailLay->setContentsMargins(si(14), si(14), si(14), si(14));
@@ -248,10 +264,6 @@ void TodoPage::buildUi()
     ui->TodoSubs->setFixedHeight(si(120));
 
     // ── 成员别名：业务逻辑沿用 m_* 指针，静态布局归属 .ui 文件 ──
-    m_sidebar = ui->TodoSidebar;
-    m_listsBox = ui->listsBox;
-    m_listsLay = ui->listsLay;
-    m_newListBtn = ui->newListBtn;
     m_surface = ui->TodoSurface;
     m_viewTitle = ui->TodoViewTitle;
     m_viewCount = ui->TodoViewCount;
@@ -262,6 +274,12 @@ void TodoPage::buildUi()
     m_detailPanel = ui->TodoDetail;
     m_detailEmpty = ui->TodoDetailEmpty;
     m_detailBody = ui->detailBody;
+    // 标题大字隐藏，界面更贴近背景（视图信息由顶部切换栏明确给出）
+    m_viewTitle->setVisible(false);
+    // 详情面板默认收起，点击任务时才滑出
+    m_detailPanel->setMaximumWidth(0);
+    m_detailPanel->setMinimumWidth(0);
+    m_detailPanel->hide();
     m_dTitle = ui->TodoTitleEdit;
     m_dDone = ui->dDone;
     m_dList = ui->dList;
@@ -275,16 +293,23 @@ void TodoPage::buildUi()
     m_dSubAdd = ui->dSubAdd;
     m_dDelete = ui->dDelete;
 
-    // ── 侧栏视图按钮（objectName 供 applyPageStyles 匹配） ──
+    // ── 顶部切换栏视图按钮（objectName 供 applyPageStyles 匹配） ──
     m_viewBtns = {ui->btnInbox, ui->btnToday, ui->btnNext7, ui->btnAll};
     for (auto *b : m_viewBtns)
         b->setObjectName(QStringLiteral("TodoSideBtn"));
-    updateSideIcons();
+    
     connect(ui->btnInbox, &QToolButton::clicked, this, [this] { selectView(ViewInbox); });
     connect(ui->btnToday, &QToolButton::clicked, this, [this] { selectView(ViewToday); });
     connect(ui->btnNext7, &QToolButton::clicked, this, [this] { selectView(ViewNext7); });
     connect(ui->btnAll, &QToolButton::clicked, this, [this] { selectView(ViewAll); });
-    connect(m_newListBtn, &QPushButton::clicked, this, &TodoPage::onNewList);
+
+    // 清单下拉：按钮弹出菜单（菜单内容随 lists 变化在 rebuildListsMenu 重建）
+    m_listsBtn = ui->btnLists;
+    m_listsBtn->setObjectName(QStringLiteral("TodoSideBtn"));
+    m_listsMenu = new QMenu(m_listsBtn);
+    m_listsBtn->setMenu(m_listsMenu);
+    m_listsBtn->setPopupMode(QToolButton::InstantPopup);
+    connect(m_listsMenu, &QMenu::aboutToShow, this, &TodoPage::rebuildListsMenu);
 
     // 字段标签 objectName（applyPageStyles 按 TodoFieldLabel findChildren 匹配）
     for (QLabel *l : {ui->lblList, ui->lblPriority, ui->lblDue, ui->lblRecur,
@@ -377,45 +402,34 @@ void TodoPage::buildUi()
     m_detailBody->hide();
 
     applyPageStyles();
-    rebuildSidebar();
+    rebuildListsMenu();
 }
 
 void TodoPage::applyPageStyles()
 {
-    if (m_sidebar)
-        m_sidebar->setStyleSheet(
-            QStringLiteral("QWidget#TodoSidebar{background:%1;border-right:1px solid %2;}")
-                .arg(glassBg(kColorBgElev), glassBorder()));
-    // 中间任务列表表面：玻璃渐变背景 + 圆角 + 玻璃亮边；阴影随强度增删
-    if (m_surface) {
-        m_surface->setStyleSheet(
-            QStringLiteral("QWidget#TodoSurface{background:%1;border:1px solid %2;border-radius:12px;}")
-                .arg(glassBg(kColorBgElev), glassBorder()));
-        clearDropShadow(m_surface, m_surfaceShadow);
-        m_surfaceShadow = makeDropShadow(m_surface);
-    }
-    if (auto *brand = m_sidebar ? m_sidebar->findChild<QLabel *>(QStringLiteral("TodoBrand")) : nullptr)
-        brand->setStyleSheet(QStringLiteral("font-size:%1;font-weight:700;color:%2;padding:%3 %4;")
-                                 .arg(sp(18), kColorFg, sp(4), sp(8)));
-    if (auto *sec = m_sidebar ? m_sidebar->findChild<QLabel *>(QStringLiteral("TodoSection")) : nullptr)
-        sec->setStyleSheet(QStringLiteral("color:%1;font-size:%2;font-weight:700;padding:%3 %4 2px;")
-                               .arg(kColorMuted2, sp(10), sp(6), sp(8)));
+    // 顶部切换栏：完全透明、无边界，与主内容区融为一体
+    if (auto *topBar = ui ? ui->TodoTopBar : nullptr)
+        topBar->setStyleSheet(QStringLiteral("QWidget#TodoTopBar{background:transparent;}"));
 
+    // 视图/清单切换按钮：文字胶囊，选中 accent 染色（有"圈"无符号）
     const QString viewStyle =
-        QStringLiteral("QToolButton#TodoSideBtn{text-align:left;padding:%1 %2;border:none;"
-                       "border-radius:6px;color:%3;background:transparent;font-size:%4;}"
+        QStringLiteral("QToolButton#TodoSideBtn{padding:%1 %2;border:none;"
+                       "border-radius:%7px;color:%3;background:transparent;font-size:%4;font-weight:500;}"
                        "QToolButton#TodoSideBtn:hover{background:%5;color:%6;}"
-                       "QToolButton#TodoSideBtn:checked{background:rgba(76,139,245,0.16);color:white;}")
-            .arg(sp(8), sp(10), kColorFgMuted, sp(13), kColorBgElev2, kColorFg);
+                       "QToolButton#TodoSideBtn:checked{background:%8;color:%6;font-weight:600;}")
+            .arg(sp(7), sp(12), kColorFgMuted, sp(13), kColorBgElev2, kColorFg,
+                 sp(16), withAlpha(kColorAccent, 0.18));
     for (auto *b : m_viewBtns)
         b->setStyleSheet(viewStyle);
+    if (m_listsBtn)
+        m_listsBtn->setStyleSheet(viewStyle);
 
-    if (m_newListBtn)
-        m_newListBtn->setStyleSheet(
-            QStringLiteral("QPushButton#TodoNewList{text-align:left;padding:%1 %2;border:none;"
-                           "border-radius:6px;color:%3;background:transparent;font-size:%4;}"
-                           "QPushButton#TodoNewList:hover{background:%5;color:%6;}")
-                .arg(sp(8), sp(10), kColorAccent, sp(13), kColorBgElev2, kColorFg));
+    // 中间任务列表表面：完全透明、无边框，直接落在主背景上（与其他页一致）
+    if (m_surface) {
+        m_surface->setStyleSheet(QStringLiteral("QWidget#TodoSurface{background:transparent;}"));
+        clearDropShadow(m_surface, m_surfaceShadow);
+        m_surfaceShadow = nullptr;
+    }
 
     if (m_viewTitle)
         m_viewTitle->setStyleSheet(QStringLiteral("font-size:%1;font-weight:700;color:%2;").arg(sp(20), kColorFg));
@@ -424,12 +438,13 @@ void TodoPage::applyPageStyles()
     if (m_quickAdd)
         m_quickAdd->setStyleSheet(
             QStringLiteral("QLineEdit#TodoQuickAdd{font-size:%1;padding:%2 %3;border:1px dashed %4;"
-                           "border-radius:8px;background:%5;}")
-                .arg(sp(14), sp(8), sp(10), kColorBorder, kColorBgElev));
+                           "border-radius:8px;background:transparent;}")
+                .arg(sp(14), sp(8), sp(10), kColorBorder));
     if (m_list)
         m_list->setStyleSheet(
             QStringLiteral("QListWidget#TodoList{background:transparent;border:none;outline:none;}"
-                           "QListWidget#TodoList::item{border:none;padding:2px;}"));
+                           "QListWidget#TodoList::item{border:none;padding:2px;}"
+                           "QListWidget#TodoList::item:hover,QListWidget#TodoList::item:selected{background:transparent;}"));
     if (m_completedBtn)
         m_completedBtn->setStyleSheet(
             QStringLiteral("QPushButton#TodoCompleted{text-align:left;padding:%1 %2;border:none;"
@@ -459,64 +474,32 @@ void TodoPage::applyPageStyles()
         l->setStyleSheet(QStringLiteral("color:%1;font-size:%2;").arg(kColorFgMuted, sp(11)));
 }
 
-void TodoPage::rebuildSidebar()
+void TodoPage::rebuildListsMenu()
 {
-    // 清空清单按钮区（重建，跟随 lists 变化与缩放）
-    if (m_listsLay) {
-        while (auto *item = m_listsLay->takeAt(0)) {
-            if (auto *w = item->widget())
-                w->deleteLater();
-            delete item;
-        }
-    }
-    m_listBtns.clear();
+    // 清单下拉菜单（重建，跟随 lists 变化与缩放；aboutToShow 时也会刷新）
+    if (!m_listsMenu)
+        return;
+    m_listsMenu->clear();
     for (const auto &l : m_lists) {
-        auto *b = new QToolButton;
-        b->setText(l.name);
-        b->setProperty("listId", l.id);
-        b->setCheckable(true);
-        b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-        b->setObjectName(QStringLiteral("TodoListBtn"));
-        b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        b->setToolTip(QStringLiteral("右键可重命名 / 删除"));
         QPixmap pm(si(12), si(12));
         pm.fill(QColor(m_listColors.value(l.id)));
-        b->setIcon(QIcon(pm));
-        b->setIconSize(QSize(si(14), si(14)));
-        b->setStyleSheet(
-            QStringLiteral("QToolButton#TodoListBtn{text-align:left;padding:%1 %2;border:none;"
-                           "border-radius:6px;color:%3;background:transparent;font-size:%4;}"
-                           "QToolButton#TodoListBtn:hover{background:%5;color:%6;}"
-                           "QToolButton#TodoListBtn:checked{background:rgba(76,139,245,0.16);color:white;"
-                           "border-left:3px solid %7;padding-left:%8;}")
-                .arg(sp(7), sp(10), kColorFgMuted, sp(13), kColorBgElev2, kColorFg,
-                     m_listColors.value(l.id), sp(9)));
-        connect(b, &QToolButton::clicked, this, [this, l] { selectView(ViewList, l.id); });
-
-        b->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(b, &QToolButton::customContextMenuRequested, this, [this, b, l](const QPoint &pos) {
-            QMenu menu;
-            QAction *ren = menu.addAction(QStringLiteral("重命名清单…"));
-            QAction *del = menu.addAction(QStringLiteral("删除清单"));
-            QAction *act = menu.exec(b->mapToGlobal(pos));
-            if (act == ren)
-                onRenameList(l.id);
-            else if (act == del)
-                onDeleteList(l.id);
-        });
-
-        m_listsLay->addWidget(b);
-        m_listBtns.append(b);
+        QAction *a = m_listsMenu->addAction(pm, l.name);
+        a->setCheckable(true);
+        a->setChecked(m_view == ViewList && m_viewList == l.id);
+        connect(a, &QAction::triggered, this, [this, l] { selectView(ViewList, l.id); });
     }
-    m_listsBox->setVisible(!m_lists.isEmpty());
-    setViewButtonsChecked();
+    if (!m_lists.isEmpty())
+        m_listsMenu->addSeparator();
+    m_listsMenu->addAction(QStringLiteral("＋ 新建清单…"), this, &TodoPage::onNewList);
+    if (m_view == ViewList) {
+        m_listsMenu->addAction(QStringLiteral("重命名清单…"), this, [this] { onRenameList(m_viewList); });
+        m_listsMenu->addAction(QStringLiteral("删除清单"), this, [this] { onDeleteList(m_viewList); });
+    }
 }
 
 void TodoPage::setViewButtonsChecked()
 {
     for (auto *b : m_viewBtns)
-        b->setChecked(false);
-    for (auto *b : m_listBtns)
         b->setChecked(false);
 
     switch (m_view) {
@@ -525,31 +508,26 @@ void TodoPage::setViewButtonsChecked()
     case ViewNext7: if (m_viewBtns.size() > 2) m_viewBtns[2]->setChecked(true); break;
     case ViewAll:   if (m_viewBtns.size() > 3) m_viewBtns[3]->setChecked(true); break;
     case ViewList:
-        for (auto *b : m_listBtns) {
-            if (b->property("listId").toLongLong() == m_viewList) {
-                b->setChecked(true);
-                break;
-            }
-        }
         break;
     }
-    updateSideIcons();
+    // 清单下拉按钮：选中清单时点亮并显示清单名
+    if (m_listsBtn) {
+        m_listsBtn->setChecked(m_view == ViewList);
+        QString name = QStringLiteral("清单");
+        if (m_view == ViewList) {
+            for (const auto &l : m_lists) {
+                if (l.id == m_viewList) {
+                    name = l.name;
+                    break;
+                }
+            }
+        }
+        m_listsBtn->setText(name);
+    }
+    
 }
 
-// 侧栏视图按钮图标：Segoe 字形渲染为 QIcon，选中 accent / 未选中 muted。
-// 触发点：buildUi、applyUiScale（缩放重设尺寸）、setViewButtonsChecked（选中态变色）
-void TodoPage::updateSideIcons()
-{
-    static const QString kGlyphs[4] = {glyph::Inbox, glyph::Calendar,
-                                       glyph::Recent, glyph::ViewAll};
-    for (int i = 0; i < m_viewBtns.size() && i < 4; ++i) {
-        auto *b = m_viewBtns[i];
-        b->setIconSize(QSize(si(14), si(14)));
-        b->setIcon(glyphIcon(kGlyphs[i],
-                             b->isChecked() ? QColor(kColorAccent) : QColor(kColorFgMuted),
-                             si(14)));
-    }
-}
+// 顶部切换栏视图按钮仅展示文字（胶囊样式），无需字形图标
 
 void TodoPage::selectView(ViewKind kind, qint64 listId)
 {
@@ -765,7 +743,7 @@ void TodoPage::onDataChanged()
     for (const auto &l : m_lists)
         m_listColors.insert(l.id, l.color.isEmpty() ? colorForString(l.name).name() : l.color);
 
-    rebuildSidebar();
+    rebuildListsMenu();
     reloadListCombo();
     rebuildList();
 
@@ -898,6 +876,7 @@ void TodoPage::loadDetail(qint64 id)
     m_selectedTask = id;
     m_loadingDetail = true;
 
+    slideDetail(true);
     m_detailEmpty->hide();
     m_detailBody->show();
 
@@ -942,10 +921,34 @@ void TodoPage::clearDetail()
 {
     m_commitTimer->stop();
     m_selectedTask = 0;
+    slideDetail(false);
     if (m_detailBody)
         m_detailBody->hide();
     if (m_detailEmpty)
         m_detailEmpty->show();
+}
+
+// 详情面板滑入/收起：动画 maximumWidth 0 ↔ m_detailW，收起后隐藏，结束锁住最小宽
+void TodoPage::slideDetail(bool open)
+{
+    if (!m_detailPanel)
+        return;
+    m_detailPanel->setMinimumWidth(0);
+    if (open && !m_detailPanel->isVisible()) {
+        m_detailPanel->setMaximumWidth(0);
+        m_detailPanel->show();
+    }
+    auto *a = new QPropertyAnimation(m_detailPanel, "maximumWidth", this);
+    a->setDuration(180);
+    a->setStartValue(m_detailPanel->maximumWidth());
+    a->setEndValue(open ? m_detailW : 0);
+    a->setEasingCurve(QEasingCurve::OutCubic);
+    connect(a, &QPropertyAnimation::finished, this, [this, open]() {
+        if (!open)
+            m_detailPanel->hide();
+        m_detailPanel->setMinimumWidth(open ? m_detailW : 0);
+    });
+    a->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 void TodoPage::commitDetail()

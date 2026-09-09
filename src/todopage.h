@@ -1,7 +1,7 @@
 // todopage.h —— Todo 页（参照 TickTick / Super Productivity）
 //
-// 布局：左侧「收集箱/今天/最近 7 天/全部 + 清单」导航，中间任务列表（快速添加 +
-// 已完成折叠区），右侧详情面板（标题/完成/清单/优先级/截止/重复/标签/备注/子任务）。
+// 布局：顶部切换栏（收集箱/今天/最近 7 天/全部 + 清单下拉），中间任务列表
+// （快速添加 + 已完成折叠区），右侧详情面板（标题/完成/清单/优先级/截止/重复/标签/备注/子任务）。
 //
 // 注意：专注模块（计时、热力图、日历等）现在在主侧边栏中直接导航，
 // 由 MainWindow 的主堆栈统一管理。TodoPage 不再内嵌专注模块页面。
@@ -20,6 +20,7 @@ class QGraphicsDropShadowEffect;
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QMenu;
 class QPlainTextEdit;
 class QPushButton;
 class QTimer;
@@ -53,6 +54,7 @@ protected:
 private:
     qint64 m_taskId;
     bool m_highlighted = false;
+    bool m_rowStyled = false;   // 行底/hover 样式是否已应用（保证首次即应用 :hover）
 };
 
 class TodoPage : public QWidget
@@ -86,7 +88,7 @@ private:
     Ui::TodoPage *ui = nullptr;
     void buildUi();
     void applyPageStyles();
-    void rebuildSidebar();
+    void rebuildListsMenu();
     void rebuildList();
     void selectView(ViewKind kind, qint64 listId = 0);
     void reloadListCombo();
@@ -94,6 +96,7 @@ private:
     void loadDetail(qint64 id);
     void clearDetail();
     void commitDetail();
+    void slideDetail(bool open);   // 详情面板滑入/收起动画
     void setRowHighlight(qint64 id);
     void setViewButtonsChecked();
     QString viewTitle() const;
@@ -112,14 +115,12 @@ private:
     SortMode m_sort = SortMode::Default;
     qint64 m_selectedTask = 0;
     bool m_showCompleted = false;
+    int m_detailW = 0;   // 详情面板展开宽度（随缩放变化）
 
-    // 侧栏
-    QWidget *m_sidebar;
-    QWidget *m_listsBox;
-    QVBoxLayout *m_listsLay;
+    // 顶部切换栏
     QList<QToolButton *> m_viewBtns;
-    QList<QToolButton *> m_listBtns;
-    QPushButton *m_newListBtn;
+    QToolButton *m_listsBtn = nullptr;   // 清单下拉按钮（菜单动态重建）
+    QMenu *m_listsMenu = nullptr;        // 清单选择 + 新建/重命名/删除
 
     // 中间任务列表的浮动表面
     QWidget *m_surface = nullptr;

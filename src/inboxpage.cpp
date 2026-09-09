@@ -144,6 +144,9 @@ void InboxPage::buildUi()
     m_btnClear = ui->btnClear;
     m_btnSettings = ui->btnSettings;
     m_title = ui->InboxTitle;
+    // 主体「收件箱」大字去掉，界面更贴近背景
+    if (m_title)
+        m_title->setVisible(false);
     m_search = ui->search;
     m_btnSidebar = ui->btnSidebar;
     m_sort = ui->sortBox;
@@ -202,8 +205,7 @@ void InboxPage::applyStyles()
     // 标签侧栏
     if (m_tagPanel)
         m_tagPanel->setStyleSheet(scaleQss(QStringLiteral(
-            "QWidget#TagPanel { background: %1; border-right: 1px solid %2; }")
-                                               .arg(glassBg(kColorBgElev), withAlpha(kColorBorder, 0.45))));
+            "QWidget#TagPanel { background: transparent; }")));
     if (m_tagTitle)
         m_tagTitle->setStyleSheet(scaleQss(QStringLiteral(
             "color: %1; font-size: 10px; font-weight: 800; letter-spacing: 1.5px;"

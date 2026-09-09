@@ -561,8 +561,10 @@ inline QString themeQss(const Theme &t)
         QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color: @MUTED@; }
         QWidget#NavSidebar {
             background: @GLASSBG@;
-            border-right: 1px solid @GLASSBORDER@;
+            border-right: 1px solid @BORDER@;
         }
+        /* 导航折叠分组容器：必须透明，否则不透明底色在玻璃侧栏上形成色块接缝 */
+        QWidget#NavSectionBox { background: transparent; }
         QPushButton {
             background: @BGL2@; border: 1px solid @BORDER@; border-radius: 6px;
             color: @FG@; /* 显式声明：表格 cell widget 内不依赖通配规则继承，防止文字落入默认 ButtonText 而看不清 */

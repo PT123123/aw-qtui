@@ -15,6 +15,9 @@ class QTabWidget;
 class QToolButton;
 class QWheelEvent;
 
+// Qt Designer 布局（mainwindow.ui），全局命名空间
+namespace Ui { class MainWindow; }
+
 namespace awqtui {
 
 class ApiClient;
@@ -90,6 +93,8 @@ private slots:
     void onGlobalHotkey(int id);
 
 private:
+    // Qt Designer-generated layout object (mainwindow.ui -> ui_mainwindow.h)
+    Ui::MainWindow *ui = nullptr;
     void buildUi();
     // 左侧导航在「窄栏（仅图标）」与「展开（图标+文字）」之间切换，并持久化状态
     void setNavExpanded(bool expanded);
