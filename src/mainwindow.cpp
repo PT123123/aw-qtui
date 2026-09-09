@@ -319,10 +319,8 @@ void MainWindow::buildUi()
     // 统计类视图合并为单个「专注统计」入口（页内子标签切换），减少侧边栏图标数量
     NavSection todoSec = makeSection(QStringLiteral("任务"), true);
     m_navTodo = makeNavBtn(glyph::Checkbox, "TODO");
-    m_navTimer = makeNavBtn(glyph::Stopwatch, "计时专注");
-    m_navFocusStats = makeNavBtn(glyph::BarChart, "专注统计");
+    m_navFocusStats = makeNavBtn(glyph::BarChart, "专注");
     todoSec.layout->addWidget(m_navTodo);
-    todoSec.layout->addWidget(m_navTimer);
     todoSec.layout->addWidget(m_navFocusStats);
 
     // ---- 分组 3：活动 ----
@@ -357,7 +355,6 @@ void MainWindow::buildUi()
     // 连接信号
     connect(m_navInbox, &QPushButton::clicked, this, [this] { switchPage(PAGE_INBOX); });
     connect(m_navTodo, &QPushButton::clicked, this, [this] { switchPage(PAGE_TODO); });
-    connect(m_navTimer, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_TIMER); });
     connect(m_navFocusStats, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_STATS); });
     connect(m_navActivity, &QPushButton::clicked, this, [this] { switchPage(PAGE_ACTIVITY); });
     connect(m_navSync, &QPushButton::clicked, this, [this] { switchPage(PAGE_SYNC); });
@@ -407,6 +404,8 @@ void MainWindow::buildUi()
     ui->focusBestHostLay->addWidget(m_bestPage);
     ui->focusCalendarHostLay->addWidget(m_calendarPage);
     ui->focusMemorialHostLay->addWidget(m_memorialPage);
+    // 计时专注并入「专注」统计页，作为第一个子标签
+    m_focusTabs->insertTab(0, m_timerPage, QStringLiteral("🍅 计时"));
     styleSubTabs(m_focusTabs);
 
     m_activity = new ActivityPage(m_api);
@@ -449,7 +448,6 @@ void MainWindow::buildUi()
     // 其余 5 个页面按枚举索引升序插入（最终索引 = 枚举值）
     m_stack->insertWidget(PAGE_INBOX, m_inbox);              // PAGE_INBOX = 0
     m_stack->insertWidget(PAGE_TODO, m_todo);                // PAGE_TODO = 2
-    m_stack->insertWidget(PAGE_FOCUS_TIMER, m_timerPage);    // PAGE_FOCUS_TIMER = 3
     m_stack->insertWidget(PAGE_D1_SYNC, m_d1Sync);           // PAGE_D1_SYNC = 7
     m_stack->insertWidget(PAGE_CLOUD_BACKUP, m_cloudBackup); // PAGE_CLOUD_BACKUP = 8
 
@@ -577,7 +575,6 @@ void MainWindow::switchPage(int index)
     m_navInbox->setChecked(index == PAGE_INBOX);
     m_navSettings->setChecked(index == PAGE_SETTINGS);
     m_navTodo->setChecked(index == PAGE_TODO);
-    m_navTimer->setChecked(index == PAGE_FOCUS_TIMER);
     m_navFocusStats->setChecked(index == PAGE_FOCUS_STATS);
     m_navActivity->setChecked(index == PAGE_ACTIVITY);
     m_navSync->setChecked(index == PAGE_SYNC);
@@ -885,7 +882,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     case Qt::Key_1: switchPage(PAGE_INBOX); return;
     case Qt::Key_2: switchPage(PAGE_SETTINGS); return;
     case Qt::Key_3: switchPage(PAGE_TODO); return;
-    case Qt::Key_4: switchPage(PAGE_FOCUS_TIMER); return;
+    case Qt::Key_4: switchPage(PAGE_FOCUS_STATS); return;
     case Qt::Key_5: switchPage(PAGE_FOCUS_STATS); return;
     case Qt::Key_6: switchPage(PAGE_ACTIVITY); return;
     case Qt::Key_7: switchPage(PAGE_SYNC); return;
