@@ -8,6 +8,7 @@
 #   just build-dbg      仅构建 Debug 客户端
 #   just server         构建并部署 aw-server.exe（完整 /api/0 + /inbox + /todo）到 build/server/
 #   just dist           打包 build/release/aw-qtui-<ver>-win64.zip（版本 +0.01，写回 CMakeLists）
+#   just deploy-workshop 构建 release 并部署到 c:/workshop/aw-qtui-<ver>（patch +1，写回 CMakeLists）
 #   just install        把已部署的 build/ 拷贝到安装目录（默认 %LOCALAPPDATA%/Programs/aw-qtui）
 #   just asan           AddressSanitizer 诊断构建
 #   just selftest       编译并运行 TodoStore 自测
@@ -52,6 +53,7 @@ help:
     @echo "  just deploy        deploy Qt runtimes (windeployqt)"
     @echo "  just stage-dist     暂存正式版到 build/dist/"
     @echo "  just dist          package dist/aw-qtui-<ver>-win64.zip (bump +0.01)"
+    @echo "  just deploy-workshop  build release & copy to c:/workshop/aw-qtui-<ver> (patch +1)"
     @echo "  just install       copy deployed build/ into install dir"
     @echo "  just asan          AddressSanitizer build"
     @echo "  just selftest      compile & run TodoStore self-test"
@@ -144,6 +146,12 @@ dist version="" skip_server="":
     [ -n "$ver" ] && args="$args --version $ver"
     [ -n "{{skip_server}}" ] && args="$args --skip-server"
     python tools/make_zip.py --root build/dist $args
+
+# ---------- 部署到 workshop（c:/workshop/aw-qtui-<ver>，patch +1 并写回） ----------
+deploy-workshop:
+    #!C:/Progra~1/Git/bin/bash.exe
+    just release
+    python tools/deploy_workshop.py
 
 # ---------- 安装（把已部署的 build/ 拷贝到安装目录） ----------
 install install_dir="":

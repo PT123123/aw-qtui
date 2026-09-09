@@ -10,6 +10,7 @@
 #include "mockdata.h"
 
 class QLabel;
+class QMenu;
 class QPushButton;
 class QTabWidget;
 class QNetworkReply;
@@ -38,16 +39,14 @@ public:
     void refresh();
     // 按当前主题重建页面内联样式（主题切换时调用）
     void applyTheme();
+    // 按全局 gUiScale 重应用主题样式（Ctrl± 缩放时调用）
+    void applyUiScale();
 
 private slots:
     void onPrevDay();
     void onNextDay();
     void onToday();
-    void onDateChipToday();
-    void onDateChipYesterday();
-    void onDateChipLast7();
-    void onDateChipLast30();
-    void onDateChipAll();
+    void onRangeAction();
     void onBucketsLoaded();
     void onEventLoaded();
 
@@ -62,7 +61,6 @@ private:
     QStringList computeHourlyCategories() const;
     QList<BarItem> mockEditorFiles(int limit) const;
 
-    void uncheckAllChips();
     void updateTrendsFromLanes();
 
     ApiClient *m_api = nullptr;
@@ -81,11 +79,11 @@ private:
     QPushButton *m_prevBtn = nullptr;
     QPushButton *m_nextBtn = nullptr;
     QPushButton *m_todayBtn = nullptr;
-    QPushButton *m_chipToday = nullptr;
-    QPushButton *m_chipYesterday = nullptr;
-    QPushButton *m_chipLast7 = nullptr;
-    QPushButton *m_chipLast30 = nullptr;
-    QPushButton *m_chipAll = nullptr;
+    QPushButton *m_rangeBtn = nullptr;
+    QMenu *m_rangeMenu = nullptr;
+    QList<QAction *> m_rangeActions;
+    void setRangeChecked(int index);
+    void uncheckAllChips();
     HourlyActivityBars *m_hourlyBars = nullptr;
     QTabWidget *m_tabs = nullptr;
 

@@ -16,7 +16,9 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSlider>
 #include <QTabWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <iterator>
@@ -98,7 +100,7 @@ void ShortcutEdit::focusOutEvent(QFocusEvent *event)
 }
 
 // ------------------------------------------------------------------ //
-// SettingsDialog
+// SettingsWidget
 // ------------------------------------------------------------------ //
 
 // 平台标识（config::platform）转可读的操作系统名
@@ -133,19 +135,15 @@ static QComboBox *buildThemeCombo(const QString &currentTheme, int &currentIndex
     return combo;
 }
 
-SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId,
-                               const UiEffects &fx, const QString &appIconId, QWidget *parent)
-    : QDialog(parent)
+SettingsWidget::SettingsWidget(const ShortcutConfig &cfg, const QString &themeId,
+                               const UiEffects &fx, const QString &appIconId, double zoom,
+                               QWidget *parent)
+    : QWidget(parent)
 {
-    setWindowTitle(QStringLiteral("设置"));
-    setMinimumWidth(520);
 
-    auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(16, 12, 16, 12);
-    root->setSpacing(10);
-
-    // ---- Tab 容器：外观 / 边缘修复 / 快捷键 / 关于 ----
-    auto *tabs = new QTabWidget;
+    // ---- Tab 容器：外观 / 边缘修复 / 同步 / 快捷键 / 关于 ----
+    m_tabs = new QTabWidget;
+    QTabWidget *tabs = m_tabs;
     tabs->setDocumentMode(true);
     tabs->setStyleSheet(QStringLiteral(
         "QTabWidget::pane { border: 1px solid %1; border-radius: 8px; background: %2; top: -1px; }"
@@ -235,6 +233,47 @@ SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId
     iconHint->setStyleSheet(hintStyle);
     appearanceLayout->addWidget(iconHint);
 
+    // 界面缩放比（滑块拖动调整，点击拖拽即时预览）
+    auto *zoomTitle = new QLabel(QStringLiteral("界面比例（缩放）"));
+    zoomTitle->setStyleSheet(sectionTitleStyle);
+    appearanceLayout->addWidget(zoomTitle);
+
+    // 滑块防抖定时器：需先于滑块创建（setValue 会立即触发 valueChanged）
+    m_zoomDebounce = new QTimer(this);
+    m_zoomDebounce->setSingleShot(true);
+    m_zoomDebounce->setInterval(120);
+    connect(m_zoomDebounce, &QTimer::timeout, this, [this] { emit zoomChanged(this->zoom()); });
+
+    auto *zoomRow = new QHBoxLayout;
+    zoomRow->setSpacing(12);
+    auto *zoomLabel = new QLabel(QStringLiteral("缩放"));
+    zoomLabel->setStyleSheet(rowLabelStyle);
+    zoomLabel->setFixedWidth(56);
+    m_zoomValue = new QLabel;
+    m_zoomValue->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;").arg(kColorAccent));
+    m_zoomValue->setFixedWidth(56);
+    m_zoomValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_zoomSlider = new QSlider(Qt::Horizontal);
+    m_zoomSlider->setRange(30, 300); // 30%~300%
+    m_zoomSlider->setValue(qRound(qBound(0.3, zoom, 3.0) * 100));
+    m_zoomSlider->setPageStep(10);
+    connect(m_zoomSlider, &QSlider::valueChanged, this, [this](int v) {
+        m_zoomValue->setText(QStringLiteral("%1%").arg(v));
+        m_zoomDebounce->start(); // 停止拖动后才发缩放，避免拖动过程反复重建整页
+    });
+    zoomRow->addWidget(zoomLabel);
+    zoomRow->addWidget(m_zoomSlider, 1);
+    zoomRow->addWidget(m_zoomValue);
+    appearanceLayout->addLayout(zoomRow);
+
+    auto *zoomHint = new QLabel(QStringLiteral("30%~300%，拖动滑块可即时预览；也支持快捷键 Ctrl++ / Ctrl+- / Ctrl+0 复位。" //
+                                               "开启「边缘修复 → 缩放对齐」时自动吸附到干净档位。"));
+    zoomHint->setWordWrap(true);
+    zoomHint->setStyleSheet(hintStyle);
+    appearanceLayout->addWidget(zoomHint);
+
+    m_zoomValue->setText(QStringLiteral("%1%").arg(m_zoomSlider->value()));
+
     // 界面效果
     auto *fxTitle = new QLabel(QStringLiteral("界面效果"));
     fxTitle->setStyleSheet(sectionTitleStyle);
@@ -305,9 +344,9 @@ SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId
     m_cbAnimations->setChecked(fx.animations);
     m_cbAnimations->setToolTip(QStringLiteral("切页淡入 / 卡片入场 / 高亮过渡"));
     m_cbAnimations->setStyleSheet(cbStyle);
-    m_cbDwm = new QCheckBox(QStringLiteral("DWM 背景（实验）"));
+    m_cbDwm = new QCheckBox(QStringLiteral("玻璃背景"));
     m_cbDwm->setChecked(fx.dwmBackdrop);
-    m_cbDwm->setToolTip(QStringLiteral("Windows 11 22H2+ 启用 Mica/Acrylic 真模糊背景；旧系统自动回退"));
+    m_cbDwm->setToolTip(QStringLiteral("Windows 11 22H2+ 通过 DWM Acrylic 实现系统级玻璃模糊背景；旧系统自动回退"));
     m_cbDwm->setStyleSheet(cbStyle);
     fxRow->addWidget(m_cbAnimations);
     fxRow->addWidget(m_cbDwm);
@@ -504,6 +543,10 @@ SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId
     aboutLayout->addStretch(1);
     tabs->addTab(aboutPage, QStringLiteral("关于"));
 
+    // 自身即内容容器（无底部按钮，由调用方决定内嵌布局与保存按钮）
+    auto *root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
     root->addWidget(tabs);
 
     // ---- 预设联动：选预设 → 自动设置各单项；单项变化 → 预设变「自定义」----
@@ -547,28 +590,9 @@ SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId
         const int p = (int)cur.preset();
         m_presetCombo->setCurrentIndex(p >= 0 ? p : 4);
     }
-
-    // ---- 底部按钮 ----
-    auto *btns = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
-    btns->button(QDialogButtonBox::Save)->setText(QStringLiteral("保存"));
-    btns->button(QDialogButtonBox::Save)->setObjectName(QStringLiteral("PrimaryBtn"));
-    btns->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
-    btns->button(QDialogButtonBox::Cancel)->setStyleSheet(
-        QStringLiteral("QPushButton { background: transparent; border: 1px solid %1; }")
-            .arg(kColorBorder));
-    connect(btns, &QDialogButtonBox::accepted, this, [this] {
-        const QString err = validate(config());
-        if (!err.isEmpty()) {
-            QMessageBox::warning(this, QStringLiteral("快捷键无效"), err);
-            return;
-        }
-        accept();
-    });
-    connect(btns, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    root->addWidget(btns);
 }
 
-ShortcutConfig SettingsDialog::config() const
+ShortcutConfig SettingsWidget::config() const
 {
     ShortcutConfig c;
     c.addNote = m_add->sequence();
@@ -576,7 +600,7 @@ ShortcutConfig SettingsDialog::config() const
     return c;
 }
 
-QString SettingsDialog::themeId() const
+QString SettingsWidget::themeId() const
 {
     const int i = m_themeCombo->currentIndex();
     if (i >= 0 && i < (int)std::size(kThemes))
@@ -584,7 +608,7 @@ QString SettingsDialog::themeId() const
     return QStringLiteral("midnight");
 }
 
-QString SettingsDialog::appIconId() const
+QString SettingsWidget::appIconId() const
 {
     const int i = m_iconCombo->currentIndex();
     if (i >= 0 && i < (int)std::size(kAppIconVariants))
@@ -592,7 +616,23 @@ QString SettingsDialog::appIconId() const
     return QStringLiteral("amber");
 }
 
-UiEffects SettingsDialog::uiEffects() const
+double SettingsWidget::zoom() const
+{
+    return m_zoomSlider ? qBound(0.3, m_zoomSlider->value() / 100.0, 3.0) : 1.0;
+}
+
+void SettingsWidget::setZoomValue(double z)
+{
+    if (!m_zoomSlider)
+        return;
+    const int v = qRound(qBound(0.3, z, 3.0) * 100);
+    m_zoomSlider->blockSignals(true);
+    m_zoomSlider->setValue(v);
+    m_zoomSlider->blockSignals(false);
+    m_zoomValue->setText(QStringLiteral("%1%").arg(v));
+}
+
+UiEffects SettingsWidget::uiEffects() const
 {
     UiEffects e;
     e.shadowLevel = m_shadowCombo->currentIndex();
@@ -606,7 +646,7 @@ UiEffects SettingsDialog::uiEffects() const
     return e;
 }
 
-SyncSettingsConfig SettingsDialog::syncSettings() const
+SyncSettingsConfig SettingsWidget::syncSettings() const
 {
     SyncSettingsConfig c;
     c.syncInbox = m_cbSyncInbox->isChecked();
@@ -615,14 +655,14 @@ SyncSettingsConfig SettingsDialog::syncSettings() const
     return c;
 }
 
-void SettingsDialog::setSyncSettings(const SyncSettingsConfig &s)
+void SettingsWidget::setSyncSettings(const SyncSettingsConfig &s)
 {
     m_cbSyncInbox->setChecked(s.syncInbox);
     m_cbSyncActivity->setChecked(s.syncActivity);
     m_cbSyncTodo->setChecked(s.syncTodo);
 }
 
-QString SettingsDialog::validate(const ShortcutConfig &c)
+QString SettingsWidget::validate(const ShortcutConfig &c)
 {
     constexpr int kModMask = Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier;
     const QString addName = QStringLiteral("「添加记录」");
@@ -639,6 +679,44 @@ QString SettingsDialog::validate(const ShortcutConfig &c)
     if (!c.addNote.isEmpty() && !c.showInbox.isEmpty() && c.addNote == c.showInbox)
         return QStringLiteral("两个快捷键不能设置为相同的组合。");
     return QString();
+}
+
+// ------------------------------------------------------------------ //
+// SettingsDialog：包一层 SettingsWidget + 保存/取消按钮
+// ------------------------------------------------------------------ //
+
+SettingsDialog::SettingsDialog(const ShortcutConfig &cfg, const QString &themeId,
+                               const UiEffects &fx, const QString &appIconId, double zoom,
+                               QWidget *parent)
+    : QDialog(parent)
+{
+    setWindowTitle(QStringLiteral("设置"));
+    setMinimumWidth(540);
+
+    auto *root = new QVBoxLayout(this);
+    root->setContentsMargins(16, 12, 16, 12);
+    root->setSpacing(10);
+
+    m_widget = new SettingsWidget(cfg, themeId, fx, appIconId, zoom);
+    root->addWidget(m_widget);
+
+    auto *btns = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    btns->button(QDialogButtonBox::Save)->setText(QStringLiteral("保存"));
+    btns->button(QDialogButtonBox::Save)->setObjectName(QStringLiteral("PrimaryBtn"));
+    btns->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    btns->button(QDialogButtonBox::Cancel)->setStyleSheet(
+        QStringLiteral("QPushButton { background: transparent; border: 1px solid %1; }")
+            .arg(kColorBorder));
+    connect(btns, &QDialogButtonBox::accepted, this, [this] {
+        const QString err = SettingsWidget::validate(m_widget->config());
+        if (!err.isEmpty()) {
+            QMessageBox::warning(this, QStringLiteral("快捷键无效"), err);
+            return;
+        }
+        accept();
+    });
+    connect(btns, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    root->addWidget(btns);
 }
 
 } // namespace awqtui

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- activitypage.ui —— Activity 统计面板布局（Qt Designer）
-     与 ActivityPage::buildUi() 的静态结构一一对应；Card/CardTitle/ChipBtn 等
-     主题 objectName、图表 labelWidth、信号连接等仍在 activitypage.cpp 中设置 -->
+     与 ActivityPage::buildUi() 的静态结构一一对应；Card/CardTitle/ToolBtn 等
+     主题 objectName、日期范围下拉菜单、图表 labelWidth、信号连接等仍在 activitypage.cpp 中设置 -->
 <ui version="4.0">
  <class>ActivityPage</class>
  <widget class="QWidget" name="ActivityPage">
@@ -54,7 +54,14 @@
      <item>
       <widget class="QPushButton" name="todayBtn">
        <property name="text">
-        <string>Today</string>
+        <string>今天</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="rangeBtn">
+       <property name="text">
+        <string>今天 ▾</string>
        </property>
       </widget>
      </item>
@@ -73,59 +80,6 @@
         </size>
        </property>
       </spacer>
-     </item>
-     <item>
-      <widget class="QPushButton" name="chipToday">
-       <property name="text">
-        <string>Today</string>
-       </property>
-       <property name="checkable">
-        <bool>true</bool>
-       </property>
-       <property name="checked">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="chipYesterday">
-       <property name="text">
-        <string>Yesterday</string>
-       </property>
-       <property name="checkable">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="chipLast7">
-       <property name="text">
-        <string>Last 7 days</string>
-       </property>
-       <property name="checkable">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="chipLast30">
-       <property name="text">
-        <string>Last 30 days</string>
-       </property>
-       <property name="checkable">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="chipAll">
-       <property name="text">
-        <string>All</string>
-       </property>
-       <property name="checkable">
-        <bool>true</bool>
-       </property>
-      </widget>
      </item>
      <item>
       <spacer name="gap2">
@@ -181,21 +135,21 @@
      <item>
       <widget class="QPushButton" name="filtersBtn">
        <property name="text">
-        <string>⚙ Filters</string>
+        <string>⚙ 筛选</string>
        </property>
       </widget>
      </item>
      <item>
       <widget class="QPushButton" name="refreshBtn">
        <property name="text">
-        <string>↻ Refresh</string>
+        <string>↻ 刷新</string>
        </property>
       </widget>
      </item>
      <item>
       <widget class="QPushButton" name="newViewBtn">
        <property name="text">
-        <string>+ New view</string>
+        <string>+ 新建视图</string>
        </property>
       </widget>
      </item>
@@ -219,7 +173,7 @@
       <item>
        <widget class="QLabel" name="barsTitle">
         <property name="text">
-         <string>Activity over time</string>
+         <string>活动趋势（按小时）</string>
         </property>
        </widget>
       </item>
@@ -233,7 +187,7 @@
     <widget class="QTabWidget" name="tabs">
      <widget class="QWidget" name="summaryTab">
       <attribute name="title">
-       <string>Summary</string>
+       <string>概览</string>
       </attribute>
       <layout class="QVBoxLayout" name="summaryRoot" stretch="0,1">
        <property name="leftMargin">
@@ -274,7 +228,7 @@
             <item>
              <widget class="QLabel" name="appsTitle">
               <property name="text">
-               <string>Top Applications</string>
+               <string>应用排行</string>
               </property>
              </widget>
             </item>
@@ -302,7 +256,7 @@
             <item>
              <widget class="QLabel" name="titlesTitle">
               <property name="text">
-               <string>Top Window Titles</string>
+               <string>窗口标题排行</string>
               </property>
              </widget>
             </item>
@@ -330,7 +284,7 @@
             <item>
              <widget class="QLabel" name="catsTitle">
               <property name="text">
-               <string>Top Categories</string>
+               <string>类别排行</string>
               </property>
              </widget>
             </item>
@@ -365,7 +319,7 @@
             <item>
              <widget class="QLabel" name="cbTitle">
               <property name="text">
-               <string>Timeline (Barchart)</string>
+               <string>时间线（按类别）</string>
               </property>
              </widget>
             </item>
@@ -393,7 +347,7 @@
             <item>
              <widget class="QLabel" name="treeTitle">
               <property name="text">
-               <string>Category Tree</string>
+               <string>类别树</string>
               </property>
              </widget>
             </item>
@@ -421,7 +375,7 @@
             <item>
              <widget class="QLabel" name="donutTitle">
               <property name="text">
-               <string>Category Sunburst</string>
+               <string>类别旭日图</string>
               </property>
              </widget>
             </item>
@@ -437,7 +391,7 @@
      </widget>
      <widget class="QWidget" name="windowTab">
       <attribute name="title">
-       <string>Window</string>
+       <string>窗口</string>
       </attribute>
       <layout class="QHBoxLayout" name="winRoot" stretch="1,1">
        <property name="leftMargin">
@@ -473,7 +427,7 @@
           <item>
            <widget class="QLabel" name="winAppsTitle">
             <property name="text">
-             <string>Top Applications</string>
+             <string>应用排行</string>
             </property>
            </widget>
           </item>
@@ -501,7 +455,7 @@
           <item>
            <widget class="QLabel" name="winTitlesTitle">
             <property name="text">
-             <string>Top Window Titles</string>
+             <string>窗口标题排行</string>
             </property>
            </widget>
           </item>
@@ -515,7 +469,7 @@
      </widget>
      <widget class="QWidget" name="browserTab">
       <attribute name="title">
-       <string>Browser</string>
+       <string>浏览器</string>
       </attribute>
       <layout class="QHBoxLayout" name="browserRoot" stretch="1,1">
        <property name="leftMargin">
@@ -551,7 +505,7 @@
           <item>
            <widget class="QLabel" name="domTitle">
             <property name="text">
-             <string>Top Domains</string>
+             <string>域名排行</string>
             </property>
            </widget>
           </item>
@@ -579,7 +533,7 @@
           <item>
            <widget class="QLabel" name="urlTitle">
             <property name="text">
-             <string>Top URLs</string>
+             <string>链接排行</string>
             </property>
            </widget>
           </item>
@@ -593,7 +547,7 @@
      </widget>
      <widget class="QWidget" name="editorTab">
       <attribute name="title">
-       <string>Editor</string>
+       <string>编辑器</string>
       </attribute>
       <layout class="QVBoxLayout" name="editorRoot" stretch="1">
        <property name="leftMargin">
@@ -626,7 +580,7 @@
           <item>
            <widget class="QLabel" name="edTitle">
             <property name="text">
-             <string>Top Editor Files</string>
+             <string>编辑器文件排行</string>
             </property>
            </widget>
           </item>
@@ -640,7 +594,7 @@
      </widget>
      <widget class="QWidget" name="trendsTab">
       <attribute name="title">
-       <string>Trends</string>
+       <string>趋势</string>
       </attribute>
       <layout class="QVBoxLayout" name="trendsRoot" stretch="0,1,1,1">
        <property name="leftMargin">
@@ -676,8 +630,8 @@
           <item>
            <widget class="QLabel" name="phLabel">
             <property name="text">
-             <string>Select a date range to view trends
-(Today / Yesterday / Last 7 days / Last 30 days / All)</string>
+             <string>选择一个时间范围以查看趋势
+（今天 / 昨天 / 最近 7 天 / 最近 30 天 / 全部）</string>
             </property>
             <property name="alignment">
              <set>Qt::AlignCenter</set>
@@ -705,7 +659,7 @@
           <item>
            <widget class="QLabel" name="tAppsTitle">
             <property name="text">
-             <string>Top Applications (Trend)</string>
+             <string>应用排行（趋势）</string>
             </property>
            </widget>
           </item>
@@ -733,7 +687,7 @@
           <item>
            <widget class="QLabel" name="tCatsTitle">
             <property name="text">
-             <string>Top Categories (Trend)</string>
+             <string>类别排行（趋势）</string>
             </property>
            </widget>
           </item>
@@ -761,7 +715,7 @@
           <item>
            <widget class="QLabel" name="tDailyTitle">
             <property name="text">
-             <string>Daily Activity</string>
+             <string>每日活动</string>
             </property>
            </widget>
           </item>

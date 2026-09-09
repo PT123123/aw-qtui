@@ -142,7 +142,6 @@ void InboxPage::buildUi()
     m_tagTitle = ui->TagTitle;
     m_tagTree = ui->TagTree;
     m_btnClear = ui->btnClear;
-    m_btnSettings = ui->btnSettings;
     m_title = ui->InboxTitle;
     // 主体「收件箱」大字去掉，界面更贴近背景
     if (m_title)
@@ -175,7 +174,6 @@ void InboxPage::buildUi()
     // ── 信号连接 ──
     connect(m_tagTree, &QTreeWidget::itemClicked, this, &InboxPage::onTagTreeItemClicked);
     connect(m_btnClear, &QPushButton::clicked, this, [this] { applyTagFilterPath(QString()); });
-    connect(m_btnSettings, &QPushButton::clicked, this, &InboxPage::settingsRequested);
     connect(m_search, &QLineEdit::textChanged, this, &InboxPage::onSearchChanged);
     connect(m_btnSidebar, &QPushButton::clicked, this, [this] {
         m_sidebarVisible = !m_sidebarVisible;
@@ -240,8 +238,6 @@ void InboxPage::applyStyles()
                                                      .arg(kColorFgMuted, kColorBgElev2, kColorFg)));
         if (m_btnClear)
             m_btnClear->setStyleSheet(chipBtn);
-        if (m_btnSettings)
-            m_btnSettings->setStyleSheet(chipBtn);
     }
 
     // 工具栏

@@ -143,7 +143,6 @@ private:
     StatusBadge *m_badge;
     QPushButton *m_btnSidebar;
     QPushButton *m_btnRefresh;
-    QPushButton *m_btnSettings;
     QPushButton *m_btnCopy;
     QPushButton *m_btnClear;
     QLabel *m_tagTitle;
