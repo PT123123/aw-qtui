@@ -474,9 +474,7 @@ void FocusOverviewPage::buildUi()
 
 void FocusOverviewPage::applyStyle()
 {
-    setStyleSheet(QStringLiteral("QWidget#StatCard { background: %1; border: 1px solid %2; "
-                                 "border-radius: 12px; }")
-                      .arg(glassBg(kColorBgElev), glassBorder()));
+    setStyleSheet(QStringLiteral("QWidget#StatCard { background: transparent; border: none; }"));
 }
 
 void FocusOverviewPage::applyUiScale()
