@@ -51,8 +51,18 @@ void WindowWatcher::ensureBucket()
     QNetworkReply *reply = m_api->createBucket(m_bucketId, QStringLiteral("aw-qtui-watcher"),
                                                 QStringLiteral("currentwindow"));
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        // 200 = already exists, 201 = created; either way bucket is ready
-        m_bucketCreated = true;
+        // aw-server-rust bucket_new：首次创建返回 200，已存在时返回 304。
+        // 首次成功后 bucket 已在服务端持久存在，此后每次运行都会得到 304；
+        // 若只认 200/201 会误判为失败导致心跳永久暂停。因此把 304（已存在）也视为就绪。
+        const QVariant sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+        const int code = reply->error() == QNetworkReply::NoError && sc.isValid() ? sc.toInt() : 0;
+        const bool ok = (code >= 200 && code < 300) || code == 304;
+        if (ok) {
+            m_bucketCreated = true;
+        } else {
+            qWarning() << "[window-watcher] bucket 创建/确认失败，心跳暂停"
+                       << m_bucketId << "HTTP" << code << reply->errorString();
+        }
         reply->deleteLater();
     });
 }
@@ -148,7 +158,16 @@ void AfkWatcher::ensureBucket()
     QNetworkReply *reply = m_api->createBucket(m_bucketId, QStringLiteral("aw-qtui-watcher"),
                                                 QStringLiteral("afkstatus"));
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        m_bucketCreated = true;
+        // 同 WindowWatcher：首次创建 200 / 已存在 304 均视为就绪，避免 bucket 存在后心跳被永久暂停。
+        const QVariant sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+        const int code = reply->error() == QNetworkReply::NoError && sc.isValid() ? sc.toInt() : 0;
+        const bool ok = (code >= 200 && code < 300) || code == 304;
+        if (ok) {
+            m_bucketCreated = true;
+        } else {
+            qWarning() << "[afk-watcher] bucket 创建/确认失败，心跳暂停"
+                       << m_bucketId << "HTTP" << code << reply->errorString();
+        }
         reply->deleteLater();
     });
 }

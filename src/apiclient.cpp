@@ -422,7 +422,14 @@ QNetworkReply *ApiClient::heartbeat(const QString &bucketId, const QJsonObject &
     body.insert(QStringLiteral("duration"), durationSec);
     body.insert(QStringLiteral("timestamp"), timestamp.toUTC().toString(Qt::ISODate));
     const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(bucketId));
-    return sendJson("POST", QStringLiteral("/api/0/buckets/%1/heartbeat").arg(encodedId), body);
+    // 服务端 heartbeat 路由要求必需查询参数 pulsetime（见 aw-server-rust endpoints/bucket.rs），
+    // 缺失会直接 422 拒绝，导致 watcher 心跳全部无法落库。按 duration 传值确保写入成功，
+    // 且让连续相同数据的心跳被 aw_transform::heartbeat 正确合并为连续事件。
+    return sendJson("POST",
+                    QStringLiteral("/api/0/buckets/%1/heartbeat?pulsetime=%2")
+                        .arg(encodedId)
+                        .arg(QString::number(durationSec, 'f', 3)),
+                    body);
 }
 
 // ── Query Explorer ────────────────────────────────────────────
