@@ -46,15 +46,25 @@ FocusTimerPage::FocusTimerPage(FocusSource *focus, TodoSource *todo, QWidget *pa
 void FocusTimerPage::buildUi()
 {
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(si(20), si(16), si(20), si(16));
-    root->setSpacing(si(12));
+    root->setContentsMargins(si(24), si(20), si(24), si(20));
+    root->setSpacing(si(10));
 
     auto *title = new QLabel(QStringLiteral("计时"));
     title->setStyleSheet(QStringLiteral("font-size: %1; font-weight: 700; color: %2;")
                              .arg(sp(16), QString::fromLatin1(kColorFg)));
     root->addWidget(title);
 
-    // 模式切换：番茄计时 / 正计时
+    // 向心卡片：模式 / 表盘 / 预设 / 事件 / 控制集中一列，视觉干净
+    auto *card = new QWidget;
+    card->setObjectName(QStringLiteral("FocusCard"));
+    card->setFixedWidth(si(440));
+    auto *cl = new QVBoxLayout(card);
+    cl->setContentsMargins(si(18), si(20), si(18), si(16));
+    cl->setSpacing(si(8));
+    root->addWidget(card, 0, Qt::AlignHCenter);
+    root->addStretch(1);
+
+    // 模式切换：番茄计时 / 正计时（对称居中）
     auto *modeRow = new QHBoxLayout;
     modeRow->setSpacing(si(8));
     const auto mkMode = [this, modeRow](const char *txt) {
@@ -72,15 +82,36 @@ void FocusTimerPage::buildUi()
     pomo->setChecked(true);
     connect(pomo, &QToolButton::clicked, this, [this] { onMode(FocusPomodoro); });
     connect(sw, &QToolButton::clicked, this, [this] { onMode(FocusStopwatch); });
-    root->addLayout(modeRow);
+    modeRow->addStretch(1);
+    cl->addLayout(modeRow);
 
-    // 番茄预设
+    // 大表盘
+    m_timeLabel = new QLabel(QStringLiteral("25:00"));
+    m_timeLabel->setAlignment(Qt::AlignCenter);
+    m_timeLabel->setStyleSheet(QStringLiteral(
+        "font-size: %1; font-weight: 700; color: %2; letter-spacing: 2px;")
+        .arg(sp(50), QString::fromLatin1(kColorAccent)));
+    cl->addWidget(m_timeLabel);
+
+    m_hintLabel = new QLabel;
+    m_hintLabel->setAlignment(Qt::AlignCenter);
+    m_hintLabel->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
+                                   .arg(QString::fromLatin1(kColorFgMuted), sp(12)));
+    cl->addWidget(m_hintLabel);
+
+    // 分隔线
+    auto *sep = new QFrame;
+    sep->setFrameShape(QFrame::HLine);
+    sep->setStyleSheet(QStringLiteral("color:%1;background:%1;max-height:1px;").arg(glassBorder()));
+    cl->addWidget(sep);
+
+    // 番茄预设（时长 chips + 自定义）
     auto *presetBox = new QWidget;
     m_presetRow = presetBox;
     auto *presetRow = new QHBoxLayout(presetBox);
     presetRow->setContentsMargins(0, 0, 0, 0);
-    presetRow->setSpacing(si(8));
-    auto *presetLabel = new QLabel(QStringLiteral("番茄时长"));
+    presetRow->setSpacing(si(6));
+    auto *presetLabel = new QLabel(QStringLiteral("时长"));
     presetLabel->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
                                    .arg(QString::fromLatin1(kColorFgMuted), sp(12)));
     presetRow->addWidget(presetLabel);
@@ -102,25 +133,11 @@ void FocusTimerPage::buildUi()
     m_customMin->setRange(1, 240);
     m_customMin->setValue(25);
     m_customMin->setSuffix(QStringLiteral(" 分钟"));
-    m_customMin->setFixedWidth(si(110));
+    m_customMin->setFixedWidth(si(116));
     m_customMin->setToolTip(QStringLiteral("自定义番茄时长"));
     presetRow->addWidget(m_customMin);
     presetRow->addStretch(1);
-    root->addWidget(presetBox);
-
-    // 大表盘
-    m_timeLabel = new QLabel(QStringLiteral("25:00"));
-    m_timeLabel->setAlignment(Qt::AlignCenter);
-    m_timeLabel->setStyleSheet(QStringLiteral(
-        "font-size: %1; font-weight: 700; color: %2; letter-spacing: 2px;")
-        .arg(sp(56), QString::fromLatin1(kColorAccent)));
-    root->addWidget(m_timeLabel);
-
-    m_hintLabel = new QLabel;
-    m_hintLabel->setAlignment(Qt::AlignCenter);
-    m_hintLabel->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
-                                   .arg(QString::fromLatin1(kColorFgMuted), sp(12)));
-    root->addWidget(m_hintLabel);
+    cl->addWidget(presetBox);
 
     // 事件 / 任务
     auto *evRow = new QHBoxLayout;
@@ -130,12 +147,12 @@ void FocusTimerPage::buildUi()
     m_eventEdit->setClearButtonEnabled(true);
     evRow->addWidget(m_eventEdit, 1);
     m_taskCombo = new QComboBox;
-    m_taskCombo->setMinimumWidth(si(180));
+    m_taskCombo->setMinimumWidth(si(150));
     m_taskCombo->setToolTip(QStringLiteral("关联任务（可选）"));
     evRow->addWidget(m_taskCombo);
-    root->addLayout(evRow);
+    cl->addLayout(evRow);
 
-    // 控制按钮
+    // 控制按钮：停止 + 开始，居中
     auto *btnRow = new QHBoxLayout;
     btnRow->setSpacing(si(10));
     btnRow->addStretch(1);
@@ -146,12 +163,10 @@ void FocusTimerPage::buildUi()
     m_startBtn = new QPushButton;
     m_startBtn->setObjectName(QStringLiteral("PrimaryBtn"));
     m_startBtn->setCursor(Qt::PointingHandCursor);
-    m_startBtn->setMinimumWidth(si(120));
+    m_startBtn->setMinimumWidth(si(140));
     btnRow->addWidget(m_startBtn);
     btnRow->addStretch(1);
-    root->addLayout(btnRow);
-
-    root->addStretch(1);
+    cl->addLayout(btnRow);
 
     connect(m_startBtn, &QPushButton::clicked, this, &FocusTimerPage::onStartPause);
     connect(m_secondaryBtn, &QPushButton::clicked, this, &FocusTimerPage::onSecondary);
@@ -171,6 +186,10 @@ void FocusTimerPage::buildUi()
 void FocusTimerPage::applyStyle()
 {
     setStyleSheet(QStringLiteral(R"(
+        QWidget#FocusCard {
+            border: 1px solid rgba(148,163,184,0.22); border-radius: 14px;
+            background: rgba(255,255,255,0.02);
+        }
         QToolButton#FocusModeBtn {
             border: 1px solid %1; border-radius: 8px; padding: 7px 16px;
             color: %2; font-size: 13px; background: %3;
