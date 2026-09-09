@@ -1,5 +1,6 @@
 // mainwindow.cpp
 #include "mainwindow.h"
+#include "ui_mainwindow.h"
 
 #include "activitypage.h"
 #include "apiclient.h"
@@ -180,6 +181,7 @@ MainWindow::~MainWindow()
 {
     delete m_tagStore;
     delete m_localStore;
+    delete ui;
 }
 
 // 系统托盘：图标用 makeAppIcon()（对齐 aw-android-native 启动图标：白底圆 + 琥珀黄盘 + 青绿时钟），
@@ -235,19 +237,16 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::buildUi()
 {
-    auto *central = new QWidget;
-    auto *root = new QHBoxLayout(central);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(0);
+    // 静态外壳来自 Qt Designer（mainwindow.ui -> ui_mainwindow.h）：
+    // 中央布局 + NavSidebar/navLay 容器 + 页面栈（4 个容器页已声明在栈内）。
+    // 导航按钮/折叠分组与真实页面均为运行时动态构建（图标字形、构造参数依赖）。
+    ui = new Ui::MainWindow;
+    ui->setupUi(this);
+    auto *navLay = ui->navLay;
 
     // ---- 左侧导航：四分组 ----
-    m_nav = new QWidget;
-    m_nav->setObjectName(QStringLiteral("NavSidebar"));
+    m_nav = ui->NavSidebar;
     m_nav->setFixedWidth(si(kNavCollapsedPx));
-    auto *nav = m_nav;
-    auto *navLay = new QVBoxLayout(nav);
-    navLay->setContentsMargins(0, si(12), 0, si(12));
-    navLay->setSpacing(si(2));
 
     // 展开/收起切换按钮（顶部留白呼吸，不加分隔线；图标随展开态在 updateNavIcons 重绘）
     m_navToggle = new QToolButton;
@@ -277,6 +276,8 @@ void MainWindow::buildUi()
         header->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
         auto *box = new QWidget;
+        // 命名给全局 QSS：分组容器必须透明，否则不透明底色会在玻璃侧栏上形成色块接缝
+        box->setObjectName(QStringLiteral("NavSectionBox"));
         auto *lay = new QVBoxLayout(box);
         lay->setContentsMargins(0, 0, 0, 0);
         lay->setSpacing(4);
@@ -310,14 +311,14 @@ void MainWindow::buildUi()
 
     // ---- 分组 1：Inbox ----
     // 回收站与「收件箱设置」均收纳进「设置」页，侧边栏只保留收件箱入口
-    NavSection inboxSec = makeSection(QStringLiteral("收件箱"), true);
-    m_navInbox = makeNavBtn(glyph::Inbox, "收件箱");
+    NavSection inboxSec = makeSection(QStringLiteral("笔记"), true);
+    m_navInbox = makeNavBtn(glyph::Inbox, "笔记");
     inboxSec.layout->addWidget(m_navInbox);
 
     // ---- 分组 2：任务 ----
     // 统计类视图合并为单个「专注统计」入口（页内子标签切换），减少侧边栏图标数量
     NavSection todoSec = makeSection(QStringLiteral("任务"), true);
-    m_navTodo = makeNavBtn(glyph::Checkbox, "收集箱");
+    m_navTodo = makeNavBtn(glyph::Checkbox, "TODO");
     m_navTimer = makeNavBtn(glyph::Stopwatch, "计时专注");
     m_navFocusStats = makeNavBtn(glyph::BarChart, "专注统计");
     todoSec.layout->addWidget(m_navTodo);
@@ -374,10 +375,16 @@ void MainWindow::buildUi()
     navLay->addWidget(m_navSettings);
     connect(m_navSettings, &QPushButton::clicked, this, [this] { switchPage(PAGE_SETTINGS); });
 
-    root->addWidget(nav);
-
     // ---- 页面堆栈 ----
-    m_stack = new QStackedWidget;
+    // .ui 中 pageStack 已含 4 个容器页（声明顺序 = 最终索引 1/4/5/6）：
+    //   pageSettings / pageFocusStats / pageActivity / pageSync
+    // 其余页面构造参数依赖运行时对象，按枚举索引升序 insertWidget 插入，
+    // 保证最终顺序与 switchPage 的枚举一致
+    m_stack = ui->pageStack;
+    m_settingsTabs = ui->settingsTabs;
+    m_focusTabs = ui->focusTabs;
+    m_awTabs = ui->awTabs;
+    m_syncTabs = ui->syncTabs;
 
     // 创建页面
     m_inbox = new InboxPage(m_api);
@@ -392,21 +399,14 @@ void MainWindow::buildUi()
     m_calendarPage = new FocusCalendarPage(m_focusStore, m_todoStore);
     m_memorialPage = new FocusMemorialPage(m_focusStore);
 
-    // 专注统计容器页：7 个统计视图收纳进一个带子标签的页面，
-    // 侧边栏只保留一个「专注统计」入口
-    QWidget *focusStatsPage = new QWidget;
-    auto *focusLay = new QVBoxLayout(focusStatsPage);
-    focusLay->setContentsMargins(0, 0, 0, 0);
-    m_focusTabs = new QTabWidget;
-    m_focusTabs->setDocumentMode(true);
-    m_focusTabs->addTab(m_overviewPage, QStringLiteral("☰ 记录"));
-    m_focusTabs->addTab(m_detailPage, QStringLiteral("≡ 详情"));
-    m_focusTabs->addTab(m_weekPage, QStringLiteral("📊 时间线"));
-    m_focusTabs->addTab(m_heatmapPage, QStringLiteral("▦ 日历图"));
-    m_focusTabs->addTab(m_bestPage, QStringLiteral("⭐ 最佳时段"));
-    m_focusTabs->addTab(m_calendarPage, QStringLiteral("📅 日历"));
-    m_focusTabs->addTab(m_memorialPage, QStringLiteral("🏷 纪念日"));
-    focusLay->addWidget(m_focusTabs, 1);
+    // 装入 .ui 中声明好的子标签 host 容器（Tab 标题/顺序由 .ui 决定）
+    ui->focusRecordHostLay->addWidget(m_overviewPage);
+    ui->focusDetailHostLay->addWidget(m_detailPage);
+    ui->focusWeekHostLay->addWidget(m_weekPage);
+    ui->focusHeatmapHostLay->addWidget(m_heatmapPage);
+    ui->focusBestHostLay->addWidget(m_bestPage);
+    ui->focusCalendarHostLay->addWidget(m_calendarPage);
+    ui->focusMemorialHostLay->addWidget(m_memorialPage);
     styleSubTabs(m_focusTabs);
 
     m_activity = new ActivityPage(m_api);
@@ -427,77 +427,31 @@ void MainWindow::buildUi()
     m_stopwatch = new StopwatchPage(m_api);
     m_query = new QueryPage(m_api);
 
-    // 同步容器页：局域网同步 + 同步详情收进一个带子标签的页面，
-    // 侧边栏只保留一个「局域网同步」入口
-    QWidget *syncContainer = new QWidget;
-    auto *syncLay = new QVBoxLayout(syncContainer);
-    syncLay->setContentsMargins(0, 0, 0, 0);
-    m_syncTabs = new QTabWidget;
-    m_syncTabs->setDocumentMode(true);
-    m_syncTabs->addTab(m_sync, QStringLiteral("⇄ 局域网同步"));
-    m_syncTabs->addTab(m_syncDetails, QStringLiteral("📋 同步详情"));
-    syncLay->addWidget(m_syncTabs, 1);
-    styleSubTabs(m_syncTabs);
-
-    // 设置容器页：收件箱设置 + 通用设置收进一个带子标签的页面，
-    // 侧边栏只在底部保留一个「设置」入口
-    QWidget *settingsPage = new QWidget;
-    auto *settingsLay = new QVBoxLayout(settingsPage);
-    settingsLay->setContentsMargins(0, 0, 0, 0);
-    m_settingsTabs = new QTabWidget;
-    m_settingsTabs->setDocumentMode(true);
-    m_settingsTabs->addTab(m_inboxSettings, QStringLiteral("收件箱设置"));
-
-    // 通用设置 Tab：主题 / 界面效果 / 快捷键 / 应用图标仍是模态对话框
-    QWidget *generalTab = new QWidget;
-    auto *generalLay = new QVBoxLayout(generalTab);
-    generalLay->addStretch(1);
-    auto *generalHint = new QLabel(QStringLiteral("主题、界面效果、快捷键与应用图标等全局设置在对话框中调整"));
-    generalHint->setAlignment(Qt::AlignCenter);
-    generalHint->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 13px;").arg(kColorFgMuted)));
-    generalLay->addWidget(generalHint);
-    auto *generalBtnLay = new QHBoxLayout;
-    generalBtnLay->addStretch(1);
-    auto *generalOpenBtn = new QPushButton(QStringLiteral("打开设置对话框"));
-    generalOpenBtn->setObjectName(QStringLiteral("PrimaryBtn"));
-    generalOpenBtn->setCursor(Qt::PointingHandCursor);
-    connect(generalOpenBtn, &QPushButton::clicked, this, &MainWindow::openSettings);
-    generalBtnLay->addWidget(generalOpenBtn);
-    generalBtnLay->addStretch(1);
-    generalLay->addLayout(generalBtnLay);
-    generalLay->addStretch(1);
-    m_settingsTabs->addTab(generalTab, QStringLiteral("通用设置"));
-    settingsLay->addWidget(m_settingsTabs, 1);
-    styleSubTabs(m_settingsTabs);
-
-    // ActivityWatch 容器页：6 个视图收纳进一个带子标签的页面，
-    // 侧边栏只保留一个「ActivityWatch」入口
-    QWidget *awPage = new QWidget;
-    auto *awLay = new QVBoxLayout(awPage);
-    awLay->setContentsMargins(0, 0, 0, 0);
-    m_awTabs = new QTabWidget;
-    m_awTabs->setDocumentMode(true);
-    m_awTabs->addTab(m_activity, QStringLiteral("📊 Activity"));
-    m_awTabs->addTab(m_timeline, QStringLiteral("⏱ Timeline"));
-    m_awTabs->addTab(m_day, QStringLiteral("🏷 Day 标签"));
-    m_awTabs->addTab(m_stats, QStringLiteral("📈 统计"));
-    m_awTabs->addTab(m_stopwatch, QStringLiteral("⏱ 秒表"));
-    m_awTabs->addTab(m_query, QStringLiteral("🔍 Query"));
-    awLay->addWidget(m_awTabs, 1);
+    ui->awActivityHostLay->addWidget(m_activity);
+    ui->awTimelineHostLay->addWidget(m_timeline);
+    ui->awDayHostLay->addWidget(m_day);
+    ui->awStatsHostLay->addWidget(m_stats);
+    ui->awStopwatchHostLay->addWidget(m_stopwatch);
+    ui->awQueryHostLay->addWidget(m_query);
     styleSubTabs(m_awTabs);
 
-    // 添加到堆栈（顺序必须与 switchPage 的索引一致）
-    m_stack->addWidget(m_inbox);             // PAGE_INBOX = 0
-    m_stack->addWidget(settingsPage);        // PAGE_SETTINGS = 1（收件箱设置 + 通用设置子标签）
-    m_stack->addWidget(m_todo);              // PAGE_TODO = 2
-    m_stack->addWidget(m_timerPage);         // PAGE_FOCUS_TIMER = 3
-    m_stack->addWidget(focusStatsPage);      // PAGE_FOCUS_STATS = 4（7 个统计视图子标签）
-    m_stack->addWidget(awPage);              // PAGE_ACTIVITY = 5（6 个视图子标签）
-    m_stack->addWidget(syncContainer);       // PAGE_SYNC = 6（局域网同步 + 同步详情子标签）
-    m_stack->addWidget(m_d1Sync);            // PAGE_D1_SYNC = 7
-    m_stack->addWidget(m_cloudBackup);       // PAGE_CLOUD_BACKUP = 8
+    ui->syncHostLay->addWidget(m_sync);
+    ui->syncDetailsHostLay->addWidget(m_syncDetails);
+    styleSubTabs(m_syncTabs);
 
-    root->addWidget(m_stack, 1);
+    ui->inboxHostLay->addWidget(m_inboxSettings);
+    // 通用设置 Tab：静态文案与按钮在 .ui 中，仅接光标/主题色/信号
+    ui->generalOpenBtn->setCursor(Qt::PointingHandCursor);
+    ui->generalHint->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 13px;").arg(kColorFgMuted)));
+    connect(ui->generalOpenBtn, &QPushButton::clicked, this, &MainWindow::openSettings);
+    styleSubTabs(m_settingsTabs);
+
+    // 其余 5 个页面按枚举索引升序插入（最终索引 = 枚举值）
+    m_stack->insertWidget(PAGE_INBOX, m_inbox);              // PAGE_INBOX = 0
+    m_stack->insertWidget(PAGE_TODO, m_todo);                // PAGE_TODO = 2
+    m_stack->insertWidget(PAGE_FOCUS_TIMER, m_timerPage);    // PAGE_FOCUS_TIMER = 3
+    m_stack->insertWidget(PAGE_D1_SYNC, m_d1Sync);           // PAGE_D1_SYNC = 7
+    m_stack->insertWidget(PAGE_CLOUD_BACKUP, m_cloudBackup); // PAGE_CLOUD_BACKUP = 8
 
     connect(m_inbox, &InboxPage::settingsRequested, this, &MainWindow::openSettings);
 
@@ -507,8 +461,6 @@ void MainWindow::buildUi()
 
     // 默认显示收件箱
     switchPage(PAGE_INBOX);
-
-    setCentralWidget(central);
 
     // 右上角缩放百分比提示（缩放后短暂显示）
     m_zoomBadge = new QLabel(this);
@@ -673,22 +625,23 @@ void MainWindow::styleSubTabs(QTabWidget *tabs)
 {
     if (!tabs)
         return;
+    // 下划线标签：选中项 accent 下划线直接压在 pane 顶边线上（浏览器式），
+    // 消除旧「悬浮胶囊 + 圆角描边框」在标签栏与内容之间的接缝
     tabs->setStyleSheet(QStringLiteral(
-        "QTabWidget::pane { border: 1px solid %1; border-radius: %5px; background: %2; top: -1px; }"
-        "QTabBar::tab { padding: %6px %7px; margin-right: %8px; color: %3;"
-        "  border: 1px solid transparent; border-radius: %5px; font-size: %9px; }"
-        "QTabBar::tab:selected { color: %4; border: 1px solid %1; background: %10; }"
-        "QTabBar::tab:hover:!selected { color: %4; }")
+        "QTabWidget::pane { border: none; border-top: 1px solid %1; top: 0; background: transparent; }"
+        "QTabBar { background: transparent; }"
+        "QTabBar::tab { background: transparent; color: %2; padding: %3px %4px; margin-right: %5px;"
+        "  border: none; border-bottom: 2px solid transparent; font-size: %6px; }"
+        "QTabBar::tab:selected { color: %7; border-bottom: 2px solid %7; }"
+        "QTabBar::tab:hover:!selected { color: %8; }")
         .arg(kColorBorder)
-        .arg(kColorBgElev)
         .arg(kColorFgMuted)
-        .arg(kColorAccent)
-        .arg(si(8))
-        .arg(si(6))
-        .arg(si(12))
+        .arg(si(7))
+        .arg(si(14))
         .arg(si(4))
         .arg(si(13))
-        .arg(kColorBgElev2));
+        .arg(kColorAccent)
+        .arg(kColorFg));
 }
 
 void MainWindow::updateStatus()
