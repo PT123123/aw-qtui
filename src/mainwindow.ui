@@ -447,6 +447,44 @@
             </property>
            </layout>
           </widget>
+          <widget class="QWidget" name="d1Host">
+           <attribute name="title">
+            <string>☁ D1 云同步</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="d1HostLay">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="cloudBackupHost">
+           <attribute name="title">
+            <string>💾 云备份</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="cloudBackupHostLay">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+           </layout>
+          </widget>
          </widget>
         </item>
        </layout>
