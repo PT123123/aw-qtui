@@ -39,6 +39,8 @@ public:
     virtual void addSession(int kind, qint64 startMs, qint64 endMs, qint64 durationSec,
                             const QString &eventName, qint64 taskId) = 0;
     virtual void deleteSession(qint64 id) = 0;
+    // 修改一条专注记录的关联任务（taskId=0 表示解除关联）
+    virtual void updateSessionTaskId(qint64 sessionId, qint64 taskId) = 0;
     virtual void addMemorial(const QString &name, const QString &emoji, const QString &dateIso) = 0;
     virtual void deleteMemorial(qint64 id) = 0;
 
@@ -63,6 +65,7 @@ public:
     void addSession(int kind, qint64 startMs, qint64 endMs, qint64 durationSec,
                     const QString &eventName, qint64 taskId) override;
     void deleteSession(qint64 id) override;
+    void updateSessionTaskId(qint64 sessionId, qint64 taskId) override;
     void addMemorial(const QString &name, const QString &emoji, const QString &dateIso) override;
     void deleteMemorial(qint64 id) override;
 

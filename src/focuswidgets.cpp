@@ -28,6 +28,18 @@
 
 namespace awqtui {
 
+namespace {
+// 支持高度随宽度变化的行控件：把 hasHeightForWidth / heightForWidth 委托给内部布局，
+// 让 QLabel（wordWrap）在窄宽度下换行时，QListWidget 行高能被 ItemWidgetRelayoutFilter 正确计算。
+class HfwRow : public QWidget
+{
+public:
+    explicit HfwRow(QWidget *parent = nullptr) : QWidget(parent) {}
+    bool hasHeightForWidth() const override { return layout() && layout()->hasHeightForWidth(); }
+    int heightForWidth(int w) const override { return layout() ? layout()->heightForWidth(w) : -1; }
+};
+} // namespace
+
 // ==================================================================== //
 // 计时页
 // ==================================================================== //
@@ -527,8 +539,8 @@ void FocusOverviewPage::refresh()
 // ==================================================================== //
 // 专注记录详情
 // ==================================================================== //
-FocusDetailPage::FocusDetailPage(FocusSource *focus, QWidget *parent)
-    : QWidget(parent), m_focus(focus)
+FocusDetailPage::FocusDetailPage(FocusSource *focus, TodoSource *todo, QWidget *parent)
+    : QWidget(parent), m_focus(focus), m_todo(todo)
 {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(si(20), si(16), si(20), si(16));
@@ -557,13 +569,14 @@ FocusDetailPage::FocusDetailPage(FocusSource *focus, QWidget *parent)
 
     connect(m_addBtn, &QPushButton::clicked, this, &FocusDetailPage::onAddManual);
     connect(m_focus, &FocusSource::dataChanged, this, &FocusDetailPage::refresh);
+    if (m_todo)
+        connect(m_todo, &TodoSource::dataChanged, this, &FocusDetailPage::refresh);
     refresh();
 }
 
 void FocusDetailPage::applyUiScale()
 {
     setStyleSheet(QString());
-    setStyleSheet(QStringLiteral("QListWidget::item { padding: 8px 10px; }"));
 }
 
 void FocusDetailPage::refresh()
@@ -583,9 +596,9 @@ void FocusDetailPage::refresh()
                                      ? QStringLiteral("正计时") : QStringLiteral("番茄");
         const QString title = QStringLiteral("%1 · %2 · %3")
                                   .arg(d.toString(QStringLiteral("yyyy-MM-dd")), range, fmtDuration(s.durationSec));
-        auto *row = new QWidget;
+        auto *row = new HfwRow;
         auto *hl = new QHBoxLayout(row);
-        hl->setContentsMargins(si(4), si(2), si(4), si(2));
+        hl->setContentsMargins(si(10), si(8), si(10), si(8));
         hl->setSpacing(si(8));
         auto *tag = new QLabel(kindName);
         tag->setStyleSheet(QStringLiteral("background: %1; color: %2; border-radius: 4px; "
@@ -593,15 +606,36 @@ void FocusDetailPage::refresh()
                                .arg(QString::fromLatin1(kColorTagBg),
                                     QString::fromLatin1(kColorTagFg), sp(11)));
         tag->setAlignment(Qt::AlignCenter);
+        tag->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
         hl->addWidget(tag);
         auto *main = new QLabel;
+        const QString evText = s.eventName.isEmpty() ? QStringLiteral("（未命名）")
+                                                      : s.eventName.toHtmlEscaped();
+        QString line2 = evText;
+        if (s.taskId > 0) {
+            const QString tName = taskTitle(s.taskId);
+            if (!tName.isEmpty())
+                line2 += QStringLiteral("&nbsp;·&nbsp;📌 ") + tName.toHtmlEscaped();
+        }
         main->setText(QStringLiteral("<b>%1</b><br/><span style='color:%2;'>%3</span>")
-                          .arg(title, QString::fromLatin1(kColorFgMuted),
-                               s.eventName.isEmpty() ? QStringLiteral("（未命名）")
-                                                     : s.eventName.toHtmlEscaped()));
+                          .arg(title, QString::fromLatin1(kColorFgMuted), line2));
         main->setStyleSheet(QStringLiteral("font-size: %1; color: %2;")
                                 .arg(sp(12.5), QString::fromLatin1(kColorFg)));
+        main->setWordWrap(true);
         hl->addWidget(main, 1);
+        // 关联任务按钮：显示当前关联任务，点击可修改/解除
+        auto *taskBtn = new QToolButton;
+        const QString curTask = s.taskId > 0 ? taskTitle(s.taskId) : QString();
+        taskBtn->setText(curTask.isEmpty() ? QStringLiteral("📌 关联") : QStringLiteral("📌 %1").arg(curTask));
+        taskBtn->setCursor(Qt::PointingHandCursor);
+        taskBtn->setStyleSheet(QStringLiteral(
+            "color: %1; border: 1px solid %2; border-radius: 4px; padding: 2px 8px; font-size: %3;")
+            .arg(curTask.isEmpty() ? QString::fromLatin1(kColorFgMuted) : QString::fromLatin1(kColorAccent),
+                 QString::fromLatin1(kColorBorder), sp(11)));
+        taskBtn->setToolTip(curTask.isEmpty() ? QStringLiteral("关联到任务")
+                                              : QStringLiteral("关联任务：%1（点击修改）").arg(curTask));
+        hl->addWidget(taskBtn);
+        connect(taskBtn, &QToolButton::clicked, this, [this, id = s.id] { onSetTask(id); });
         auto *del = new QToolButton;
         del->setText(QStringLiteral("✕"));
         del->setCursor(Qt::PointingHandCursor);
@@ -613,11 +647,64 @@ void FocusDetailPage::refresh()
             m_focus->deleteSession(id);
         });
         auto *item = new QListWidgetItem;
-        // 宽度 hint 用 0（铺满视口），高度按内容；宽度变化由 ItemWidgetRelayoutFilter 处理
-        item->setSizeHint(QSize(0, row->sizeHint().height()));
+        // 初始高度给一个能容纳两行的保底值；真正高度由 ItemWidgetRelayoutFilter 按
+        // 视口宽度经 row->heightForWidth 重算（长事件名换行时高度自动撑开）。
+        item->setSizeHint(QSize(0, qMax(si(52), row->sizeHint().height())));
         m_list->addItem(item);
         m_list->setItemWidget(item, row);
     }
+}
+
+QString FocusDetailPage::taskTitle(qint64 taskId) const
+{
+    if (!m_todo || taskId <= 0)
+        return QString();
+    for (const auto &t : m_todo->tasks()) {
+        if (t.id == taskId)
+            return t.title;
+    }
+    return QString();
+}
+
+void FocusDetailPage::onSetTask(qint64 sessionId)
+{
+    if (!m_focus)
+        return;
+    // 找到当前会话以回显已关联任务
+    qint64 curId = 0;
+    for (const auto &s : m_focus->sessions()) {
+        if (s.id == sessionId) {
+            curId = s.taskId;
+            break;
+        }
+    }
+
+    auto *dlg = new QDialog(this);
+    dlg->setWindowTitle(QStringLiteral("关联任务"));
+    auto *lay = new QVBoxLayout(dlg);
+
+    auto *combo = new QComboBox;
+    combo->addItem(QStringLiteral("（不关联任务）"), QVariant::fromValue<qint64>(0));
+    if (m_todo) {
+        for (const auto &t : m_todo->tasks())
+            combo->addItem(t.title, QVariant::fromValue<qint64>(t.id));
+    }
+    int idx = combo->findData(QVariant::fromValue<qint64>(curId));
+    if (idx >= 0)
+        combo->setCurrentIndex(idx);
+    lay->addWidget(combo);
+
+    auto *box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    box->button(QDialogButtonBox::Ok)->setText(QStringLiteral("保存"));
+    box->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    lay->addWidget(box);
+    connect(box, &QDialogButtonBox::accepted, dlg, &QDialog::accept);
+    connect(box, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
+
+    if (dlg->exec() != QDialog::Accepted)
+        return;
+    const qint64 newId = combo->currentData().toLongLong();
+    m_focus->updateSessionTaskId(sessionId, newId);
 }
 
 void FocusDetailPage::onAddManual()
@@ -633,6 +720,12 @@ void FocusDetailPage::onAddManual()
     auto *endEdit = new QTimeEdit(QTime(9, 25));
     auto *evEdit = new QLineEdit;
     evEdit->setPlaceholderText(QStringLiteral("事件 / 任务名（可选）"));
+    auto *taskCombo = new QComboBox;
+    taskCombo->addItem(QStringLiteral("（不关联任务）"), QVariant::fromValue<qint64>(0));
+    if (m_todo) {
+        for (const auto &t : m_todo->tasks())
+            taskCombo->addItem(t.title, QVariant::fromValue<qint64>(t.id));
+    }
     auto *box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     box->button(QDialogButtonBox::Ok)->setText(QStringLiteral("保存"));
     box->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
@@ -648,6 +741,7 @@ void FocusDetailPage::onAddManual()
     addRow(QStringLiteral("开始"), startEdit);
     addRow(QStringLiteral("结束"), endEdit);
     addRow(QStringLiteral("事件"), evEdit);
+    addRow(QStringLiteral("关联任务"), taskCombo);
     lay->addWidget(box);
     connect(box, &QDialogButtonBox::accepted, dlg, &QDialog::accept);
     connect(box, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
@@ -657,8 +751,13 @@ void FocusDetailPage::onAddManual()
     const QDateTime en(dateEdit->date(), endEdit->time());
     if (en <= st)
         return;
+    const qint64 taskId = taskCombo->currentData().toLongLong();
+    // 如果用户选了任务但没填事件名，自动用任务名作为事件名
+    QString evName = evEdit->text().trimmed();
+    if (evName.isEmpty() && taskId > 0 && m_todo)
+        evName = taskTitle(taskId);
     m_focus->addSession(FocusStopwatch, st.toMSecsSinceEpoch(), en.toMSecsSinceEpoch(),
-                        st.secsTo(en), evEdit->text().trimmed(), 0);
+                        st.secsTo(en), evName, taskId);
 }
 
 // ==================================================================== //

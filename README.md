@@ -1,16 +1,18 @@
 # aw-qtui
 
-用 **原生 C++ Qt 6 (Widgets)** 实现的 ActivityWatch 桌面客户端，包含七个页面：
-**Activity 统计面板**、**Timeline 可交互时间线**、**收件箱（Inbox）**、**任务（Todo）**、
-**局域网同步（LAN Sync）**、**标签 Day（ManicTime 式时间标签）** 与 **多日统计**。
+用 **原生 C++ Qt 6 (Widgets)** 实现的 ActivityWatch 桌面客户端，核心模块：
 
-服务端来自 `PT123123/aw-server-rust` fork 的 `feature/inbox` 分支：官方 `aw-server`
-（/api/0 活动数据）内已融合 `aw-inbox-rust`（收件箱 + 任务），单进程监听 **5600 端口**。
-本工程是**客户端 UI**，不包含 Rust 服务端本体（构建时由 justfile 从 `vendor/aw-server-rust`
-编出 `aw-server.exe` 并随包分发）。
+- 📊 **活动（Activity）**：ActivityWatch 风格统计面板、Timeline 可交互时间线、Day 标签、多日统计、Query 浏览器
+- 📥 **收件箱（Inbox）**：MoeMemos 风格 Markdown 卡片流 + 层级标签侧栏 + 评论 + 任务清单勾选
+- ☑ **任务（Todo）**：TickTick 式多清单 Todo（快速添加 / 子任务 / 优先级 / 重复 / 截止日期 / 5 种排序）
+- 🍅 **专注**：番茄倒计时 + 正计时、专注记录概览、专注记录详情（关联 Todo 任务）、周热力格、月度/年度热力图、24h 最佳时段、日历、倒数纪念日
+- ⇄ **同步**（单入口，页内 Tab 切换）：局域网同步（UDP 广播发现 / 设备配对 / 自动同步）、同步详情（日志 / 回收站）、☁ D1 云同步（Cloudflare D1）、💾 云备份（WebDAV / S3 冷备）
+- ⚙ **设置**：收件箱设置 + 通用设置（主题 / 图标 / 全局快捷键 / 缩放 / 同步配置）
 
-标签功能参照 ManicTime Windows Client 特性移植，需求基线见
-[需求文档-ManicTime特性移植.md](需求文档-ManicTime特性移植.md)。
+服务端来自 `aw-server-plus`（aw-server-rust fork），`feature/inbox` 分支已融合官方
+`aw-server`（/api/0 活动数据）、`aw-inbox-rust`（收件箱 + Todo）、`aw-sync-rust`（局域网同步 + D1 云同步）
+为**单一进程**，监听 **5600 端口**。本工程是**客户端 UI**，不包含 Rust 服务端本体
+（构建时由 justfile 从 `vendor/aw-server-rust` 编出 `aw-server.exe` 并随包分发）。
 
 ## 为什么是 C++ Qt
 
@@ -20,18 +22,48 @@
 
 ## 页面
 
+### 活动（PAGE_ACTIVITY，Tab 内切换）
+
+| Tab | 说明 |
+| --- | --- |
+| 📊 Activity | ActivityWatch 风格统计面板：日期导航 + 24h 活跃柱状图 + Summary/Window/Browser/Editor 标签页 + Top Applications / Top Window Titles / Top Categories 横向条形图 + Timeline (Barchart) 分类彩色时间柱 + Category Tree + Category Sunburst 环形图 |
+| 🏷 Day 标签 | ManicTime 式时间标签：时间线选择模式（左键拖拽吸附活动边界、Ctrl 多选、双击选整块）→ Add tag、Tag editor、自动标签规则引擎、未标记热力图月历、Tag away 一键给未标记时间段打标签、高级搜索、当日过滤框 |
+| 📈 统计 | 多日统计：多 Tab + 类型（Top / Day duration / Attendance / Custom）、日期范围、折线/柱状切换、平均值线、多序列应用对比、数据表联动、导出 CSV |
+| 🔍 Query | AW Query 浏览器：直接查询 `/api/0/query`，支持 JSON 输入与表格化结果 |
+
+### 专注（PAGE_FOCUS_STATS，Tab 内切换）
+
+| Tab | 说明 |
+| --- | --- |
+| 🍅 计时 | 番茄倒计时（15/20/30/60 + 自定义）、正计时、事件名 + 关联 Todo 任务选择、番茄完成 / 正计时「完成并记录」→ 写一条 FocusSession |
+| ☰ 记录 | 今日番茄数、今日专注时长、总番茄数、总专注时长 |
+| ≡ 详情 | 专注记录时间线（日期+事件+起止+关联任务徽章）、删除 / 补记（可关联 Todo 任务）、快速修改关联任务 |
+| 📊 时间线 | 按日期的专注时长条形图（周热力格） |
+| ▦ 日历图 | 月度 / 年度专注热力图（GitHub Contribution 风格） |
+| ⭐ 最佳时段 | 24h 专注柱状图（哪个时段最专注） |
+| 📅 日历 | 月历视图，专注会话 + 到期 Todo 任务同日展示 |
+| 🏷 纪念日 | 倒数纪念日（emoji + 名称 + 剩余天数），增删 |
+
+### 同步（PAGE_SYNC，Tab 内切换）
+
+| Tab | 说明 |
+| --- | --- |
+| ⇄ 局域网同步 | 设备注册表（device_id/名称/平台/最后在线/最后同步/待同步/版本）、手动同步、设备心跳、UDP 广播发现（端口 46000，进入页面自动开启）、配对、定时刷新 |
+| 📋 同步详情 | 同步日志（方向/协议/事件/类型过滤 + 分页 + 逐条明细）、回收站（软删条目恢复 / 彻底删除）、最近一次同步结果摘要 |
+| ☁ D1 云同步 | Cloudflare D1 云同步配置 + 连接测试 + 手动同步 + 全量同步 + 同步状态 / 日志 |
+| 💾 云备份 | WebDAV / S3 冷备配置、连接测试、立即备份、自动备份定时、最后备份状态 |
+
+### 独立页面
+
 | 页面 | 说明 |
 | --- | --- |
-| 📊  Activity | ActivityWatch 风格统计面板：日期导航 + 24h 活跃柱状图 + Summary/Window/Browser/Editor 标签页 + Top Applications / Top Window Titles / Top Categories 横向条形图 + Timeline (Barchart) 分类彩色时间柱 + Category Tree + Category Sunburst 环形图 |
-| ⏱  Timeline | 可交互多行时间线（afk-status / aw-watcher-window / aw-watcher-web），拖拽平移、滚轮缩放、hover 详情 tooltip；顶部 Interval mode / Show last 工具栏，底部 Tockler 风格统计卡片（Total tracked / AFK / First activity / Last activity） |
-| 📥 收件箱 | MoeMemos 风格卡片流（头部相对时间 + 置顶旗标 + ⋯ 菜单）、完整 Markdown 渲染（标题/列表/引用/代码块/粗斜体/删除线/链接）、任务清单 ☐ 点击勾选、内联 #标签 高亮、层级标签（`GET /inbox/tags/tree` 标签树侧栏 + 面包屑筛选条 + 正文/详情段级点击 + `?tag=` 段边界前缀匹配）、笔记转待办（先建 Todo 再删原笔记）、新建/编辑/版本恢复/评论后定位高亮、刷新顺带触发局域网拉取、本地置顶优先排序、无限滚动、搜索、排序、评论（离线优先：本地缓存 + 待同步队列，重连自动补推）、复制全部、连接状态徽标、右下角悬浮新建、工具栏 ⚙ 设置（全局快捷键） |
-| ☑ 任务 | TickTick / Super Productivity 式 Todo：左侧「收集箱/今天/最近 7 天/全部 + 彩色清单」导航，中间任务列表（快速添加、优先级/期限/标签元信息、已完成折叠区、排序模式 5 种 + 持久化），右侧详情面板（标题/已完成/清单/优先级/截止日期/重复/标签/备注/子任务）。数据源走 `TodoSource` 抽象，当前为本地 mock（`todo_local.json` 持久化 + 种子数据），后续接入 Rust 时新增 `TodoApiStore` 实现同一接口即可，页面零改动 |
-| ⇄ 局域网同步 | 设备注册表（device_id/名称/平台/最后在线/最后同步/待同步/版本）、手动同步（`POST /api/0/sync/devices/<id>/sync`，展示应用条数与逐条明细）、设备心跳、UDP 广播发现（端口 46000，进入页面自动开启广播/监听并把发现的设备写入信任列表；未配对设备 30 秒内收到广播视为在线，对齐 Android `isEffectivelyOnline`）、配对（对齐 Android：`addDevice + pair/initiate + pair/accept`，无配对码）、探测到局域网环境时自动开启同步（对齐 Android LanSyncNetworkMonitor）、定时刷新及时呈现新发现设备 |
-| 🏷 标签 Day | ManicTime 式时间标签：时间线选择模式（左键拖拽吸附活动边界、Ctrl 多选、双击选整块）→ Add tag（标签/备注/Billable/起止时间/最近标签/Tag picker）、Tag editor（组合/单标签/快捷键/标签源，重命名/替换/删除/改色/导入导出/右键 Skip 与默认可计费）、自动标签规则引擎（Regular/Append/Prepend/Absorb + 间隙填充 + 高亮猜测 + AutoTags lane 实时重算 + 复制到手工标签）、未标记热力图月历、Tag away 一键给未标记时间段打标签、计时工具（秒表/计时器/番茄钟）、高级搜索（日期范围/时间线选择/未标记过滤/批量打标/删除/导出/双击跳转）、当日过滤框（group:/duration>/start>/end>/label=billable/note:/-取反/or/通配符/#regex）。本地数据 `timetags_local.json`（独立于收件箱） |
-| 📈 统计 | 多日统计：多 Tab + 类型（Top / Day duration / Attendance / Custom）、日期范围（本周/本月）、折线/柱状切换、平均值线、多序列应用对比、数据表联动、导出 CSV |
+| 📥 收件箱 | MoeMemos 风格卡片流（头部相对时间 + 置顶旗标 + ⋯ 菜单）、完整 Markdown 渲染、任务清单 ☐ 点击勾选、内联 #标签 高亮、层级标签侧栏 + 面包屑筛选、笔记转待办、新建/编辑/版本恢复/评论后定位高亮、本地置顶优先排序、无限滚动、搜索、排序、离线优先 |
+| ☑ 任务 | TickTick / Super Productivity 式 Todo：左侧「收集箱/今天/最近 7 天/全部 + 彩色清单」导航，中间任务列表，右侧详情面板（标题/已完成/清单/优先级/截止日期/重复/标签/备注/子任务） |
+| ⚙ 设置 | 收件箱设置（同步配置）+ 通用设置（主题 / 图标 / 全局快捷键 / 缩放 / DWM 玻璃） |
 
-快捷键：窗口内 `1`/`2`/`3`/`4`/`5`/`6`/`7` 切页（Activity / Timeline / 收件箱 / 任务 / 同步 / 标签 Day / 统计），`F5` 刷新当前页，`Ctrl+F` 聚焦搜索，`Ctrl+Enter` 提交笔记。
-全局快捷键（收件箱 ⚙ 设置里可改，系统级注册，应用失焦/最小化也生效）：默认 `Alt+N` 添加记录（直接弹出新建笔记对话框，不调出主窗口），默认 `Alt+M` 唤醒并跳转收件箱。配置存 `%APPDATA%\aw-qtui\aw-qtui\awqtui.ini`。
+## 快捷键
+
+窗口内：`1` 收件箱 / `2` 设置 / `3` Todo / `4` 专注 / `5` 专注 / `6` 活动 / `7` 同步 / `8` 同步→D1 / `9` 同步→冷备；`F5` 刷新当前子 Tab；`Ctrl+±/0` 缩放。全局快捷键（收件箱 ⚙ 设置里可改，系统级注册）：默认 `Alt+N` 添加记录、`Alt+M` 唤醒收件箱。配置存 `%APPDATA%\aw-qtui\aw-qtui\awqtui.ini`。
 
 ## 环境要求
 
@@ -290,38 +322,55 @@ aw-qtui/
 │   └── make_zip.py           # 标准库打包脚本
 ├── vendor/                    # git submodule：aw-server-rust（唯一服务端源码，融合工作区）
 ├── src/
-│   ├── main.cpp               # 入口（--url / --screenshot 测试钩子）
+│   ├── main.cpp               # 入口（--url / --screenshot 测试钩子；Win11 任务栏 AppUserModelID）
 │   ├── config.h/.cpp          # 服务端地址、设备身份（MAC 生成并持久化）
 │   ├── appsettings.h/.cpp     # 全局快捷键配置（INI 读写，默认 Alt+N / Alt+M）
 │   ├── globalshortcut.h/.cpp  # Windows RegisterHotKey 全局热键（WM_HOTKEY -> nativeEvent）
 │   ├── settingsdialog.h/.cpp  # 设置界面（快捷键录入/校验/保存）
 │   ├── models.h               # Note/Tag/Comment/DeviceInfo/SyncSummary + JSON
 │   ├── apiclient.h/.cpp       # QNetworkAccessManager REST 客户端（/inbox/...）
-│   ├── theme.h                # 深色主题 QSS
-│   ├── widgets.h/.cpp         # NoteCard / TagChip / StatusBadge / 编辑器 / 评论
-│   ├── inboxpage.h/.cpp       # 收件箱页
-│   ├── syncpage.h/.cpp        # 局域网同步页
-│   ├── mdnsdiscovery.h/.cpp   # Win32 DNS-SD mDNS（QThread 工作线程 + 信号桥接）
-│   ├── tagstore.h/.cpp        # 时间标签本地存储（段 CRUD/颜色模型/字典/快捷键/自动标签规则）
-│   ├── todomodels.h           # Todo 数据模型（任务/清单/子任务/优先级/重复，字段对齐未来 Rust 契约）
-│   ├── todostore.h/.cpp       # Todo 数据源抽象 TodoSource + 本地 mock TodoStore（todo_local.json 持久化 + 种子数据）
-│   ├── todopage.h/.cpp        # Todo 页（TickTick 式侧栏/任务列表/详情面板）
-│   ├── filterparser.h/.cpp    # 当日过滤/高级搜索共用过滤语法解析器
-│   ├── autotagengine.h/.cpp   # 自动标签计算引擎（模板展开/规则匹配/间隙填充）
-│   ├── autotagdialog.h/.cpp   # 自动标签规则编辑器
-│   ├── addtagdialog.h/.cpp    # Add tag 窗口
-│   ├── tageditordialog.h/.cpp # Tag editor（组合/单标签/快捷键/标签源）
+│   ├── awserver.h/.cpp        # 本地 aw-server.exe 自动管理（拉起/看护/端口探测/防火墙/自启）
+│   ├── theme.h                # 全局语义色常量 + QSS + ItemWidgetRelayoutFilter
+│   ├── widgets.h/.cpp         # 通用控件：StatusBadge / 错误处理
+│   ├── charts.h/.cpp          # 自绘基础图表：HorizontalBarChart / VerticalBarChart / LineChart
+│   ├── statschart.h/.cpp      # 多序列统计图表（折线/柱状/平均线/图例）
+│   ├── mdrender.h/.cpp        # Markdown 渲染（QTextDocument + 链接/代码块/列表高亮）
+│   ├── inboxpage.h/.cpp/.ui       # 收件箱（Qt Designer 布局分离）
+│   ├── inboxsettingspage.h/.cpp/.ui # 收件箱设置（同步配置）
+│   ├── todopage.h/.cpp/.ui         # Todo（Qt Designer 布局分离）
+│   ├── todomodels.h                # Todo 数据模型（任务/清单/子任务/优先级/重复）
+│   ├── todostore.h/.cpp            # TodoSource 抽象 + TodoStore（本地 json）+ TodoApiStore（Rust REST）
+│   ├── focusmodels.h               # 专注数据模型（FocusSession / MemorialDay + fmtDuration 等纯函数）
+│   ├── focusstore.h/.cpp           # FocusSource 抽象 + FocusStore（focus_local.json 持久化 + 种子数据）
+│   ├── focuswidgets.h/.cpp         # 专注模块 UI（计时 / 记录 / 详情 / 纪念日）
+│   ├── focuscharts.h/.cpp          # 专注统计图表（周热力格 / 热力图 / 24h 最佳时段 / 日历 / 日历图）
+│   ├── activitypage.h/.cpp/.ui     # 活动页（Qt Designer 布局分离）
+│   ├── daypage.h/.cpp/.ui          # Day 标签页
+│   ├── statspage.h/.cpp/.ui        # 多日统计页
+│   ├── querypage.h/.cpp/.ui        # AW Query 浏览器
+│   ├── timelinewidget.h/.cpp       # 可交互多行时间线
+│   ├── watcher.h/.cpp              # Watcher bucket 状态查询（HTTP 200/201/304 均视为 ready）
+│   ├── syncpage.h/.cpp/.ui         # 局域网同步页（设备注册表 / 配对 / UDP 广播）
+│   ├── syncdetailspage.h/.cpp/.ui  # 同步详情（日志 + 回收站 + 最近同步结果）
+│   ├── d1syncpage.h/.cpp/.ui       # D1 云同步页
+│   ├── cloudbackuppage.h/.cpp/.ui  # 云备份（WebDAV / S3）
+│   ├── mdnsdiscovery.h/.cpp        # Win32 DNS-SD mDNS（QThread 工作线程 + 信号桥接）
+│   ├── tagstore.h/.cpp             # 时间标签本地存储（段 CRUD/颜色/快捷键/自动标签）
+│   ├── filterparser.h/.cpp         # 当日过滤/高级搜索共用过滤语法解析器
+│   ├── autotagengine.h/.cpp        # 自动标签计算引擎
+│   ├── autotagdialog.h/.cpp        # 自动标签规则编辑器
+│   ├── addtagdialog.h/.cpp         # Add tag 窗口
+│   ├── tageditordialog.h/.cpp      # Tag editor
 │   ├── advancedsearchdialog.h/.cpp # 高级搜索
-│   ├── untaggedview.h/.cpp    # 未标记月历热力图
-│   ├── statschart.h/.cpp      # 自绘统计图表（多序列折线/柱状/平均线/图例）
-│   ├── statspage.h/.cpp       # 多日统计页
-│   ├── timingdialog.h/.cpp    # 计时工具（秒表/计时器/番茄钟）
-│   ├── daypage.h/.cpp         # 标签 Day 页
-│   └── mainwindow.h/.cpp      # 左侧导航 + 页面堆栈
-├── tools/
-│   ├── mock_inbox_server.py   # 联调用 mock 服务端（纯标准库）
-│   └── todostore_selftest.cpp # TodoStore 本地 mock 逻辑自测（回归测试）
-└── _prototype_python/         # 早期 PySide6 原型（已归档，可删）
+│   ├── untaggedview.h/.cpp         # 未标记月历热力图
+│   ├── timingdialog.h/.cpp         # 计时工具（秒表/计时器/番茄钟）
+│   ├── trashpage.h/.cpp/.ui        # 回收站（已归档）
+│   ├── stopwatchpage.h/.cpp/.ui    # 秒表/计时器（已归档，并入专注计时）
+│   ├── mainwindow.h/.cpp/.ui       # 左侧导航 + 设置 Tab + 专注容器 + 活动容器 + 同步容器
+│   └── ...
+└── tools/
+    ├── mock_inbox_server.py        # 联调用 mock 服务端（纯标准库）
+    └── todostore_selftest.cpp      # TodoStore 本地 mock 逻辑自测（回归测试）
 ```
 
 ## 对接的服务端端点（API 契约核对）

@@ -26,6 +26,7 @@
 // 崩溃诊断：SEH 未处理异常（如访问违例 0xC0000005）走这里落盘 minidump + 异常上下文，
 // 便于定位 Qt 层 use-after-free / 内存破坏。产物在 %TEMP%\awqtui_crash\ 下。
 #include <windows.h>
+#include <shobjidl.h>  // SetCurrentProcessExplicitAppUserModelID
 #include <dbghelp.h>
 #pragma comment(lib, "dbghelp.lib")
 
@@ -130,6 +131,11 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(debugMessageHandler);
     SetUnhandledExceptionFilter(&CrashHandler);
     qDebug() << "=== awqtui starting ===";
+
+    // Win11 任务栏分组键：必须早于任何窗口显示设置。
+    // 本项目 exe 不内嵌 .ico 资源，未设 ID 时任务栏会 fallback 到 exe 内嵌图标 → 显示默认通用图标；
+    // 托盘图标走 QSystemTrayIcon::setIcon 运行时绘制，不受此影响，故此前任务栏与托盘图标不一致。
+    SetCurrentProcessExplicitAppUserModelID(L"aw-qtui.App");
 
     QApplication app(argc, argv);
     qDebug() << "QApplication created";

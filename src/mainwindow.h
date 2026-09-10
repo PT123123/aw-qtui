@@ -142,9 +142,7 @@ private:
         PAGE_FOCUS_TIMER,
         PAGE_FOCUS_STATS, // 专注统计：7 个统计视图的子标签容器
         PAGE_ACTIVITY,    // ActivityWatch：6 个视图的子标签容器
-        PAGE_SYNC,
-        PAGE_D1_SYNC,
-        PAGE_CLOUD_BACKUP,
+        PAGE_SYNC,        // 同步：局域网同步/详情/D1云/冷备 的子标签容器
         PAGE_COUNT
     };
 
@@ -196,13 +194,11 @@ private:
     QPushButton *m_navFocusStats = nullptr;
     QPushButton *m_navActivity = nullptr;
     QPushButton *m_navSync = nullptr;
-    QPushButton *m_navD1Sync = nullptr;
-    QPushButton *m_navCloudBackup = nullptr;
     // 专注统计页内部的子标签容器（7 个统计视图共用一个导航入口）
     QTabWidget *m_focusTabs = nullptr;
     // ActivityWatch 容器页内部的子标签容器（6 个视图共用一个导航入口）
     QTabWidget *m_awTabs = nullptr;
-    // 同步容器页内部的子标签容器（局域网同步 / 同步详情共用一个导航入口）
+    // 同步容器页内部的子标签容器（局域网同步 / 详情 / D1云 / 冷备 共用一个导航入口）
     QTabWidget *m_syncTabs = nullptr;
     // 设置容器页内部的子标签容器（收件箱设置 / 通用设置共用一个导航入口）
     QTabWidget *m_settingsTabs = nullptr;

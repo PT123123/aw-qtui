@@ -344,14 +344,10 @@ void MainWindow::buildUi()
     awSec.layout->addWidget(m_navActivity);
 
     // ---- 分组 4：同步 ----
-    // 同步详情并入局域网同步页内子标签
+    // 局域网同步 / 详情 / D1云 / 冷备 合并为单个「同步」入口（页内子标签切换）
     NavSection syncSec = makeSection(QStringLiteral("同步"), false);
-    m_navSync = makeNavBtn(glyph::Sync, "局域网同步");
-    m_navD1Sync = makeNavBtn(glyph::Cloud, "D1 云同步");
-    m_navCloudBackup = makeNavBtn(glyph::Save, "云备份（冷备）");
+    m_navSync = makeNavBtn(glyph::Sync, "同步");
     syncSec.layout->addWidget(m_navSync);
-    syncSec.layout->addWidget(m_navD1Sync);
-    syncSec.layout->addWidget(m_navCloudBackup);
 
     // 窄栏模式：隐藏分组标题，图标平铺
     m_navSectionHeaders = {inboxSec.header, todoSec.header, awSec.header, syncSec.header};
@@ -372,8 +368,6 @@ void MainWindow::buildUi()
     connect(m_navFocusStats, &QPushButton::clicked, this, [this] { switchPage(PAGE_FOCUS_STATS); });
     connect(m_navActivity, &QPushButton::clicked, this, [this] { switchPage(PAGE_ACTIVITY); });
     connect(m_navSync, &QPushButton::clicked, this, [this] { switchPage(PAGE_SYNC); });
-    connect(m_navD1Sync, &QPushButton::clicked, this, [this] { switchPage(PAGE_D1_SYNC); });
-    connect(m_navCloudBackup, &QPushButton::clicked, this, [this] { switchPage(PAGE_CLOUD_BACKUP); });
 
     navLay->addStretch(1);
 
@@ -402,7 +396,7 @@ void MainWindow::buildUi()
     m_todo = new TodoPage(m_todoStore);
     m_timerPage = new FocusTimerPage(m_focusStore, m_todoStore);
     m_overviewPage = new FocusOverviewPage(m_focusStore);
-    m_detailPage = new FocusDetailPage(m_focusStore);
+    m_detailPage = new FocusDetailPage(m_focusStore, m_todoStore);
     m_weekPage = new FocusWeekPage(m_focusStore);
     m_heatmapPage = new FocusHeatmapPage(m_focusStore);
     m_bestPage = new FocusBestPage(m_focusStore);
@@ -450,7 +444,14 @@ void MainWindow::buildUi()
 
     ui->syncHostLay->addWidget(m_sync);
     ui->syncDetailsHostLay->addWidget(m_syncDetails);
+    ui->d1HostLay->addWidget(m_d1Sync);
+    ui->cloudBackupHostLay->addWidget(m_cloudBackup);
     styleSubTabs(m_syncTabs);
+    // 同步容器内切换子标签时，把该页按当前缩放补齐
+    connect(m_syncTabs, &QTabWidget::currentChanged, this, [this] {
+        if (m_currentPage == PAGE_SYNC)
+            scaleCurrentView();
+    });
 
     ui->inboxHostLay->addWidget(m_inboxSettings);
     // 通用设置 Tab：内嵌设置编辑组件（原设置对话框内容），运行时构建
@@ -480,8 +481,6 @@ void MainWindow::buildUi()
     reg(PAGE_FOCUS_STATS, focusContainer);  // 栈 3
     reg(PAGE_ACTIVITY, awContainer);        // 栈 4
     reg(PAGE_SYNC, syncContainer);          // 栈 5
-    reg(PAGE_D1_SYNC, m_d1Sync);            // 栈 6
-    reg(PAGE_CLOUD_BACKUP, m_cloudBackup);  // 栈 7
 
     connect(m_inbox, &InboxPage::settingsRequested, this, &MainWindow::openSettings);
 
@@ -618,8 +617,6 @@ void MainWindow::switchPage(int index)
     m_navFocusStats->setChecked(index == PAGE_FOCUS_STATS);
     m_navActivity->setChecked(index == PAGE_ACTIVITY);
     m_navSync->setChecked(index == PAGE_SYNC);
-    m_navD1Sync->setChecked(index == PAGE_D1_SYNC);
-    m_navCloudBackup->setChecked(index == PAGE_CLOUD_BACKUP);
     updateNavIcons();
 
     // 页面特定处理
@@ -1007,8 +1004,8 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     case Qt::Key_5: switchPage(PAGE_FOCUS_STATS); return;
     case Qt::Key_6: switchPage(PAGE_ACTIVITY); return;
     case Qt::Key_7: switchPage(PAGE_SYNC); return;
-    case Qt::Key_8: switchPage(PAGE_D1_SYNC); return;
-    case Qt::Key_9: switchPage(PAGE_CLOUD_BACKUP); return;
+    case Qt::Key_8: switchPage(PAGE_SYNC); m_syncTabs->setCurrentIndex(2); return; // D1云
+    case Qt::Key_9: switchPage(PAGE_SYNC); m_syncTabs->setCurrentIndex(3); return; // 冷备
     case Qt::Key_F5:
         // AW 容器页：刷新当前子标签
         if (m_currentPage == PAGE_ACTIVITY) {
@@ -1022,10 +1019,12 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         }
         if (m_currentPage == PAGE_SYNC) {
             // 同步容器页：按当前子标签分发刷新
-            if (m_syncTabs->currentIndex() == 0)
-                m_sync->refreshDevices();
-            else
-                m_syncDetails->refreshLogs();
+            switch (m_syncTabs->currentIndex()) {
+            case 0: m_sync->refreshDevices(); break;
+            case 1: m_syncDetails->refreshLogs(); break;
+            case 2: m_d1Sync->refreshStatus(); break;
+            case 3: m_cloudBackup->refreshStatus(); break;
+            }
             return;
         }
         if (m_currentPage == PAGE_INBOX) m_inbox->refreshAll();
@@ -1117,8 +1116,16 @@ void MainWindow::scaleCurrentView()
     case PAGE_ACTIVITY:
         if (m_activity) m_activity->applyUiScale();
         break;
+    case PAGE_SYNC: {
+        // 同步容器：当前激活子标签的页面补缩放
+        QWidget *w = m_syncTabs ? m_syncTabs->currentWidget() : nullptr;
+        if (w == m_sync) { /* SyncPage 无 applyUiScale，靠全局 QSS */ }
+        else if (w == m_syncDetails) m_syncDetails->applyTheme();
+        else if (w == m_d1Sync) m_d1Sync->applyUiScale();
+        else if (w == m_cloudBackup) m_cloudBackup->applyUiScale();
+        break;
+    }
     default:
-        // 同步 / D1 / 云备份等页未登记到整页重建列表，仅靠全局 QSS/字体缩放
         break;
     }
 }

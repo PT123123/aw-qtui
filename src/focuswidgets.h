@@ -99,18 +99,22 @@ private:
     QLabel *m_totalTime = nullptr;
 };
 
-// ── 专注记录详情：时间线列表（日期+事件+起止），删除 / 补记 ──
+// ── 专注记录详情：时间线列表（日期+事件+起止），删除 / 补记 / 关联任务 ──
 class FocusDetailPage : public QWidget
 {
     Q_OBJECT
 public:
-    explicit FocusDetailPage(FocusSource *focus, QWidget *parent = nullptr);
+    explicit FocusDetailPage(FocusSource *focus, TodoSource *todo = nullptr, QWidget *parent = nullptr);
     void applyUiScale();
     void refresh();
 
 private:
     void onAddManual();
+    void onSetTask(qint64 sessionId);
+    // 根据 taskId 查找任务标题（未找到返回空串）
+    QString taskTitle(qint64 taskId) const;
     FocusSource *m_focus = nullptr;
+    TodoSource *m_todo = nullptr;
     QPushButton *m_addBtn = nullptr;
     QLabel *m_countLabel = nullptr;
     QListWidget *m_list = nullptr;
