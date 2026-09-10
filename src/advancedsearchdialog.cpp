@@ -208,7 +208,7 @@ void AdvancedSearchDialog::runSearch()
                 ResultRow r;
                 r.startMs = ev.startMs;
                 r.endMs = ev.endMs;
-                r.title = ev.label;
+                r.title = ev.detail.isEmpty() ? ev.label : ev.detail;
                 m_results.append(r);
             }
         }

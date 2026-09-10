@@ -1,9 +1,10 @@
-// daypage.cpp —— Day 视图实现
+// daypage.cpp —— Day 视图实现（编辑模式 + 可选时间范围）
 #include "daypage.h"
 #include "ui_daypage.h"
 
 #include <QComboBox>
 #include <QButtonGroup>
+#include <QDateEdit>
 #include <QDateTime>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -92,7 +93,8 @@ static QList<QPair<qint64, qint64>> subtractRanges(
 DayPage::DayPage(ApiClient *api, TagStore *store, QWidget *parent)
     : QWidget(parent), m_api(api), m_store(store)
 {
-    m_date = QDate::currentDate();
+    m_end = QDate::currentDate();
+    m_start = m_end;
     buildUi();
     reload();
 }
@@ -104,15 +106,7 @@ DayPage::~DayPage()
 
 void DayPage::applyTheme()
 {
-    // 浏览模式内容（统计卡/工具栏标签/模式切换）的 QSS 角色由内联样式定义
     setStyleSheet(QStringLiteral(R"(
-        QFrame#StatCard {
-            background: %1;
-            border: 1px solid %2;
-            border-radius: 8px;
-        }
-        QLabel#StatLabel { color: %4; font-size: 11px; padding: 8px 12px 0; }
-        QLabel#StatValue { color: %3; font-size: 18px; font-weight: 700; padding: 2px 12px 10px; }
         QLabel#ToolbarLabel { color: %4; font-size: 12px; }
         QComboBox {
             background: %6; border: 1px solid %2; border-radius: 6px;
@@ -120,12 +114,18 @@ void DayPage::applyTheme()
         }
         QComboBox:hover { border-color: %7; }
         QComboBox QAbstractItemView { background: %6; border: 1px solid %2; selection-background-color: %7; }
-        QPushButton#ModeBtn {
+        QDateEdit {
             background: %6; border: 1px solid %2; border-radius: 6px;
-            padding: 5px 14px; color: %5; font-size: 12px;
+            padding: 4px 8px; color: %5; font-size: 12px;
         }
-        QPushButton#ModeBtn:hover { background: %8; border-color: %7; }
-        QPushButton#ModeBtn:checked {
+        QDateEdit:hover { border-color: %7; }
+        QDateEdit::drop-down { border: none; width: 18px; }
+        QPushButton#RangeBtn {
+            background: %6; border: 1px solid %2; border-radius: 6px;
+            padding: 4px 12px; color: %5; font-size: 12px;
+        }
+        QPushButton#RangeBtn:hover { background: %8; border-color: %7; }
+        QPushButton#RangeBtn:checked {
             background: %7; border-color: %7; color: white; font-weight: 600;
         }
     )")
@@ -153,23 +153,15 @@ void DayPage::buildUi()
     ui->setupUi(this);
 
     // 主题样式角色（全局 QSS 按 objectName 选择器匹配；.ui 中名称保持唯一）
-    for (auto *b : {ui->prevBtn, ui->nextBtn, ui->todayBtn, ui->selectToggle,
+    for (auto *b : {ui->prevBtn, ui->nextBtn, ui->todayBtn, ui->selectToggle, ui->resetBtn,
                     ui->tagEditorBtn, ui->autoTagBtn, ui->copyAutotagBtn,
                     ui->untaggedBtn, ui->awayBtn, ui->timingBtn, ui->advSearchBtn})
         b->setObjectName(QStringLiteral("ToolBtn"));
     ui->addTagBtn->setObjectName(QStringLiteral("PrimaryBtn"));
-
-    // 浏览模式角色映射（对象名保持唯一，此处映射到主题 QSS 角色）
-    for (auto *c : {ui->totalCard, ui->afkCard, ui->firstCard, ui->lastCard})
-        c->setObjectName(QStringLiteral("StatCard"));
-    for (auto *l : {ui->totalLabel, ui->afkLabel, ui->firstLabel, ui->lastLabel})
-        l->setObjectName(QStringLiteral("StatLabel"));
-    for (auto *v : {ui->totalTracked, ui->afkTime, ui->firstActivity, ui->lastActivity})
-        v->setObjectName(QStringLiteral("StatValue"));
-    for (auto *l : {ui->intervalLabel, ui->showLabel, ui->eventsLabel, ui->hintLabel})
+    for (auto *b : {ui->rangeBtn1d, ui->rangeBtn7d})
+        b->setObjectName(QStringLiteral("RangeBtn"));
+    for (auto *l : {ui->rangeLabel, ui->startDateLabel, ui->eventsLabel, ui->hintLabel})
         l->setObjectName(QStringLiteral("ToolbarLabel"));
-    for (auto *b : {ui->browseModeBtn, ui->editModeBtn})
-        b->setObjectName(QStringLiteral("ModeBtn"));
 
     // 主题色相关样式（kColor* 随主题切换，无法烘焙进 .ui）
     m_dateLabel = ui->dateLabel;
@@ -203,23 +195,20 @@ void DayPage::buildUi()
     m_bottomTabs = ui->bottomTabs;
     m_detailsTable = ui->detailsTable;
     m_summaryTable = ui->summaryTable;
-    // 浏览模式别名
-    m_browseModeBtn = ui->browseModeBtn;
-    m_editModeBtn = ui->editModeBtn;
-    m_intervalCombo = ui->intervalCombo;
-    m_showLastCombo = ui->showLastCombo;
-    m_resetBtn = ui->resetBtn;
     m_eventsLabel = ui->eventsLabel;
-    m_totalTracked = ui->totalTracked;
-    m_afkTime = ui->afkTime;
-    m_firstActivity = ui->firstActivity;
-    m_lastActivity = ui->lastActivity;
+    m_rangeBtn1d = ui->rangeBtn1d;
+    m_rangeBtn7d = ui->rangeBtn7d;
+    m_startDateEdit = ui->startDateEdit;
 
-    // 浏览/编辑模式：排他按钮组
-    auto *modeGroup = new QButtonGroup(this);
-    modeGroup->setExclusive(true);
-    modeGroup->addButton(m_browseModeBtn);
-    modeGroup->addButton(m_editModeBtn);
+    // 时间范围：排他按钮组（1天 / 7天）；选择起始日期则两者都不选中（自定义）
+    auto *rangeGroup = new QButtonGroup(this);
+    rangeGroup->setExclusive(true);
+    rangeGroup->addButton(m_rangeBtn1d);
+    rangeGroup->addButton(m_rangeBtn7d);
+
+    const QDate today = QDate::currentDate();
+    m_startDateEdit->setDateRange(today.addYears(-5), today);
+    m_startDateEdit->setDate(m_start);
 
     // ── 运行时行为：分割器拉伸、表格列宽与表头交互模式、未标记视图 ──
     ui->split->setStretchFactor(0, 3);
@@ -233,18 +222,16 @@ void DayPage::buildUi()
     m_untaggedScroll->setWidget(m_untaggedView);
 
     // 时间线默认显示今天
-    m_timeline->setTimeRange(m_date.startOfDay().toMSecsSinceEpoch(),
-                             m_date.addDays(1).startOfDay().toMSecsSinceEpoch());
+    m_timeline->setTimeRange(rangeStartMs(), rangeEndMs());
 
     // ── 连接 ──
     connect(m_prevBtn, &QPushButton::clicked, this, &DayPage::onPrevDay);
     connect(m_nextBtn, &QPushButton::clicked, this, &DayPage::onNextDay);
     connect(m_todayBtn, &QPushButton::clicked, this, &DayPage::onToday);
-    connect(m_browseModeBtn, &QPushButton::clicked, this, &DayPage::onBrowseMode);
-    connect(m_editModeBtn, &QPushButton::clicked, this, &DayPage::onEditMode);
-    connect(m_resetBtn, &QPushButton::clicked, this, [this] { m_timeline->resetView(); });
-    connect(m_showLastCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-            &DayPage::applyShowLast);
+    connect(m_rangeBtn1d, &QPushButton::clicked, this, &DayPage::onRange1Day);
+    connect(m_rangeBtn7d, &QPushButton::clicked, this, &DayPage::onRange7Days);
+    connect(m_startDateEdit, &QDateEdit::dateChanged, this, &DayPage::onStartDateChanged);
+    connect(ui->resetBtn, &QPushButton::clicked, this, [this] { m_timeline->resetView(); });
     connect(m_selectToggle, &QPushButton::toggled, this, &DayPage::toggleSelectMode);
     connect(m_selModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &DayPage::onSelModeChanged);
@@ -267,15 +254,15 @@ void DayPage::buildUi()
         setDate(d);
     });
 
-    // 默认进入浏览模式
-    setMode(true);
+    m_timeline->setSelectMode(false);
+    updateRangeWidgets();
 }
 
 void DayPage::setDate(const QDate &date)
 {
-    m_date = date;
-    m_timeline->setTimeRange(m_date.startOfDay().toMSecsSinceEpoch(),
-                             m_date.addDays(1).startOfDay().toMSecsSinceEpoch());
+    m_end = date;
+    applyRangeMode();
+    m_timeline->setTimeRange(rangeStartMs(), rangeEndMs());
     m_selection.clear();
     reload();
 }
@@ -286,15 +273,26 @@ void DayPage::goToDay(qint64 dayStartMs)
     setDate(d);
 }
 
-// ── 日期导航 ────────────────────────────────────────────────
+// ── 日期导航与时间范围 ─────────────────────────────────────
 void DayPage::onPrevDay()
 {
-    setDate(m_date.addDays(-1));
+    m_start = m_start.addDays(-1);
+    m_end = m_end.addDays(-1);
+    m_timeline->setTimeRange(rangeStartMs(), rangeEndMs());
+    m_selection.clear();
+    reload();
 }
 
 void DayPage::onNextDay()
 {
-    setDate(m_date.addDays(1));
+    const QDate today = QDate::currentDate();
+    if (m_end >= today)
+        return; // 不允许越过今天
+    m_start = m_start.addDays(1);
+    m_end = m_end.addDays(1);
+    m_timeline->setTimeRange(rangeStartMs(), rangeEndMs());
+    m_selection.clear();
+    reload();
 }
 
 void DayPage::onToday()
@@ -302,123 +300,102 @@ void DayPage::onToday()
     setDate(QDate::currentDate());
 }
 
-// ── 浏览/编辑模式 ──────────────────────────────────────────
-void DayPage::onBrowseMode()
+void DayPage::onRange1Day()
 {
-    setMode(true);
+    m_rangeMode = Range1Day;
+    applyRangeMode();
+    m_timeline->setTimeRange(rangeStartMs(), rangeEndMs());
+    m_selection.clear();
+    reload();
 }
 
-void DayPage::onEditMode()
+void DayPage::onRange7Days()
 {
-    setMode(false);
+    m_rangeMode = Range7Days;
+    applyRangeMode();
+    m_timeline->setTimeRange(rangeStartMs(), rangeEndMs());
+    m_selection.clear();
+    reload();
 }
 
-void DayPage::setMode(bool browse)
+void DayPage::onStartDateChanged(const QDate &date)
 {
-    m_browseMode = browse;
-    m_browseModeBtn->setChecked(browse);
-    m_editModeBtn->setChecked(!browse);
-    // 条状内容随模式显隐
-    ui->browseBar->setVisible(browse);
-    ui->statsBar->setVisible(browse);
-    ui->editBar->setVisible(!browse);
-    m_bottomTabs->setVisible(!browse);
-    if (browse) {
-        // 浏览模式回到主视图（dayPane），时间轴只读
-        m_stack->setCurrentIndex(0);
-        m_timeline->setSelectMode(false);
-        setStatus(QStringLiteral("浏览模式：查看当天时间线、统计卡，可拖拽平移/滚轮缩放"));
-        updateStats();
-    } else {
-        m_timeline->setSelectMode(m_selectToggle->isChecked());
-        setStatus(QStringLiteral("编辑模式：在时间线上框选→打标签，或勾选明细/汇总"));
-    }
+    if (m_updating)
+        return; // 代码回填控件时不响应
+    m_rangeMode = RangeCustom;
+    m_start = date;
+    const QDate today = QDate::currentDate();
+    m_end = (date > today) ? date : today;
+    m_timeline->setTimeRange(rangeStartMs(), rangeEndMs());
+    m_selection.clear();
+    reload();
 }
 
-void DayPage::applyShowLast(int idx)
+void DayPage::applyRangeMode()
 {
-    const qint64 base = QDateTime(m_date, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
-    qint64 range = 86400000LL;
-    switch (idx) {
-    case 0: range = 86400000LL; break;      // 24h
-    case 1: range = 43200000LL; break;      // 12h
-    case 2: range = 21600000LL; break;      // 6h
-    case 3: range = 172800000LL; break;     // 48h
-    case 4: range = 7 * 86400000LL; break;  // 7d
-    }
-    m_timeline->setTimeRange(base, base + range);
-}
-
-void DayPage::updateStats()
-{
-    if (!m_totalTracked)
-        return;
-    qint64 activeMs = 0;
-    qint64 afkMs = 0;
-    qint64 firstActive = -1;
-    qint64 lastActive = -1;
-
-    for (const auto &lane : m_lanes) {
-        if (lane.name != QStringLiteral("afk-status"))
-            continue;
-        for (const auto &ev : lane.events) {
-            if (ev.label == QStringLiteral("not-afk")) {
-                activeMs += ev.endMs - ev.startMs;
-                if (firstActive < 0 || ev.startMs < firstActive) firstActive = ev.startMs;
-                if (ev.endMs > lastActive) lastActive = ev.endMs;
-            } else {
-                afkMs += ev.endMs - ev.startMs;
-            }
-        }
-    }
-
-    m_totalTracked->setText(formatDuration(activeMs / 1000));
-    m_afkTime->setText(formatDuration(afkMs / 1000));
-    m_firstActivity->setText(firstActive >= 0
-                                 ? QDateTime::fromMSecsSinceEpoch(firstActive, Qt::LocalTime)
-                                       .toString(QStringLiteral("HH:mm:ss"))
-                                 : QStringLiteral("—"));
-    m_lastActivity->setText(lastActive >= 0
-                                ? QDateTime::fromMSecsSinceEpoch(lastActive, Qt::LocalTime)
-                                      .toString(QStringLiteral("HH:mm:ss"))
-                                : QStringLiteral("—"));
-}
-
-void DayPage::toggleSelectMode(bool on)
-{
-    m_timeline->setSelectMode(on);
-    setStatus(on ? QStringLiteral("选择模式：在时间线上拖拽/双击选中时间段，Ctrl+拖拽多选")
-                 : QString());
-}
-
-void DayPage::onSelModeChanged(int idx)
-{
-    switch (idx) {
-    case 0:
-        selectRanges(activeRanges());
-        setStatus(QStringLiteral("已全选当天活动"));
+    switch (m_rangeMode) {
+    case Range7Days:
+        m_start = m_end.addDays(-6);
         break;
-    case 1:
-        selectRanges(untaggedRanges());
-        setStatus(QStringLiteral("已选中所有未标记时间段"));
+    case RangeCustom:
+        // m_start 来自日期编辑器；m_end 保持（不早于 m_start）
+        if (m_start > m_end)
+            m_end = m_start;
         break;
-    case 2: {
-        m_showOnlyUntagged = !m_showOnlyUntagged;
-        m_updating = true;
-        rebuildDetails();
-        m_updating = false;
-        setStatus(m_showOnlyUntagged ? QStringLiteral("仅显示未标记活动")
-                                     : QStringLiteral("已取消仅显示未标记"));
+    case Range1Day:
+    default:
+        m_start = m_end;
         break;
     }
-    }
+    updateRangeWidgets();
+}
+
+void DayPage::updateRangeWidgets()
+{
+    const QSignalBlocker b1(m_rangeBtn1d);
+    const QSignalBlocker b2(m_rangeBtn7d);
+    const QSignalBlocker b3(m_startDateEdit);
+    m_rangeBtn1d->setChecked(m_rangeMode == Range1Day);
+    m_rangeBtn7d->setChecked(m_rangeMode == Range7Days);
+    m_startDateEdit->setDate(m_start);
+
+    if (m_rangeMode == Range1Day || m_start == m_end)
+        m_dateLabel->setText(m_end.toString(QStringLiteral("yyyy-MM-dd ddd")));
+    else
+        m_dateLabel->setText(QStringLiteral("%1 ~ %2")
+                                 .arg(m_start.toString(QStringLiteral("MM-dd")),
+                                      m_end.toString(QStringLiteral("MM-dd"))));
+}
+
+qint64 DayPage::rangeStartMs() const
+{
+    return QDateTime(m_start, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
+}
+
+qint64 DayPage::rangeEndMs() const
+{
+    return QDateTime(m_end, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch() + 86400000LL;
 }
 
 // ── 刷新 ────────────────────────────────────────────────────
 void DayPage::reload()
 {
+    updateRangeWidgets();
     if (!m_api) {
-        m_lanes = generateTimelineLanes(m_date);
+        // 离线：按范围内每天生成模拟数据并按 lane 名合并
+        m_lanes.clear();
+        QMap<QString, int> laneIdx;
+        for (QDate d = m_start; d <= m_end; d = d.addDays(1)) {
+            for (const TimelineLane &lane : generateTimelineLanes(d)) {
+                int idx = laneIdx.value(lane.name, -1);
+                if (idx < 0) {
+                    m_lanes.append(lane);
+                    laneIdx.insert(lane.name, m_lanes.size() - 1);
+                } else {
+                    m_lanes[idx].events.append(lane.events);
+                }
+            }
+        }
         m_updating = true;
         rebuildTagsLane();
         rebuildDetails();
@@ -430,7 +407,6 @@ void DayPage::reload()
             totalEvents += lane.events.size();
         if (m_eventsLabel)
             m_eventsLabel->setText(QStringLiteral("Events shown: %1").arg(totalEvents));
-        updateStats();
         return;
     }
 
@@ -467,8 +443,8 @@ void DayPage::fetchAllEvents()
     m_eventsMap.clear();
     m_pendingEvents = m_buckets.size();
 
-    const qint64 dayStart = QDateTime(m_date, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
-    const qint64 dayEnd = dayStart + 86400000LL;
+    const qint64 dayStart = rangeStartMs();
+    const qint64 dayEnd = rangeEndMs();
 
     for (const BucketInfo &b : m_buckets) {
         QNetworkReply *reply = m_api->getEvents(b.id, dayStart, dayEnd);
@@ -504,7 +480,6 @@ void DayPage::onEventLoaded()
             totalEvents += lane.events.size();
         if (m_eventsLabel)
             m_eventsLabel->setText(QStringLiteral("Events shown: %1").arg(totalEvents));
-        updateStats();
     }
 }
 
@@ -520,17 +495,17 @@ void DayPage::showEmptyState(const QString &msg)
     setStatus(msg);
     if (m_eventsLabel)
         m_eventsLabel->setText(QStringLiteral("Events shown: 0"));
-    updateStats();
     qWarning() << "[DayPage]" << msg;
 }
 
 void DayPage::rebuildTagsLane()
 {
-    QList<TimelineLane> lanes = generateTimelineLanes(m_date);
+    // 在已加载的数据行（真实或离线模拟）基础上追加 Tags / AutoTags 行
+    QList<TimelineLane> lanes = m_lanes;
     TimelineLane tagsLane;
     tagsLane.name = QStringLiteral("Tags");
-    const qint64 dayStart = m_date.startOfDay().toMSecsSinceEpoch();
-    const qint64 dayEnd = m_date.addDays(1).startOfDay().toMSecsSinceEpoch();
+    const qint64 dayStart = rangeStartMs();
+    const qint64 dayEnd = rangeEndMs();
     for (const auto &seg : m_store->segmentsInRange(dayStart, dayEnd)) {
         TimelineEvent ev;
         ev.startMs = seg.startMs;
@@ -559,25 +534,22 @@ void DayPage::rebuildDetails()
     m_details.clear();
     if (!m_store)
         return;
-    const qint64 dayStart = m_date.startOfDay().toMSecsSinceEpoch();
-    const qint64 dayEnd = m_date.addDays(1).startOfDay().toMSecsSinceEpoch();
+    const qint64 dayStart = rangeStartMs();
+    const qint64 dayEnd = rangeEndMs();
 
     // 活动事件
     const QList<TimelineLane> &lanes = m_lanes;
     for (const auto &lane : lanes) {
-        const bool isTagLike =
-            lane.name.contains(QStringLiteral("window")) || lane.name.contains(QStringLiteral("web"));
         for (const auto &ev : lane.events) {
             if (ev.endMs <= dayStart || ev.startMs >= dayEnd)
                 continue;
             ActivityInfo info;
-            info.title = ev.label;
+            info.title = ev.detail.isEmpty() ? ev.label : ev.detail;
             info.group = ev.label;
             info.startMs = ev.startMs;
             info.endMs = ev.endMs;
             info.isTagSegment = false;
             m_details.append(info);
-            Q_UNUSED(isTagLike);
         }
     }
     // 标签段
@@ -620,6 +592,9 @@ void DayPage::rebuildDetails()
 
     m_details = shown; // 与表格行对齐（过滤后）
     m_detailsTable->setRowCount(shown.size());
+    // 跨天时 Start/End 附带日期，避免歧义
+    const QString timeFmt =
+        (m_start == m_end) ? QStringLiteral("HH:mm") : QStringLiteral("MM-dd HH:mm");
     for (int r = 0; r < shown.size(); ++r) {
         const ActivityInfo &info = shown[r];
         auto *check = new QTableWidgetItem;
@@ -636,11 +611,11 @@ void DayPage::rebuildDetails()
         m_detailsTable->setItem(r, 2, new QTableWidgetItem(info.group));
         const QDateTime st(QDateTime::fromMSecsSinceEpoch(info.startMs, Qt::LocalTime));
         m_detailsTable->setItem(r, 3,
-                                new QTableWidgetItem(st.time().toString(QStringLiteral("HH:mm"))));
+                                new QTableWidgetItem(st.time().toString(timeFmt)));
         m_detailsTable->setItem(r, 4,
                                 new QTableWidgetItem(QDateTime::fromMSecsSinceEpoch(info.endMs, Qt::LocalTime)
                                                          .time()
-                                                         .toString(QStringLiteral("HH:mm"))));
+                                                         .toString(timeFmt)));
         m_detailsTable->setItem(
             r, 5, new QTableWidgetItem(formatDuration((info.endMs - info.startMs) / 1000)));
         const QString notes =
@@ -696,7 +671,6 @@ void DayPage::refreshStatus()
 {
     if (!m_statusLabel)
         return;
-    m_dateLabel->setText(m_date.toString(QStringLiteral("yyyy-MM-dd ddd")));
     qint64 selMs = 0;
     for (const auto &r : m_selection)
         selMs += (r.second - r.first);
@@ -725,8 +699,8 @@ QList<QPair<qint64, qint64>> DayPage::activeRanges() const
 
 QList<QPair<qint64, qint64>> DayPage::untaggedRanges() const
 {
-    const qint64 dayStart = m_date.startOfDay().toMSecsSinceEpoch();
-    const qint64 dayEnd = m_date.addDays(1).startOfDay().toMSecsSinceEpoch();
+    const qint64 dayStart = rangeStartMs();
+    const qint64 dayEnd = rangeEndMs();
     QList<QPair<qint64, qint64>> tagged;
     for (const auto &s : m_store->segmentsInRange(dayStart, dayEnd))
         tagged.append({s.startMs, s.endMs});
@@ -893,11 +867,11 @@ void DayPage::onCopyAutotags()
 {
     if (!m_store)
         return;
-    const qint64 dayStart = m_date.startOfDay().toMSecsSinceEpoch();
-    const qint64 dayEnd = m_date.addDays(1).startOfDay().toMSecsSinceEpoch();
+    const qint64 dayStart = rangeStartMs();
+    const qint64 dayEnd = rangeEndMs();
     const auto hits = AutoTagEngine::compute(m_store, dayStart, dayEnd, m_lanes);
     if (hits.isEmpty()) {
-        setStatus(QStringLiteral("今天没有自动标签可复制，请先在「自动标签」里建规则"));
+        setStatus(QStringLiteral("当前范围内没有自动标签可复制，请先在「自动标签」里建规则"));
         return;
     }
     QMessageBox box(this);
@@ -961,10 +935,10 @@ void DayPage::onOpenTiming()
 
 void DayPage::onTagAway()
 {
-    // Away 窗口简化：选中当天所有未标记时间段 → Add tag
+    // Away 窗口简化：选中当前范围内所有未标记时间段 → Add tag
     selectRanges(untaggedRanges());
     if (m_selection.isEmpty()) {
-        setStatus(QStringLiteral("今天没有未标记的时间段（离开/空闲时段）"));
+        setStatus(QStringLiteral("当前范围内没有未标记的时间段（离开/空闲时段）"));
         return;
     }
     onAddTag();
@@ -975,11 +949,41 @@ void DayPage::toggleUntagged()
     const bool toUntagged = (m_stack->currentIndex() == 0);
     if (toUntagged) {
         const QDate today = QDate::currentDate();
-        m_untaggedView->setRange(m_date.addDays(-m_date.day() + 1 - 30), today);
+        m_untaggedView->setRange(m_end.addDays(-m_end.day() + 1 - 30), today);
         m_stack->setCurrentIndex(1);
     } else {
         m_stack->setCurrentIndex(0);
     }
+}
+
+void DayPage::onSelModeChanged(int idx)
+{
+    switch (idx) {
+    case 0:
+        selectRanges(activeRanges());
+        setStatus(QStringLiteral("已全选当前范围活动"));
+        break;
+    case 1:
+        selectRanges(untaggedRanges());
+        setStatus(QStringLiteral("已选中所有未标记时间段"));
+        break;
+    case 2: {
+        m_showOnlyUntagged = !m_showOnlyUntagged;
+        m_updating = true;
+        rebuildDetails();
+        m_updating = false;
+        setStatus(m_showOnlyUntagged ? QStringLiteral("仅显示未标记活动")
+                                     : QStringLiteral("已取消仅显示未标记"));
+        break;
+    }
+    }
+}
+
+void DayPage::toggleSelectMode(bool on)
+{
+    m_timeline->setSelectMode(on);
+    setStatus(on ? QStringLiteral("选择模式：在时间线上拖拽/双击选中时间段，Ctrl+拖拽多选")
+                 : QString());
 }
 
 void DayPage::onFilterEdited(const QString &text)
