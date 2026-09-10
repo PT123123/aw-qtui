@@ -165,6 +165,17 @@ void FocusStore::deleteSession(qint64 id)
     commit();
 }
 
+void FocusStore::updateSessionTaskId(qint64 sessionId, qint64 taskId)
+{
+    for (auto &s : m_sessions) {
+        if (s.id == sessionId) {
+            s.taskId = taskId;
+            commit();
+            return;
+        }
+    }
+}
+
 void FocusStore::addMemorial(const QString &name, const QString &emoji, const QString &dateIso)
 {
     MemorialDay m;
