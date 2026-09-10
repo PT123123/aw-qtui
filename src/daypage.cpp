@@ -195,6 +195,7 @@ void DayPage::buildUi()
     m_bottomTabs = ui->bottomTabs;
     m_detailsTable = ui->detailsTable;
     m_summaryTable = ui->summaryTable;
+    m_topAppsTable = ui->topAppsTable;
     m_eventsLabel = ui->eventsLabel;
     m_rangeBtn1d = ui->rangeBtn1d;
     m_rangeBtn7d = ui->rangeBtn7d;
@@ -213,7 +214,7 @@ void DayPage::buildUi()
     // ── 运行时行为：分割器拉伸、表格列宽与表头交互模式、未标记视图 ──
     ui->split->setStretchFactor(0, 3);
     ui->split->setStretchFactor(1, 2);
-    for (QTableWidget *t : {m_detailsTable, m_summaryTable}) {
+    for (QTableWidget *t : {m_detailsTable, m_summaryTable, m_topAppsTable}) {
         t->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         t->horizontalHeader()->setMinimumSectionSize(48);
         t->setColumnWidth(0, 28);
@@ -247,6 +248,7 @@ void DayPage::buildUi()
     connect(m_timeline, &TimelineWidget::selectionChanged, this, &DayPage::onTimelineSelection);
     connect(m_detailsTable, &QTableWidget::itemChanged, this, &DayPage::onDetailsItemChanged);
     connect(m_summaryTable, &QTableWidget::itemChanged, this, &DayPage::onSummaryItemChanged);
+    connect(m_topAppsTable, &QTableWidget::itemChanged, this, &DayPage::onTopAppsItemChanged);
     connect(m_detailsTable, &QTableWidget::cellDoubleClicked, this,
             &DayPage::onDetailsDoubleClicked);
     connect(m_untaggedView, &UntaggedView::dayClicked, this, [this](const QDate &d) {
@@ -400,6 +402,7 @@ void DayPage::reload()
         rebuildTagsLane();
         rebuildDetails();
         rebuildSummary();
+        rebuildTopApps();
         m_updating = false;
         refreshStatus();
         int totalEvents = 0;
@@ -473,6 +476,7 @@ void DayPage::onEventLoaded()
         rebuildTagsLane();
         rebuildDetails();
         rebuildSummary();
+        rebuildTopApps();
         m_updating = false;
         refreshStatus();
         int totalEvents = 0;
@@ -491,6 +495,7 @@ void DayPage::showEmptyState(const QString &msg)
     rebuildTagsLane();
     rebuildDetails();
     rebuildSummary();
+    rebuildTopApps();
     m_updating = false;
     setStatus(msg);
     if (m_eventsLabel)
@@ -667,6 +672,53 @@ void DayPage::rebuildSummary()
                                  .arg(formatDuration(total / 1000)));
 }
 
+void DayPage::rebuildTopApps()
+{
+    if (!m_topAppsTable)
+        return;
+    // 按 app（ev.label）聚合 window/web 事件时长，从大到小排列
+    QMap<QString, qint64> agg; // app -> durationMs
+    const QList<TimelineLane> &lanes = m_lanes;
+    for (const auto &lane : lanes) {
+        if (!lane.name.contains(QStringLiteral("window")) && !lane.name.contains(QStringLiteral("web")))
+            continue;
+        for (const auto &ev : lane.events)
+            agg[ev.label] += (ev.endMs - ev.startMs);
+    }
+    // 转为 list 并按时长降序排序
+    QList<QPair<QString, qint64>> sorted;
+    for (auto it = agg.constBegin(); it != agg.constEnd(); ++it)
+        sorted.append({it.key(), it.value()});
+    std::sort(sorted.begin(), sorted.end(),
+              [](const QPair<QString, qint64> &a, const QPair<QString, qint64> &b) {
+                  return a.second > b.second;
+              });
+
+    qint64 total = 0;
+    for (const auto &p : sorted)
+        total += p.second;
+
+    m_topAppsTable->setRowCount(sorted.size());
+    for (int r = 0; r < sorted.size(); ++r) {
+        const QString &app = sorted[r].first;
+        const qint64 durMs = sorted[r].second;
+        auto *check = new QTableWidgetItem;
+        check->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        check->setCheckState(Qt::Unchecked);
+        m_topAppsTable->setItem(r, 0, check);
+        auto *name = new QTableWidgetItem(app);
+        name->setForeground(colorForString(app));
+        m_topAppsTable->setItem(r, 1, name);
+        m_topAppsTable->setItem(r, 2,
+                                new QTableWidgetItem(formatDuration(durMs / 1000)));
+        const double pct = total > 0 ? (double(durMs) / double(total) * 100.0) : 0.0;
+        m_topAppsTable->setItem(r, 3,
+                                new QTableWidgetItem(QStringLiteral("%1%").arg(pct, 0, 'f', 1)));
+    }
+    m_topAppsTable->resizeColumnsToContents();
+    m_topAppsTable->setColumnWidth(1, qMax(m_topAppsTable->columnWidth(1), 160));
+}
+
 void DayPage::refreshStatus()
 {
     if (!m_statusLabel)
@@ -796,6 +848,49 @@ void DayPage::onSummaryItemChanged(QTableWidgetItem *item)
     m_updating = true;
     syncCheckboxes();
     m_updating = false;
+    refreshStatus();
+}
+
+void DayPage::onTopAppsItemChanged(QTableWidgetItem *item)
+{
+    if (m_updating || !item || item->column() != 0)
+        return;
+    // 收集勾选的 app 名
+    QStringList checkedApps;
+    const int rows = m_topAppsTable->rowCount();
+    for (int r = 0; r < rows; ++r) {
+        QTableWidgetItem *chk = m_topAppsTable->item(r, 0);
+        if (chk && chk->checkState() == Qt::Checked)
+            checkedApps.append(m_topAppsTable->item(r, 1)->text());
+    }
+    // 从 lanes 中找出匹配 app 的所有事件 → 时间段
+    QList<QPair<qint64, qint64>> ranges;
+    if (!checkedApps.isEmpty()) {
+        const QSet<QString> appSet(checkedApps.begin(), checkedApps.end());
+        const QList<TimelineLane> &lanes = m_lanes;
+        for (const auto &lane : lanes) {
+            if (!lane.name.contains(QStringLiteral("window")) &&
+                !lane.name.contains(QStringLiteral("web")))
+                continue;
+            for (const auto &ev : lane.events)
+                if (appSet.contains(ev.label))
+                    ranges.append({ev.startMs, ev.endMs});
+        }
+    }
+    m_selection = mergeRanges(ranges);
+    m_timeline->setSelection(m_selection);
+    // Details 同步勾选
+    m_updating = true;
+    syncCheckboxes();
+    m_updating = false;
+    // filterEdit 自动填充 group="app1;app2"
+    const QSignalBlocker b(m_filterEdit);
+    if (checkedApps.isEmpty()) {
+        m_filterEdit->clear();
+    } else {
+        m_filterEdit->setText(QStringLiteral("group=\"%1\"")
+                                  .arg(checkedApps.join(QStringLiteral(";"))));
+    }
     refreshStatus();
 }
 

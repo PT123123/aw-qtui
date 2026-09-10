@@ -73,6 +73,7 @@ private slots:
     void onTimelineSelection(const QList<QPair<qint64, qint64>> &ranges);
     void onDetailsItemChanged(QTableWidgetItem *item);
     void onSummaryItemChanged(QTableWidgetItem *item);
+    void onTopAppsItemChanged(QTableWidgetItem *item);
     void onDetailsDoubleClicked(int row, int col);
     void onBucketsLoaded();
     void onEventLoaded();
@@ -104,6 +105,7 @@ private:
     void rebuildTagsLane();
     void rebuildDetails();
     void rebuildSummary();
+    void rebuildTopApps();
     void refreshStatus();
     void syncCheckboxes();
     void fetchAllEvents();
@@ -155,6 +157,7 @@ private:
     QTabWidget *m_bottomTabs = nullptr;
     QTableWidget *m_detailsTable = nullptr;
     QTableWidget *m_summaryTable = nullptr;
+    QTableWidget *m_topAppsTable = nullptr;
     QLabel *m_bottomSummary = nullptr;
 
     QList<QPair<qint64, qint64>> m_selection;
