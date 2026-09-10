@@ -1,5 +1,5 @@
-// daypage.h —— 合并后的【时间线/日审阅】页：浏览/编辑双模式。
-// 浏览：统计卡 + showLast 缩放 + reset（只读）；编辑：时间线选择 → 打标签 → 明细/汇总 → 过滤 → 未标记。
+// daypage.h —— 【时间线/日审阅】页（编辑模式）：
+// 时间线选择 → 打标签 → 明细/汇总 → 过滤 → 未标记；支持 1天 / 7天 / 自定义起始日期的时间范围。
 #pragma once
 
 #include <QDate>
@@ -11,6 +11,7 @@
 #include "timelinewidget.h"
 
 class QComboBox;
+class QDateEdit;
 class QLabel;
 class QLineEdit;
 class QNetworkReply;
@@ -39,7 +40,7 @@ public:
     ~DayPage() override;
 
     void setDate(const QDate &date);
-    QDate currentDate() const { return m_date; }
+    QDate currentDate() const { return m_end; }
     void goToDay(qint64 dayStartMs);
     void refresh() { reload(); }
     // 按当前主题重建页面内联样式并重载表格前景色（主题切换时调用）
@@ -55,8 +56,9 @@ private slots:
     void onPrevDay();
     void onNextDay();
     void onToday();
-    void onBrowseMode();
-    void onEditMode();
+    void onRange1Day();
+    void onRange7Days();
+    void onStartDateChanged(const QDate &date);
     void toggleSelectMode(bool on);
     void onSelModeChanged(int);
     void onAddTag();
@@ -87,12 +89,17 @@ private:
         qint64 tagId = 0;
     };
 
+    // 时间范围：[m_start, m_end]（含端点，按天对齐）
+    enum RangeMode { Range1Day = 1, Range7Days = 7, RangeCustom = 0 };
+
     // Qt Designer 生成的布局对象（daypage.ui -> ui_daypage.h）
     Ui::DayPage *ui = nullptr;
     void buildUi();
-    void setMode(bool browse);
-    void applyShowLast(int idx);
-    void updateStats();
+    void applyRangeMode();               // 按 m_rangeMode 重算 m_start/m_end
+    void shiftRange(int days);           // 整体平移窗口（◀ ▶）
+    qint64 rangeStartMs() const;
+    qint64 rangeEndMs() const;
+    void updateRangeWidgets();           // 同步按钮选中态 / 日期编辑器 / 日期标签
     void reload();
     void rebuildTagsLane();
     void rebuildDetails();
@@ -111,7 +118,9 @@ private:
 
     ApiClient *m_api = nullptr;
     TagStore *m_store = nullptr;
-    QDate m_date;
+    QDate m_start;                       // 范围起始日（含）
+    QDate m_end;                         // 范围结束日（含）
+    int m_rangeMode = Range1Day;
     QList<BucketInfo> m_buckets;
     QHash<QString, QJsonArray> m_eventsMap;
     int m_pendingEvents = 0;
@@ -123,19 +132,11 @@ private:
     QPushButton *m_prevBtn = nullptr;
     QPushButton *m_nextBtn = nullptr;
     QPushButton *m_todayBtn = nullptr;
-    // 浏览/编辑模式
-    QPushButton *m_browseModeBtn = nullptr;
-    QPushButton *m_editModeBtn = nullptr;
-    bool m_browseMode = true;
-    // 浏览模式控件（统计卡 + showLast/reset/events）
-    QComboBox *m_intervalCombo = nullptr;
-    QComboBox *m_showLastCombo = nullptr;
-    QPushButton *m_resetBtn = nullptr;
+    // 时间范围选择
+    QPushButton *m_rangeBtn1d = nullptr;
+    QPushButton *m_rangeBtn7d = nullptr;
+    QDateEdit *m_startDateEdit = nullptr;
     QLabel *m_eventsLabel = nullptr;
-    QLabel *m_totalTracked = nullptr;
-    QLabel *m_afkTime = nullptr;
-    QLabel *m_firstActivity = nullptr;
-    QLabel *m_lastActivity = nullptr;
     QPushButton *m_selectToggle = nullptr;
     QComboBox *m_selModeCombo = nullptr;
     QPushButton *m_addTagBtn = nullptr;
