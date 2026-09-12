@@ -118,12 +118,20 @@
 
 ## 6. 构建说明
 
-```bash
-# 配置 + 构建 Release
-bash -c '. tools/vcenv.sh && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release -j'
+推荐直接用 justfile（PowerShell 7 编排，无需 Developer Command Prompt，也不依赖 Git Bash / cmd.exe）：
 
-# 运行
-./build/awqtui.exe
+```powershell
+just build       # 配置 + 构建 Release 客户端
+just release     # 客户端 + 服务端 + windeployqt + 暂存 build/dist
+just run         # 运行 build\awqtui.exe
 ```
 
-> 依赖 VC 环境（通过 `tools/vcenv.sh` 注入 INCLUDE/LIB/PATH），Qt 6.8.3 msvc2022_64。
+手工执行等价命令时，先 dot-source VC 环境脚本（注入 INCLUDE / LIB / PATH）再调 cmake：
+
+```powershell
+. .\tools\vcenv.ps1
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DQt6_DIR="$env:QT/lib/cmake/Qt6"
+cmake --build build --config Release
+```
+
+> 依赖 VC 环境（通过 `tools/vcenv.ps1` 注入 INCLUDE/LIB/PATH），Qt 6.8.3 msvc2022_64。

@@ -89,6 +89,9 @@ protected:
 
 private slots:
     void onGlobalHotkey(int id);
+    // 轮询服务端数据修订号：远端（手机/其它设备）数据落地后静默刷新列表，
+    // 否则局域网同步拉到的内容要等用户操作界面才可见 —— 看起来就像「没同步」。
+    void pollRemoteChanges();
 
 private:
     // Qt Designer-generated layout object (mainwindow.ui -> ui_mainwindow.h)
@@ -218,6 +221,9 @@ private:
     // 系统托盘
     QSystemTrayIcon *m_tray = nullptr;
     bool m_trayExiting = false;   // 托盘菜单「退出」置位：关窗不再拦截
+    // 远端变更监视：轮询 /api/0/sync/revision。初始为 -1（首次只记录基线，不刷新）
+    QTimer *m_remoteTimer = nullptr;
+    qint64 m_remoteRevision = -1;
 };
 
 } // namespace awqtui

@@ -78,6 +78,9 @@ public:
     QNetworkReply *applySnapshot(const QJsonObject &snap);                // POST /apply
     QNetworkReply *pushSnapshot(const QJsonObject &snap);                 // POST /push
     QNetworkReply *getSyncStatus();                                       // GET /status
+    // GET /revision：数据修订号。远端数据落地后该值才变，客户端低频轮询它来决定
+    // 是否刷新列表（无变更的自动同步轮不写日志，不能靠日志判断）
+    QNetworkReply *getSyncRevision();
     QNetworkReply *getTrash(const QString &kind = QString());             // GET /trash
     QNetworkReply *restoreTrash(qint64 id);                               // POST /trash/<id>/restore
     QNetworkReply *deleteTrash(qint64 id);                                // DELETE /trash/<id>

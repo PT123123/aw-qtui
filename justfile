@@ -1,6 +1,7 @@
 # justfile —— aw-qtui 任务编排器（最顶层入口）
 #
-# 运行（Windows Terminal / PowerShell 直接敲 just；无需 Developer Command Prompt）：
+# 运行（Windows Terminal / PowerShell 7 直接敲 just；无需 Developer Command Prompt，
+#       也不依赖 Git Bash / cmd.exe —— 所有 recipe 都是 PowerShell 7 脚本）：
 #   just                显示帮助
 #   just release        构建 Release 客户端 + 服务端 + 部署 + 发通知
 #   just debug          构建 Debug 客户端 + 服务端
@@ -15,17 +16,22 @@
 #   just run            运行 build/awqtui.exe
 #   just notify         发送 Windows Toast 通知
 #   just clean          清理 build / build-dbg / build-asan / server-src
-#   just clean-all      同 clean（build/ 已含 release 打包产物）
+#   just clean-all      同 clean，并额外清理 dist/
 #
 # 设计：本 justfile 只做「任务编排」，真正的编译引擎是 cmake -G Ninja（ninja 调 cl），
-#       服务端是 cargo。VC / Windows SDK 环境由 tools/vcenv.sh 注入（不依赖 Developer Prompt）。
-#       recipe 全部以 Git bash 解释，命令中的中文仅出现在注释；执行语句保持 ASCII。
+#       服务端是 cargo。VC / Windows SDK 环境由 tools/vcenv.ps1 注入（不依赖 Developer Prompt）。
+#       每个 recipe 首行是 `#!pwsh -NoProfile` shebang：just 会把整段 recipe 写成临时脚本
+#       交给 PowerShell 7 执行，因此多行之间变量/函数可共享（注意 just 的 shebang 只接受
+#       一个参数，故只写 -NoProfile）。需严格失败即停的 recipe 首行显式声明
+#       $ErrorActionPreference / $PSNativeCommandUseErrorActionPreference。
 #       覆盖「变量」用 just VAR=... recipe（如 just QT="C:/Qt/6.8.3/msvc2022_64" release）。
 #       覆盖「recipe 参数」用位置参数（本版本 just 不解析 name=value 命名参数）：
 #         just build Debug build-dbg / just dist 0.1.1 / just run 8080 / just install C:/path
 #   QT=  VS_DIR=  SDKROOT=  VSWHERE=  VCVER=  SDKVERSION=  SERVER=  BUILD=  DBG=
 
-# ---------- 变量（export 的会进入 recipe 环境，供 tools/vcenv.sh 读取） ----------
+set shell := ["pwsh", "-NoProfile", "-Command"]
+
+# ---------- 变量（export 的会进入 recipe 环境，供 tools/vcenv.ps1 读取） ----------
 export QT        := "C:/Qt/6.8.3/msvc2022_64"
 export VS_DIR    := "C:/Program Files/Microsoft Visual Studio/2022/Community"
 export SDKROOT   := "C:/Program Files (x86)/Windows Kits/10"
@@ -38,157 +44,227 @@ DBG   := "build-dbg"
 CFG   := "Release"
 SERVER := "1"
 
-VCENV := "tools/vcenv.sh"
+VCENV := "tools/vcenv.ps1"
 
 # ---------- 帮助（默认目标） ----------
 #[default]
 help:
-    @echo "aw-qtui build & task targets (just):"
-    @echo "  just release       Release client + server + deploy + notify (default: just)"
-    @echo "  just debug         Debug client + server"
-    @echo "  just build         Release client only"
-    @echo "  just build-dbg     Debug client only"
-    @echo "  just server        build & deploy aw-server.exe (full /api/0 + /inbox + /todo) to build/server/"
-    @echo "  just server-aw-server  alias of server (backward compat)"
-    @echo "  just deploy        deploy Qt runtimes (windeployqt)"
-    @echo "  just stage-dist     暂存正式版到 build/dist/"
-    @echo "  just dist          package dist/aw-qtui-<ver>-win64.zip (bump +0.01)"
-    @echo "  just deploy-workshop  build release & copy to c:/workshop/aw-qtui-<ver> (patch +1)"
-    @echo "  just install       copy deployed build/ into install dir"
-    @echo "  just asan          AddressSanitizer build"
-    @echo "  just selftest      compile & run TodoStore self-test"
-    @echo "  just run           run build/awqtui.exe"
-    @echo "  just notify        send Windows Toast notification"
-    @echo "  just clean         clean build / build-dbg / build-asan / server-src"
-    @echo "  just clean-all     also clean dist/"
-    @echo "overrides: QT= VS_DIR= SDKROOT= VSWHERE= VCVER= SDKVERSION= SERVER= BUILD= DBG="
+    #!pwsh -NoProfile
+    Write-Host 'aw-qtui build & task targets (just):'
+    Write-Host '  just release       Release client + server + deploy + notify (default: just)'
+    Write-Host '  just debug         Debug client + server'
+    Write-Host '  just build         Release client only'
+    Write-Host '  just build-dbg     Debug client only'
+    Write-Host '  just server        build & deploy aw-server.exe (full /api/0 + /inbox + /todo) to build/server/'
+    Write-Host '  just server-aw-server  alias of server (backward compat)'
+    Write-Host '  just deploy        deploy Qt runtimes (windeployqt)'
+    Write-Host '  just stage-dist     暂存正式版到 build/dist/'
+    Write-Host '  just dist          package dist/aw-qtui-<ver>-win64.zip (bump +0.01)'
+    Write-Host '  just deploy-workshop  build release & copy to c:/workshop/aw-qtui-<ver> (patch +1)'
+    Write-Host '  just install       copy deployed build/ into install dir'
+    Write-Host '  just asan          AddressSanitizer build'
+    Write-Host '  just selftest      compile & run TodoStore self-test'
+    Write-Host '  just run           run build/awqtui.exe'
+    Write-Host '  just notify        send Windows Toast notification'
+    Write-Host '  just clean         clean build / build-dbg / build-asan / server-src'
+    Write-Host '  just clean-all     also clean dist/'
+    Write-Host 'overrides: QT= VS_DIR= SDKROOT= VSWHERE= VCVER= SDKVERSION= SERVER= BUILD= DBG='
 
 # ---------- 客户端：cmake -G Ninja + cmake --build ----------
 build cfg="Release" builddir="build":
-    #!C:/Progra~1/Git/bin/bash.exe
-    . "{{VCENV}}"
-    cmake -S . -B {{builddir}} -G Ninja -DCMAKE_BUILD_TYPE={{cfg}} -DQt6_DIR={{QT}}/lib/cmake/Qt6 -DCMAKE_RC_COMPILER="$sdkroot/bin/$sdkver/x64/rc.exe" -DCMAKE_MT="$sdkroot/bin/$sdkver/x64/mt.exe"
-    cmake --build {{builddir}} --config {{cfg}}
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    . '{{VCENV}}'
+    $qtDir = '{{QT}}'
+    $cmakeArgs = @(
+        '-S', '.', '-B', '{{builddir}}', '-G', 'Ninja'
+        "-DCMAKE_BUILD_TYPE={{cfg}}"
+        "-DQt6_DIR=$qtDir/lib/cmake/Qt6"
+        "-DCMAKE_RC_COMPILER=$sdkroot/bin/$sdkver/x64/rc.exe"
+        "-DCMAKE_MT=$sdkroot/bin/$sdkver/x64/mt.exe"
+    )
+    cmake @cmakeArgs
+    cmake --build '{{builddir}}' --config '{{cfg}}'
 
 build-dbg: (build "Debug" "build-dbg")
 
 # ---------- 部署 Qt 运行库 ----------
 deploy:
-    "{{QT}}/bin/windeployqt.exe" --release --no-translations --no-system-d3d-compiler --no-opengl-sw {{BUILD}}/awqtui.exe
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    & '{{QT}}/bin/windeployqt.exe' --release --no-translations --no-system-d3d-compiler --no-opengl-sw '{{BUILD}}/awqtui.exe'
 
 deploy-dbg:
-    "{{QT}}/bin/windeployqt.exe" --debug --no-translations --no-system-d3d-compiler --no-opengl-sw {{DBG}}/awqtui.exe
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    & '{{QT}}/bin/windeployqt.exe' --debug --no-translations --no-system-d3d-compiler --no-opengl-sw '{{DBG}}/awqtui.exe'
 
 # ---------- 服务端：cargo 编 aw-server workspace（aw-server.exe：/api/0 + /inbox + /todo）并部署 ----------
 server:
-    #!C:/Progra~1/Git/bin/bash.exe
-    . "{{VCENV}}"
-    WS="vendor/aw-server-rust"
-    [ -f "$WS/Cargo.toml" ] || { echo "aw-server-rust workspace not found: run 'git submodule update --init vendor/aw-server-rust'"; exit 1; }
-    echo "[server] workspace: $WS"
-    cargo build --release -p aw-server --manifest-path "$WS/Cargo.toml"
-    SRC="$WS/target/release/aw-server.exe"
-    [ -f "$SRC" ] || { echo "build artifact missing: $SRC"; exit 1; }
-    DST="{{BUILD}}/server/aw-server.exe"
-    mkdir -p "{{BUILD}}/server"
-    mv -f "$DST" "$DST.bak" 2>/dev/null || true
-    cp -f "$SRC" "$DST"
-    rm -f "$DST.bak" 2>/dev/null || true
-    echo "[server] deployed $DST"
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    . '{{VCENV}}'
+    $ws = 'vendor/aw-server-rust'
+    if (-not (Test-Path -LiteralPath "$ws/Cargo.toml")) {
+        throw "aw-server-rust workspace not found: run 'git submodule update --init vendor/aw-server-rust'"
+    }
+    Write-Host "[server] workspace: $ws"
+    cargo build --release -p aw-server --manifest-path "$ws/Cargo.toml"
+    $src = "$ws/target/release/aw-server.exe"
+    if (-not (Test-Path -LiteralPath $src)) { throw "build artifact missing: $src" }
+    $dst = '{{BUILD}}/server/aw-server.exe'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
+    try {
+        Copy-Item -Force -LiteralPath $src -Destination $dst -ErrorAction Stop
+    } catch {
+        throw "cannot overwrite $dst - target may be running; stop awqtui / aw-server.exe and retry. original error: $($_.Exception.Message)"
+    }
+    Write-Host "[server] deployed $dst"
 
 # ---------- 服务端（完整）：与 server 等价（backward compat 别名） ----------
 server-aw-server: server
 
 # ---------- 暂存正式版到 build/dist/ ----------
 stage-dist:
-    #!C:/Progra~1/Git/bin/bash.exe
-    echo "[stage-dist] 暂存正式版到 build/dist/"
-    rm -rf build/dist
-    mkdir -p build/dist
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'
+    Write-Host '[stage-dist] staging release artifacts into build/dist/'
+    $dist = 'build/dist'
+    if (Test-Path -LiteralPath $dist) { Remove-Item -Recurse -Force -LiteralPath $dist }
+    New-Item -ItemType Directory -Force -Path $dist | Out-Null
     # 可执行文件 + DLL
-    cp -f build/awqtui.exe build/dist/ 2>/dev/null || true
-    for f in build/*.dll; do [ -f "$f" ] && cp -f "$f" build/dist/; done
+    if (Test-Path -LiteralPath 'build/awqtui.exe') { Copy-Item -Force -LiteralPath 'build/awqtui.exe' -Destination $dist }
+    Get-ChildItem -Path 'build' -Filter '*.dll' -File -ErrorAction SilentlyContinue |
+        ForEach-Object { Copy-Item -Force -LiteralPath $_.FullName -Destination $dist }
     # Qt 插件目录
-    for d in platforms styles imageformats iconengines networkinformation tls; do
-        [ -d "build/$d" ] && cp -r "build/$d" build/dist/
-    done
+    foreach ($d in 'platforms', 'styles', 'imageformats', 'iconengines', 'networkinformation', 'tls') {
+        $src = "build/$d"
+        if (Test-Path -LiteralPath $src) { Copy-Item -Recurse -Force -LiteralPath $src -Destination "$dist/$d" }
+    }
     # 服务端
-    if [ -f build/server/aw-server.exe ]; then
-        mkdir -p build/dist/server
-        cp -f build/server/aw-server.exe build/dist/server/
-    fi
+    if (Test-Path -LiteralPath 'build/server/aw-server.exe') {
+        New-Item -ItemType Directory -Force -Path "$dist/server" | Out-Null
+        Copy-Item -Force -LiteralPath 'build/server/aw-server.exe' -Destination "$dist/server/"
+    }
     # README
-    [ -f README.md ] && cp -f README.md build/dist/
-    echo "[stage-dist] 完成: build/dist/"
+    if (Test-Path -LiteralPath 'README.md') { Copy-Item -Force -LiteralPath 'README.md' -Destination $dist }
+    Write-Host '[stage-dist] done: build/dist/'
 
 # ---------- 聚合：release / debug ----------
 release:
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
     just build
     just deploy
-    if [ -n "{{SERVER}}" ]; then just server; fi
+    if ('{{SERVER}}') { just server }
     just stage-dist
-    just notify "aw-qtui" "release build complete"
+    just notify 'aw-qtui' 'release build complete'
 
 debug:
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
     just build-dbg
     just deploy-dbg
-    if [ -n "{{SERVER}}" ]; then just server; fi
-    just notify "aw-qtui" "debug build complete"
+    if ('{{SERVER}}') { just server }
+    just notify 'aw-qtui' 'debug build complete'
 
 # ---------- 打包发布 ----------
 # 版本号写位置参数：just dist 0.1.1（just dist version="0.1.1" 会被当成字面量 version=0.1.1）
 dist version="" skip_server="":
-    #!C:/Progra~1/Git/bin/bash.exe
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
     just release
-    ver="{{version}}"
-    ver="${ver#version=}"            # 防御：named 风格调用会收到字面 version=0.1.1
-    args=""
-    [ -n "$ver" ] && args="$args --version $ver"
-    [ -n "{{skip_server}}" ] && args="$args --skip-server"
-    python tools/make_zip.py --root build/dist $args
+    $ver = '{{version}}'
+    $ver = $ver -replace '^version=', ''            # 防御：named 风格调用会收到字面 version=0.1.1
+    $extra = @()
+    if ($ver) { $extra += '--version'; $extra += $ver }
+    if ('{{skip_server}}') { $extra += '--skip-server' }
+    python tools/make_zip.py --root build/dist @extra
 
 # ---------- 部署到 workshop（c:/workshop/aw-qtui-<ver>，patch +1 并写回） ----------
 deploy-workshop:
-    #!C:/Progra~1/Git/bin/bash.exe
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
     just release
     python tools/deploy_workshop.py
 
 # ---------- 安装（把已部署的 build/ 拷贝到安装目录） ----------
 install install_dir="":
-    #!C:/Progra~1/Git/bin/bash.exe
-    target="{{install_dir}}"
-    [ -z "$target" ] && target="$LOCALAPPDATA/Programs/aw-qtui"
-    mkdir -p "$target"
-    rc=0
-    robocopy build "$target" /E /XD CMakeFiles *.obj *.ilk *.pdb .ninja CMakeCache.txt cmake_install.cmake build.ninja CTestTestfile.cmake awqtui_autogen server-src >/dev/null || rc=$?
-    if [ "$rc" -ge 8 ]; then echo "robocopy install failed rc=$rc"; exit 1; fi
-    echo "[install] deployed to $target"
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'
+    $target = '{{install_dir}}'
+    if (-not $target) { $target = Join-Path $env:LOCALAPPDATA 'Programs/aw-qtui' }
+    New-Item -ItemType Directory -Force -Path $target | Out-Null
+    # robocopy 退出码 0-7 均为成功、>=8 才是失败，故此处不启用「native 失败即抛」
+    robocopy build $target /E /XD CMakeFiles *.obj *.ilk *.pdb .ninja CMakeCache.txt cmake_install.cmake build.ninja CTestTestfile.cmake awqtui_autogen server-src | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "robocopy install failed rc=$LASTEXITCODE" }
+    Write-Host "[install] deployed to $target"
 
 # ---------- AddressSanitizer 诊断构建 ----------
 asan:
-    #!C:/Progra~1/Git/bin/bash.exe
-    . "{{VCENV}}"
-    cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Release -DQt6_DIR={{QT}}/lib/cmake/Qt6 -DCMAKE_RC_COMPILER="$sdkroot/bin/$sdkver/x64/rc.exe" -DCMAKE_MT="$sdkroot/bin/$sdkver/x64/mt.exe" -DCMAKE_CXX_FLAGS="/fsanitize=address /Zi" -DCMAKE_EXE_LINKER_FLAGS="/fsanitize=address"
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    . '{{VCENV}}'
+    $qtDir = '{{QT}}'
+    $cmakeArgs = @(
+        '-S', '.', '-B', 'build-asan', '-G', 'Ninja'
+        '-DCMAKE_BUILD_TYPE=Release'
+        "-DQt6_DIR=$qtDir/lib/cmake/Qt6"
+        "-DCMAKE_RC_COMPILER=$sdkroot/bin/$sdkver/x64/rc.exe"
+        "-DCMAKE_MT=$sdkroot/bin/$sdkver/x64/mt.exe"
+        '-DCMAKE_CXX_FLAGS=/fsanitize=address /Zi'
+        '-DCMAKE_EXE_LINKER_FLAGS=/fsanitize=address'
+    )
+    cmake @cmakeArgs
     cmake --build build-asan --config Release
-    "{{QT}}/bin/windeployqt.exe" --release --no-translations --no-system-d3d-compiler --no-opengl-sw build-asan/awqtui.exe
+    & '{{QT}}/bin/windeployqt.exe' --release --no-translations --no-system-d3d-compiler --no-opengl-sw build-asan/awqtui.exe
 
 # ---------- TodoStore 自测 ----------
 selftest:
-    #!C:/Progra~1/Git/bin/bash.exe
-    . "{{VCENV}}"
-    "{{QT}}/bin/moc.exe" src/todostore.h -o tools/moc_todostore.cpp -I src -I "{{QT}}/include"
-    cl /std:c++17 /permissive- /Zc:__cplusplus /EHsc /utf-8 /DQT_CORE_LIB /I"{{QT}}/include" /I"{{QT}}/include/QtCore" /I"{{QT}}/mkspecs/win32-msvc" /I src tools/todostore_selftest.cpp tools/moc_todostore.cpp src/todostore.cpp /Fe:tools/todostore_selftest.exe /link "{{QT}}/lib/Qt6Core.lib"
-    echo "selftest built: tools/todostore_selftest.exe (run: tools/todostore_selftest.exe)"
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    . '{{VCENV}}'
+    $qtDir = '{{QT}}'
+    & "$qtDir/bin/moc.exe" src/todostore.h -o tools/moc_todostore.cpp -I src -I "$qtDir/include"
+    $clArgs = @(
+        '/std:c++17', '/permissive-', '/Zc:__cplusplus', '/EHsc', '/utf-8', '/DQT_CORE_LIB'
+        "/I$qtDir/include", "/I$qtDir/include/QtCore", "/I$qtDir/mkspecs/win32-msvc", '/I', 'src'
+        'tools/todostore_selftest.cpp', 'tools/moc_todostore.cpp', 'src/todostore.cpp'
+        '/Fe:tools/todostore_selftest.exe'
+        '/link', "$qtDir/lib/Qt6Core.lib"
+    )
+    cl @clArgs
+    Write-Host 'selftest built: tools/todostore_selftest.exe (run: tools/todostore_selftest.exe)'
 
 # ---------- 运行 ----------
 run port="":
-    #!C:/Progra~1/Git/bin/bash.exe
-    if [ -n "{{port}}" ]; then cmd //c start "" "$(cygpath -w "$(pwd)/build/awqtui.exe")" --url http://127.0.0.1:{{port}}; else cmd //c start "" "$(cygpath -w "$(pwd)/build/awqtui.exe")"; fi
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'
+    $exe = Join-Path (Get-Location).Path 'build/awqtui.exe'
+    if ('{{port}}') {
+        Start-Process -FilePath $exe -ArgumentList '--url', "http://127.0.0.1:{{port}}"
+    } else {
+        Start-Process -FilePath $exe
+    }
 
 # ---------- 通知（Windows Toast；未装 BurntToast 时降级为控制台输出） ----------
 notify title="aw-qtui" message="build complete":
-    powershell -NoProfile -Command 'if (Get-Module -ListAvailable -Name BurntToast) { Import-Module BurntToast; New-BurntToastNotification -Text "{{title}}", "{{message}}" } else { Write-Host "[notify] BurntToast not installed -> {{title}}: {{message}}" }'
+    #!pwsh -NoProfile
+    if (Get-Module -ListAvailable -Name BurntToast) {
+        Import-Module BurntToast
+        New-BurntToastNotification -Text '{{title}}', '{{message}}'
+    } else {
+        Write-Host "[notify] BurntToast not installed -> {{title}}: {{message}}"
+    }
 
 # ---------- 清理 ----------
 clean:
-    rm -rf build build-dbg build-asan server-src tools/moc_todostore.cpp tools/todostore_selftest.exe
+    #!pwsh -NoProfile
+    foreach ($t in 'build', 'build-dbg', 'build-asan', 'server-src', 'tools/moc_todostore.cpp', 'tools/todostore_selftest.exe') {
+        if (Test-Path -LiteralPath $t) { Remove-Item -Recurse -Force -LiteralPath $t }
+    }
+
+clean-all:
+    #!pwsh -NoProfile
+    just clean
+    if (Test-Path -LiteralPath 'dist') { Remove-Item -Recurse -Force -LiteralPath 'dist' }
