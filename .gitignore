@@ -33,6 +33,11 @@ Thumbs.db
 .workbuddy/
 # commandcode 临时工作目录（非项目源码）
 .commandcode/
+# zcode 临时工作目录（非项目源码）
+.zcode/
+# Python 字节码缓存
+__pycache__/
+*.pyc
 
 # 运行时 SQLite 数据库（inbox / todo 本地存储）
 *.db

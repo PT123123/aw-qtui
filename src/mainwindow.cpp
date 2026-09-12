@@ -41,6 +41,8 @@
 #include <QGraphicsOpacityEffect>
 #include <QGuiApplication>
 #include <QHBoxLayout>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QLabel>
@@ -184,6 +186,13 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     connect(t, &QTimer::timeout, this, &MainWindow::updateStatus);
     t->start(30000);
     QTimer::singleShot(0, this, &MainWindow::updateStatus);
+    // 远端变更监视：服务端每有远端数据落地就递增 revision，这里低频轮询，值变了才刷新。
+    // 15 秒既有「即时感」，又不会在连续同步时反复重建列表。
+    m_remoteTimer = new QTimer(this);
+    m_remoteTimer->setInterval(15000);
+    connect(m_remoteTimer, &QTimer::timeout, this, &MainWindow::pollRemoteChanges);
+    m_remoteTimer->start();
+    QTimer::singleShot(3000, this, &MainWindow::pollRemoteChanges); // 首次只取基线，不刷新
     // 窗口显示后应用 DWM 系统背景（Mica/Acrylic），需 HWND 就绪
     QTimer::singleShot(0, this, &MainWindow::applyDwmBackdrop);
 
@@ -624,7 +633,10 @@ void MainWindow::switchPage(int index)
         // 进入局域网同步界面：启动 UDP 广播发现 + 网络环境自动开启同步 + 定时刷新
         m_sync->onEnteredSyncPage();
     } else if (m_prevPage == PAGE_SYNC) {
-        // 从同步页切走时停止广播与定时刷新（避免后台偷偷广播）
+        // 从同步页切走：停掉本页的定时刷新。
+        // discoveryStop 保留调用，但桌面端服务端会把它当 no-op —— 桌面端设备发现必须常驻，
+        // 否则离开页面就等于关掉广播/监听，对端换 IP、换 device id、上下线全都感知不到
+        // （见 aw-sync-rust manager.rs 的 discovery_persistent）。该分支只对 Android 端服务端生效。
         if (m_api)
             m_api->discoveryStop();
         m_sync->stopRefresh();
@@ -682,6 +694,47 @@ void MainWindow::updateStatus()
 {
     // 设备名称/操作系统已移入设置对话框，此处仅维持同步心跳
     m_sync->heartbeat();
+}
+
+// 远端变更监视：轮询 GET /api/0/sync/revision。
+// 修订号只在本机业务库被「远端」改动过（快照合并有新应用/归档）时递增，所以值变了
+// 就说明有远端数据落地 → 静默刷新列表。没有它的时候，服务端就算已经把手机的数据拉
+// 回来了，界面也不会重载，用户看到的和「根本没同步」一模一样。
+void MainWindow::pollRemoteChanges()
+{
+    if (!m_api)
+        return;
+    // 用户正在弹窗里编辑/确认时不打断，等下一轮
+    if (QApplication::activeModalWidget())
+        return;
+
+    QNetworkReply *r = m_api->getSyncRevision();
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        r->deleteLater();
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err))
+            return; // 服务端不可用或旧版无此端点：静默忽略，不影响其它功能
+        const qint64 rev =
+            doc.object().value(QStringLiteral("revision")).toVariant().toLongLong();
+        if (m_remoteRevision < 0) { // 首次：只记录基线，避免启动时白刷一遍
+            m_remoteRevision = rev;
+            return;
+        }
+        if (rev == m_remoteRevision)
+            return;
+        m_remoteRevision = rev;
+        // 走轻量刷新入口：不用 refreshAll —— 它会再触发一轮局域网拉取，而数据已经落地了
+        if (m_inbox) {
+            m_inbox->loadTagTree();
+            m_inbox->loadNotes(true);
+        }
+        if (m_todo)
+            m_todo->refresh();
+        // 活动页刷新较重（图表重建）：只在正显示时刷
+        if (m_activity && m_currentPage == PAGE_ACTIVITY)
+            m_activity->refresh();
+    });
 }
 
 QStringList MainWindow::applyShortcuts()

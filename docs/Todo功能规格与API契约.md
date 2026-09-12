@@ -332,27 +332,27 @@ CREATE INDEX IF NOT EXISTS idx_todos_synced_at ON todos(synced_at);
 
 ### 3.7 curl 示例
 
-```bash
-BASE=http://127.0.0.1:5600
-DEV=my-device-0001
+```powershell
+$BASE = 'http://127.0.0.1:5600'
+$DEV  = 'my-device-0001'
 
 # 列出全部（含已完成）
-curl -H "X-Device-ID: $DEV" "$BASE/inbox/todos"
+curl.exe -H "X-Device-ID: $DEV" "$BASE/inbox/todos"
 
 # 只要未完成
-curl -H "X-Device-ID: $DEV" "$BASE/inbox/todos?completed=false"
+curl.exe -H "X-Device-ID: $DEV" "$BASE/inbox/todos?completed=false"
 
 # 创建
-curl -X POST -H "Content-Type: application/json" -H "X-Device-ID: $DEV" \
-  -d '{"title":"写文档","content":"脱稿","priority":3,"tags":["工作"]}' \
+curl.exe -X POST -H "Content-Type: application/json" -H "X-Device-ID: $DEV" `
+  -d '{"title":"写文档","content":"脱稿","priority":3,"tags":["工作"]}' `
   "$BASE/inbox/todos"
 
 # 更新（部分字段）
-curl -X PUT -H "Content-Type: application/json" -H "X-Device-ID: $DEV" \
+curl.exe -X PUT -H "Content-Type: application/json" -H "X-Device-ID: $DEV" `
   -d '{"completed":true}' "$BASE/inbox/todos/12"
 
 # 软删除
-curl -X DELETE -H "X-Device-ID: $DEV" "$BASE/inbox/todos/12"
+curl.exe -X DELETE -H "X-Device-ID: $DEV" "$BASE/inbox/todos/12"
 ```
 
 ### 3.8 已知契约缺口（照搬时请一并复现或改进）

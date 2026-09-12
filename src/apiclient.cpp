@@ -314,6 +314,11 @@ QNetworkReply *ApiClient::getSyncStatus()
     return get(QStringLiteral("/api/0/sync/status"));
 }
 
+QNetworkReply *ApiClient::getSyncRevision()
+{
+    return get(QStringLiteral("/api/0/sync/revision"));
+}
+
 QNetworkReply *ApiClient::getTrash(const QString &kind)
 {
     QString path = QStringLiteral("/api/0/sync/trash");

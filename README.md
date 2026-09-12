@@ -80,7 +80,7 @@ python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt
 
 ### 构建客户端（默认）
 
-```bash
+```powershell
 just release     # Release 客户端 + 服务端 + 部署 + 通知（默认 just 是 help）
 just build       # 仅 Release 客户端（不带服务端）
 just debug       # Debug 客户端 + 服务端
@@ -93,7 +93,7 @@ Debug/Release 及各入口用法见 [Debug / Release 构建](#debug--release-构
 
 ### 单独构建服务端（aw-server.exe）
 
-```bash
+```powershell
 just server     # 构建并部署到 build/server/aw-server.exe
 ```
 
@@ -104,7 +104,7 @@ just server     # 构建并部署到 build/server/aw-server.exe
 
 ### 联合构建（客户端 + 服务端）
 
-```bash
+```powershell
 just release         # = Release 客户端 + 服务端
 just SERVER= release # 仅客户端（跳过服务端）
 ```
@@ -115,10 +115,10 @@ just SERVER= release # 仅客户端（跳过服务端）
 
 ### Release 打包
 
-```bash
+```powershell
 just dist                       # 版本 +0.01 自动递增并写回 CMakeLists.txt
-just dist VERSION=0.2.0         # 指定版本号（不自动加、不写回）
-just dist SKIP_SERVER=1         # 发布纯客户端包（不含服务端）
+just dist version=0.2.0         # 指定版本号（不自动加、不写回）
+just dist skip_server=1         # 发布纯客户端包（不含服务端）
 ```
 
 产物：`dist\aw-qtui-<版本>-win64\`（awqtui.exe + Qt DLL/plugins + aw-server.exe + README）
@@ -247,7 +247,9 @@ git clone --recurse-submodules git@github.com:PT123123/aw-qtui.git
   客户端经 `--dbpath` 指定活动数据位置，inbox/todo 落在服务端工作目录（与 aw-server.db 同目录）。
 - 防火墙放行：server 监听 `0.0.0.0:5600` 后，首次启动检测入站规则缺失则**主动弹 UAC 请求授权**——
   **提权运行 aw-qtui 自身**（`runas` + `--firewall-allow`，UAC 授权对象是 aw-qtui，而非系统工具 net/netsh），
-  提权实例执行 `netsh advfirewall` 添加规则（规则名 `aw-qtui-server`，仅限专用网络 profile）后静默退出；
+  提权实例执行 `netsh advfirewall` 添加规则（规则名 `aw-qtui-server` / `aw-qtui-server-udp`，
+  覆盖**专用 + 公用**两个网络配置文件——只绑专用时，被 Windows 判为公用网络的 Wi-Fi/热点会
+  静默丢弃入站广播与连接，表现为局域网里彻底发现不到对端；添加前先删同名旧规则以保证幂等）后静默退出；
   用户确认即放行，无需手动；拒绝/未提权则仅本机可用，下次启动重试。
 - 服务端未启动/外部地址不可达：UI 保持可用，收件箱/同步页显示离线徽标「已离线 · 本地已存/待同步」，
   断线自动重连，本地数据离线优先（写入待同步队列，恢复后自动补推）。
@@ -316,9 +318,9 @@ PT123123/aw-qtui ── submodule ──▶ vendor/aw-server-rust（唯一服务
 ```
 aw-qtui/
 ├── CMakeLists.txt
-├── justfile                  # 任务编排入口（just：客户端/服务端/dist/install/asan/notify/selftest/run）
+├── justfile                  # 任务编排入口（just：客户端/服务端/dist/install/asan/notify/selftest/run；recipe 均为 PowerShell 7 脚本）
 ├── tools/
-│   ├── vcenv.sh              # VC / Windows SDK 环境注入（被 justfile recipe source，无需 Developer Prompt）
+│   ├── vcenv.ps1             # VC / Windows SDK 环境注入（被 justfile recipe dot-source，无需 Developer Prompt）
 │   └── make_zip.py           # 标准库打包脚本
 ├── vendor/                    # git submodule：aw-server-rust（唯一服务端源码，融合工作区）
 ├── src/

@@ -164,6 +164,7 @@ bool ServerLauncher::firewallRuleExists()
 {
 #ifdef Q_OS_WIN
     // 两条规则都要就位：TCP 5600（HTTP 同步）+ UDP 46000（局域网发现广播）
+    // 除「存在」外还要求覆盖「公用」配置文件，理由见 applyFirewallRule 的注释。
     auto checkOne = [](const QString &ruleName) -> bool {
         QProcess p;
         p.start(QStringLiteral("netsh"),
@@ -171,7 +172,24 @@ bool ServerLauncher::firewallRuleExists()
                  QStringLiteral("rule"), QStringLiteral("name=") + ruleName});
         if (!p.waitForFinished(3000))
             return false;
-        return p.exitCode() == 0;
+        if (p.exitCode() != 0)
+            return false; // 规则不存在时 netsh 返回 1
+        // 只看「配置文件」那一行：其余字段（本地 IP / 远程端口）都会写「任何」，
+        // 对整段输出做 contains 会永远命中，检查就失去意义。
+        const QString out = QString::fromLocal8Bit(p.readAllStandardOutput());
+        const QStringList lines = out.split(QChar('\n'), Qt::SkipEmptyParts);
+        for (const QString &raw : lines) {
+            const QString line = raw.trimmed();
+            if (!line.contains(QStringLiteral("配置文件"))
+                && !line.contains(QStringLiteral("Profiles"), Qt::CaseInsensitive))
+                continue;
+            return line.contains(QStringLiteral("公用"))
+                || line.contains(QStringLiteral("任何"))
+                || line.contains(QStringLiteral("Public"), Qt::CaseInsensitive)
+                || line.contains(QStringLiteral("All"), Qt::CaseInsensitive)
+                || line.contains(QStringLiteral("Any"), Qt::CaseInsensitive);
+        }
+        return false;
     };
     return checkOne(QLatin1String(kServerFirewallRule))
         && checkOne(QLatin1String(kServerFirewallRuleUdp));
@@ -219,6 +237,22 @@ int ServerLauncher::applyFirewallRule()
     // 两条规则：TCP 5600（HTTP 同步端口）+ UDP 46000（局域网设备发现广播端口）
     // aw-sync-rust 的 discovery.rs 在 UDP 46000 收发广播，缺这条规则时 Windows 防火墙
     // 会静默丢弃安卓端发来的发现包，导致两端都看不到对方。
+    //
+    // profile 必须同时覆盖「专用」和「公用」：Windows 把当前网络判为公用时，只放行
+    // 专用 profile 的规则会被完全忽略（入站广播与连接一律丢弃，且没有任何提示）。
+    // 家庭路由 / 手机热点很容易被归类为公用，用户也不会专门去改 —— 只绑专用 profile
+    // 等于把「局域网发现」这条链路赌在网络分类上，症状是彻底发现不到对端。
+    const QStringList delTargets{QLatin1String(kServerFirewallRule),
+                                 QLatin1String(kServerFirewallRuleUdp)};
+    // 先删同名旧规则再添加，保证幂等：升级场景下旧规则只覆盖专用 profile，
+    // 直接 add 会因同名而失败（或残留旧规则），必须先清掉。
+    // （netsh 按名字删除会一次删掉所有同名规则，历史上重复添加的副本也一并清掉。）
+    for (const QString &name : delTargets) {
+        QProcess::execute(QStringLiteral("netsh"),
+                          {QStringLiteral("advfirewall"), QStringLiteral("firewall"),
+                           QStringLiteral("delete"), QStringLiteral("rule"),
+                           QStringLiteral("name=") + name});
+    }
     const QStringList tcpArgs{
         QStringLiteral("advfirewall"), QStringLiteral("firewall"), QStringLiteral("add"),
         QStringLiteral("rule"),
@@ -226,7 +260,7 @@ int ServerLauncher::applyFirewallRule()
         QStringLiteral("dir=in"), QStringLiteral("action=allow"),
         QStringLiteral("protocol=TCP"),
         QStringLiteral("localport=%1").arg(kServerPort),
-        QStringLiteral("profile=private")};
+        QStringLiteral("profile=private,public")};
     const QStringList udpArgs{
         QStringLiteral("advfirewall"), QStringLiteral("firewall"), QStringLiteral("add"),
         QStringLiteral("rule"),
@@ -234,7 +268,7 @@ int ServerLauncher::applyFirewallRule()
         QStringLiteral("dir=in"), QStringLiteral("action=allow"),
         QStringLiteral("protocol=UDP"),
         QStringLiteral("localport=%1").arg(kServerDiscoveryPort),
-        QStringLiteral("profile=private")};
+        QStringLiteral("profile=private,public")};
     const int tcpRc = QProcess::execute(QStringLiteral("netsh"), tcpArgs);
     const int udpRc = QProcess::execute(QStringLiteral("netsh"), udpArgs);
     // 任一条失败都返回非 0（外层 --firewall-allow 分支据此判定）
