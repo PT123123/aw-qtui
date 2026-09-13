@@ -105,6 +105,7 @@ private:
     // ---- 离线优先（本地存储） ----
     void renderLocal();               // 服务端不可用时，用本地缓存渲染（含客户端过滤/排序）
     void rebuildTagsFromLocal();      // 离线时从本地笔记统计标签
+    void rebuildFlatTagsFromTree();   // 在线：标签树拍平重建联想池 m_tags（编辑器 #tag 联想）
     void createLocal(const QString &content, const QStringList &tags);
     void updateLocal(qint64 id, const QString &content, const QStringList &tags);
     void deleteLocal(qint64 id);

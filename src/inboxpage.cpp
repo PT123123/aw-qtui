@@ -3,6 +3,7 @@
 #include "ui_inboxpage.h"
 
 #include "apiclient.h"
+#include "globalshortcut.h" // raiseWindowToFront：热键弹窗抢前台
 #include "theme.h"
 #include "widgets.h"
 
@@ -471,6 +472,22 @@ void InboxPage::rebuildTagsFromLocal()
     rebuildTagTree();
 }
 
+// 在线模式只拉标签树（refreshAll -> loadTagTree），此前从不填 m_tags，导致新建笔记
+// 对话框的 #tag 联想池永远为空（离线反而有 rebuildTagsFromLocal 兜底）。这里把树
+// 拍平回 m_tags，两种模式的联想行为保持一致。
+void InboxPage::rebuildFlatTagsFromTree()
+{
+    m_tags.clear();
+    std::function<void(const QList<TagNode> &)> walk = [&](const QList<TagNode> &nodes) {
+        for (const TagNode &n : nodes) {
+            if (!n.path.isEmpty())
+                m_tags << DetailedTag{n.path, n.count, QString()};
+            walk(n.children);
+        }
+    };
+    walk(m_tagRoots);
+}
+
 void InboxPage::createLocal(const QString &content, const QStringList &tags)
 {
     const qint64 id = m_store.insertLocal(content, tags, m_api->deviceId());
@@ -681,6 +698,7 @@ void InboxPage::loadTagTree()
             if (v.isObject())
                 m_tagRoots << TagNode::fromJson(v.toObject());
         }
+        rebuildFlatTagsFromTree();
         rebuildTagTree();
     });
 }
@@ -1058,8 +1076,7 @@ void InboxPage::onNewNote()
 {
     // 单例：已有新建笔记窗口时，直接置前并返回，不重复创建
     if (m_newNoteDialog && m_newNoteDialog->isVisible()) {
-        m_newNoteDialog->raise();
-        m_newNoteDialog->activateWindow();
+        raiseWindowToFront(m_newNoteDialog);
         return;
     }
 
@@ -1078,6 +1095,14 @@ void InboxPage::onNewNote()
         m_newNoteDialog->move(x, y);
     }
 
+    // 全局热键触发时主窗口多半隐藏/失焦，Windows 前台锁会把 exec() 弹出的模态框
+    // 压到当前前台窗口后面且不给键盘焦点（表现为 Alt+N 要按两次才出来）。先 show，
+    // 借热键属于用户输入的窗口期 SetForegroundWindow 抢前台，再进模态事件循环。
+    m_newNoteDialog->show();
+    raiseWindowToFront(m_newNoteDialog);
+
+    // 对话框销毁前记下所在屏：发送结果气泡要弹回同一块屏
+    QScreen *dlgScreen = m_newNoteDialog->screen();
     if (m_newNoteDialog->exec() != QDialog::Accepted) {
         m_newNoteDialog->deleteLater();
         m_newNoteDialog.clear();
@@ -1093,10 +1118,11 @@ void InboxPage::onNewNote()
     if (isOffline()) {
         // 服务端不可用：直接写入本地，标记待同步
         createLocal(text, tags);
+        showToast(QStringLiteral("✓ 已保存 · 待同步"), dlgScreen);
         return;
     }
     QNetworkReply *r = m_api->createNote(text, tags);
-    connect(r, &QNetworkReply::finished, this, [this, r, text, tags] {
+    connect(r, &QNetworkReply::finished, this, [this, r, text, tags, dlgScreen] {
         QJsonDocument doc;
         QString err;
         if (!ApiClient::parseReply(r, &doc, &err)) {
@@ -1104,10 +1130,12 @@ void InboxPage::onNewNote()
             m_online = false;
             startReconnect();
             createLocal(text, tags);
+            showToast(QStringLiteral("✓ 已保存 · 待同步"), dlgScreen);
             return;
         }
         m_store.applyServerNotes({Note::fromJson(doc.object())});
         m_store.save();
+        showToast(QStringLiteral("✓ 已发送"), dlgScreen);
         // 新建完成：刷新后定位并高亮新笔记（Android refreshAndScrollToNote 语义；
         // 若新笔记不属于当前筛选/搜索，refreshAll 重载后不在列表里则静默跳过）
         m_pendingJumpId = Note::fromJson(doc.object()).id;
