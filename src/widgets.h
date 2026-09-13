@@ -11,6 +11,8 @@
 
 #include "models.h"
 
+class QScreen;
+
 namespace awqtui {
 
 // ISO8601 -> 本地时间 "YYYY-MM-DD HH:MM"
@@ -19,6 +21,11 @@ QString formatLocal(const QString &iso, const QString &fmt = QStringLiteral("yyy
 QString formatRelative(const QString &iso);
 // 从纯文本提取 #tag
 QStringList extractTags(const QString &text);
+
+// 屏幕底部居中的短暂气泡提示（淡入 → 停留 → 淡出后自毁，约 1.8s）。
+// 独立无边框置顶工具窗：不抢焦点、不进任务栏/Alt+Tab，主窗口隐藏时也可见；
+// anchorScreen 为空时取光标所在屏。用于快捷输入提交后的「已发送」等反馈。
+void showToast(const QString &text, QScreen *anchorScreen = nullptr);
 
 // ------------------------------------------------------------------ //
 // 连接状态徽标

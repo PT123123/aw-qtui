@@ -7,6 +7,7 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QCursor>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QGraphicsDropShadowEffect>
@@ -16,6 +17,7 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QRegularExpression>
+#include <QScreen>
 #include <QShowEvent>
 #include <QStyle>
 #include <QTimer>
@@ -70,6 +72,50 @@ QString formatRelative(const QString &iso)
     if (secs < 604800)
         return QStringLiteral("%1 天前").arg(secs / 86400);
     return dt.toString(QStringLiteral("yyyy-MM-dd"));
+}
+
+void showToast(const QString &text, QScreen *anchorScreen)
+{
+    QScreen *screen = anchorScreen;
+    if (!screen)
+        screen = QGuiApplication::screenAt(QCursor::pos());
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    if (!screen)
+        return;
+
+    // 无边框置顶工具窗：WA_ShowWithoutActivating 保证不抢焦点，
+    // Qt::Tool 不进任务栏/Alt+Tab，主窗口隐藏时气泡也照常可见
+    auto *toast = new QWidget(nullptr, Qt::Tool | Qt::FramelessWindowHint
+                                         | Qt::WindowStaysOnTopHint);
+    toast->setAttribute(Qt::WA_ShowWithoutActivating);
+    toast->setAttribute(Qt::WA_TranslucentBackground);
+    auto *lay = new QVBoxLayout(toast);
+    lay->setContentsMargins(0, 0, 0, 0);
+    auto *label = new QLabel(text, toast);
+    label->setStyleSheet(scaleQss(QStringLiteral(
+        "QLabel { color: %1; background: %2; border: 1px solid %3;"
+        " border-radius: 8px; padding: 9px 18px; font-size: 13px; }")
+                            .arg(gTheme->fg, gTheme->bgElev, gTheme->border)));
+    lay->addWidget(label);
+
+    toast->adjustSize();
+    const QRect avail = screen->availableGeometry();
+    toast->move(avail.x() + (avail.width() - toast->width()) / 2,
+                avail.y() + avail.height() - toast->height() - si(90));
+    toast->show();
+
+    // 时间轴：前 10% 淡入、中间停留、后 20% 淡出，结束时 DeleteWhenStopped 自毁
+    auto *anim = new QVariantAnimation(toast);
+    anim->setDuration(1800);
+    anim->setStartValue(0.0);
+    anim->setEndValue(1.0);
+    QObject::connect(anim, &QVariantAnimation::valueChanged, toast, [toast](const QVariant &v) {
+        const double t = v.toDouble();
+        const double opacity = t < 0.1 ? t / 0.1 : t > 0.8 ? (1.0 - t) / 0.2 : 1.0;
+        toast->setWindowOpacity(opacity);
+    });
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 // ------------------------------------------------------------------ //
