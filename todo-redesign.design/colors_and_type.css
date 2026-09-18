@@ -1,0 +1,31 @@
+/* Todo 任务页重设计 —— 暗夜蓝主题（对齐 Qt 端 midnight 主题） */
+:root {
+  --todo-background: #1a1d21;
+  --todo-foreground: #e6e6e6;
+  --todo-muted: #9aa4b0;
+  --todo-muted-foreground: #9aa4b0;
+  --todo-card: #22262c;
+  --todo-card-foreground: #e6e6e6;
+  --todo-primary: #4c8bf5;
+  --todo-primary-foreground: #ffffff;
+  --todo-border: #343a44;
+  --todo-input: #2a2f37;
+  --todo-ring: #4c8bf5;
+  --todo-popover: #2a2f37;
+  --todo-popover-foreground: #e6e6e6;
+  --todo-accent: #4c8bf5;
+  --todo-accent-foreground: #ffffff;
+  --todo-destructive: #e5534b;
+  --todo-destructive-foreground: #ffffff;
+  --todo-success: #3fb950;
+  --todo-warning: #d29922;
+
+  /* radius scale */
+  --todo-radius-sm: 6px;
+  --todo-radius-md: 8px;
+  --todo-radius-lg: 12px;
+  --todo-radius-xl: 16px;
+
+  /* font */
+  --todo-font-sans: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+}

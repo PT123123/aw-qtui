@@ -35,6 +35,7 @@
 #include <QComboBox>
 #include <QEasingCurve>
 #include <QEvent>
+#include <QFileInfo>
 #include <QFont>
 #include <QFontMetrics>
 #include <QFrame>
@@ -50,6 +51,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QProcess>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QScreen>
@@ -338,10 +340,10 @@ void MainWindow::buildUi()
     m_navInbox = makeNavBtn(glyph::Inbox, "笔记");
     inboxSec.layout->addWidget(m_navInbox);
 
-    // ---- 分组 2：任务 ----
+    // ---- 分组 2：待办（分组标题避开与下方「任务」按钮同名） ----
     // 统计类视图合并为单个「专注统计」入口（页内子标签切换），减少侧边栏图标数量
-    NavSection todoSec = makeSection(QStringLiteral("任务"), true);
-    m_navTodo = makeNavBtn(glyph::Checkbox, "TODO");
+    NavSection todoSec = makeSection(QStringLiteral("待办"), true);
+    m_navTodo = makeNavBtn(glyph::Checkbox, "任务");
     m_navFocusStats = makeNavBtn(glyph::BarChart, "专注");
     todoSec.layout->addWidget(m_navTodo);
     todoSec.layout->addWidget(m_navFocusStats);
@@ -983,6 +985,41 @@ void MainWindow::wakeUpAndShow()
     raise();
     activateWindow();
     raiseWindowToFront(this);
+}
+
+// 单实例让位支撑：同版本被再次启动时，请求方要求把本窗口拉到前台
+void MainWindow::raiseToFront()
+{
+    wakeUpAndShow();
+}
+
+// 单实例让位支撑：更新版本请求本实例退出。
+// 顺序很重要 —— 先把用户还没落库的编辑冲刷掉，再拉起新版，最后才 quit。
+// 退出前拉起新版是幂等的：若新版其实已经在跑，它会命中「同版本静默退出」规则，
+// 不会叠加出第二个实例（见 singleinstance.cpp 的 ExitSameVersion 分支）。
+void MainWindow::requestQuitForYield(const QString &newerExe)
+{
+    qInfo().noquote() << "[yield] 收到新版让位请求，准备优雅退出。请求方:" << newerExe;
+
+    // 1) 冲刷 debounce 中的编辑（任务标题/备注 250ms 定时提交）
+    if (m_todo)
+        m_todo->flushPendingEdits();
+
+    // 2) 走与托盘「退出」相同的路径：置位后 closeEvent 不再拦截成最小化到托盘
+    m_trayExiting = true;
+
+    // 3) 退出前确保新版在跑（不改变窗口几何/状态，纯接管）
+    if (!newerExe.isEmpty()) {
+        const QFileInfo fi(newerExe);
+        if (fi.exists() && fi.isFile()) {
+            if (!QProcess::startDetached(fi.absoluteFilePath(), QStringList()))
+                qWarning().noquote() << "[yield] 新版拉起失败:" << fi.absoluteFilePath();
+        } else {
+            qWarning().noquote() << "[yield] 新版 exe 不存在，跳过拉起:" << newerExe;
+        }
+    }
+
+    qApp->quit();
 }
 
 void MainWindow::onGlobalHotkey(int id)

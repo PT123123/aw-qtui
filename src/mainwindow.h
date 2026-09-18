@@ -76,6 +76,13 @@ public:
     // 当前页面缩放比（1.0 = 100%）
     qreal zoomScale() const { return m_zoom; }
 
+    // ── 单实例让位支撑（见 src/singleinstance.h）──
+    // 已有同版本实例被再次启动时，把本窗口唤醒到前台
+    void raiseToFront();
+    // 被更新版本请求让位：flush 待提交编辑 → 退出前拉起新版 → 优雅退出。
+    // newerExe 为空则只退出（不改变「谁负责拉起」的责任）。
+    void requestQuitForYield(const QString &newerExe);
+
     // 应用指定主题：更新语义色/全局 QSS、刷新页面内联样式与自绘控件并重绘
     void applyTheme(const QString &themeId);
 

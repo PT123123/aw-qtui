@@ -5,6 +5,7 @@
 #include "config.h"
 #include "mainwindow.h"
 #include "settingsdialog.h"
+#include "singleinstance.h"
 #include "theme.h"
 
 #include <QApplication>
@@ -14,7 +15,6 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QLockFile>
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QTextStream>
@@ -118,6 +118,7 @@ static void debugMessageHandler(QtMsgType type, const QMessageLogContext &ctx, c
     }
     out << QStringLiteral("[%1] %2: %3\n").arg(typeStr).arg(ctx.function ? ctx.function : "?").arg(msg);
     out.flush();
+    logFile.flush();   // 必须落到磁盘：崩溃诊断时进程不会析构，只靠 QTextStream 缓冲会丢掉最后几条
 }
 
 int main(int argc, char *argv[])
@@ -143,16 +144,8 @@ int main(int argc, char *argv[])
     QApplication::setApplicationVersion(kAppVersion);
     QApplication::setOrganizationName(QStringLiteral("aw-qtui"));
 
-    // 单实例互斥：防止双开（QLockFile，崩溃残留锁可被自动接管）
-    const QString lockPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-                             + QStringLiteral("/awqtui.lock");
-    QDir().mkpath(QFileInfo(lockPath).absolutePath());
-    QLockFile lock(lockPath);
-    if (!lock.tryLock(0)) {
-        QMessageBox::information(nullptr, QStringLiteral("aw-qtui"),
-                                 QStringLiteral("aw-qtui 已在运行，本实例将退出。"));
-        return 0;
-    }
+    // 单实例仲裁移到 parser 之后：截图 / 提权辅助模式不参与仲裁（见下方 acquire 调用）。
+    // 语义与规则见 src/singleinstance.h —— 旧版让位给新版，同版本唤起已有窗口。
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
@@ -175,6 +168,27 @@ int main(int argc, char *argv[])
                                        QStringLiteral("dir"));
     parser.addOption(shotSettingsOpt);
     parser.process(app);
+
+    // ── 跨版本单实例仲裁（必须在 exec 之前，会阻塞等旧实例退出）──
+    // 规则：持锁者更旧 → 请求它优雅让位后本实例接管；同版本 → 唤起已有窗口且本实例退出；
+    //       持锁者更新 → 本实例静默退出（不降级抢位）。细节见 src/singleinstance.h。
+    awqtui::SingleInstance instanceGuard;
+    // 截图 / 提权辅助模式跑完即退，既不参与仲裁也不抢锁
+    const bool arbitrate = parser.value(shotOpt).isEmpty() && parser.value(shotSettingsOpt).isEmpty();
+    const awqtui::SingleInstance::Role role = instanceGuard.acquire(arbitrate);
+    if (role != awqtui::SingleInstance::Role::Primary) {
+        const QString detail = instanceGuard.lastDetail();
+        qWarning().noquote() << "[single]" << detail;
+        // 双击启动（无控制台）时给一个明确提示；被脚本拉起时只留日志，不阻塞自动化
+        if (role == awqtui::SingleInstance::Role::ExitOlderBlocks && GetConsoleWindow() == nullptr) {
+            QMessageBox box(QMessageBox::Information, QStringLiteral("aw-qtui"),
+                            QStringLiteral("无法启动：%1").arg(detail), QMessageBox::Ok);
+            box.setWindowFlag(Qt::WindowStaysOnTopHint, true);
+            box.exec();
+        }
+        return 0;
+    }
+    qInfo().noquote() << "[single]" << instanceGuard.lastDetail();
 
     // 应用主题：加载上次保存的主题，更新语义色并生成全局 QSS
     const QString themeId = loadThemeId();
@@ -211,6 +225,13 @@ int main(int argc, char *argv[])
     }
     MainWindow win(url);
     qDebug() << "MainWindow created";
+
+    // 单实例信号只有进入事件循环后才会到达，所以接线放在窗口构造之后即可
+    QObject::connect(&instanceGuard, &awqtui::SingleInstance::raiseRequested,
+                     &win, &MainWindow::raiseToFront);
+    QObject::connect(&instanceGuard, &awqtui::SingleInstance::yieldRequested,
+                     &win, &MainWindow::requestQuitForYield);
+
     win.show();
     qDebug() << "win.show() done, entering exec";
 

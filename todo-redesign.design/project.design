@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "id": "page-todo-redesign",
+      "title": "Todo 任务页重设计",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1789682400000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 1354,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-4fdfd95a",
+          "measuredAt": 1789682051016
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/todo-redesign.html",
+        "interactions": []
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "projectName": "Todo 任务页重设计"
+  }
+}

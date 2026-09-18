@@ -27,6 +27,7 @@
 #include <QRegularExpression>
 #include <QScreen>
 #include <QScrollBar>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QStackedLayout>
 #include <QTimer>
@@ -324,8 +325,8 @@ void InboxPage::applyUiScale()
     if (m_badge)
         m_badge->applyUiScale();
 
-    // 重渲染列表：卡片（NoteCard）在创建时按当前缩放比取样式
-    applyClientFilter();
+    // 重渲染列表：卡片（NoteCard）在创建时按当前缩放比取样式（缩放变化必须无条件重建）
+    applyClientFilter(true);
 }
 
 // ------------------------------------------------------------------ //
@@ -760,6 +761,20 @@ QList<TagNode> InboxPage::buildTagTreeFromExact(const QMap<QString, qint64> &exa
 
 void InboxPage::rebuildTagTree()
 {
+    // 标签树内容签名（路径 + 计数，含当前筛选路径）：一致就不重建。
+    // 重建会 clear() 掉整棵树并重新展开，侧栏会明显闪一下（同步轮询每次都会走到这里）。
+    QString sig = m_currentTag + QLatin1Char('\n');
+    std::function<void(const QList<TagNode> &)> appendSig = [&](const QList<TagNode> &nodes) {
+        for (const TagNode &n : nodes) {
+            sig += n.path + QLatin1Char('\x1f') + QString::number(n.count) + QLatin1Char('\n');
+            appendSig(n.children);
+        }
+    };
+    appendSig(m_tagRoots);
+    if (sig == m_tagTreeSig)
+        return;
+    m_tagTreeSig = sig;
+
     m_tagTree->blockSignals(true);
     m_tagTree->clear();
     std::function<void(QTreeWidgetItem *, const QList<TagNode> &)> addNodes =
@@ -838,8 +853,8 @@ void InboxPage::loadNotes(bool reset)
         ++m_reqGen;
         m_offset = 0;
         m_hasMore = true;
-        m_list->clear();
-        m_notes.clear();
+        // 这里刻意不清空 m_list / m_notes：等回包落地后整体替换。
+        // 提前清空会让列表在请求往返期间空白一下（同步轮询每 15s 就触发一次，表现为闪动）。
     }
     if (!m_hasMore)
         return;
@@ -866,7 +881,7 @@ void InboxPage::loadNotes(bool reset)
         startReconnect();
     });
 
-    connect(r, &QNetworkReply::finished, this, [this, r, gen] {
+    connect(r, &QNetworkReply::finished, this, [this, r, gen, reset] {
         if (gen != m_reqGen) {
             r->deleteLater();
             return; // 过期回包：期间已切离线/已重新加载
@@ -894,7 +909,10 @@ void InboxPage::loadNotes(bool reset)
         m_store.applyServerNotes(batch);
         m_store.save();
         m_hasMore = (batch.size() >= m_limit);
-        appendNotes(batch, false);
+        // 翻页推进：下一页跳过本次已取回的条目。此前只在 reset 时清零、从不递增，
+        // 导致滚动加载永远重复请求第一页（列表里出现重复卡片且越翻越多）
+        m_offset += batch.size();
+        appendNotes(batch, reset);
         setStatus(StatusBadge::State::Connected);
         emit noteCountChanged(m_notes.size());
 
@@ -904,11 +922,23 @@ void InboxPage::loadNotes(bool reset)
     });
 }
 
-void InboxPage::appendNotes(const QList<Note> &notes, bool clear)
+// reset=true：整批替换（首屏/刷新/筛选变更）；false：追加下一页。
+// 列表控件的清空与重建统一交给 applyClientFilter，避免请求期间出现空白帧。
+void InboxPage::appendNotes(const QList<Note> &notes, bool reset)
 {
-    if (clear)
-        m_list->clear();
+    if (reset)
+        m_notes.clear();
+    // offset 分页在两页请求之间服务端数据变动时会错位（新笔记插到前面会把
+    // 上一页末尾的笔记挤进下一页），按 id 去重避免同一笔记出现两张卡片
+    QSet<qint64> seen;
+    if (!reset) {
+        for (const Note &e : m_notes)
+            seen.insert(e.id);
+    }
     for (Note n : notes) {
+        if (seen.contains(n.id))
+            continue;
+        seen.insert(n.id);
         n.pinned = m_store.isPinned(n.id);
         // 服务端笔记 JSON 不携带 comment_parent_id（applyServerNotes 仅在本地镜像保留）：
         // 从本地镜像补回，否则评论笔记在收件箱里不会显示「被评论笔记」的引用预览
@@ -920,14 +950,13 @@ void InboxPage::appendNotes(const QList<Note> &notes, bool clear)
     applyClientFilter();
 }
 
-void InboxPage::applyClientFilter()
+void InboxPage::applyClientFilter(bool force)
 {
     // 防重入：循环内 addItem 会触发 verticalScrollBar::valueChanged → onScroll →
     // loadNotes → 离线时 renderLocal → 本函数重入，内层 m_list->clear() 会删除外层
     // 刚 addItem 的 item，外层继续 setItemWidget 即 use-after-free 崩溃（三个 dump 证实）。
     if (m_rebuilding)
         return;
-    m_rebuilding = true;
     // 标签/搜索过滤已在数据源头完成（在线 ?tag= 服务端过滤、离线 renderLocal 客户端过滤）
     QList<Note> visible = m_notes;
     // 置顶优先（稳定分区：置顶笔记排在最前，其余保持原顺序）
@@ -940,6 +969,28 @@ void InboxPage::applyClientFilter()
             ordered << n;
     visible = ordered;
 
+    // 内容签名：与上次渲染完全一致说明画面上不会有任何变化 → 不重建。
+    // 同步轮询/局域网拉取会周期性回到这里，但绝大多数轮次数据并没有变，
+    // 重建会清空列表（闪一下）并把滚动位置、卡片顺序全部推倒重来。
+    // 注：签名前缀固定非空，保证「空列表」也能正常渲染空状态页。
+    QString sig = QStringLiteral("inbox\n");
+    for (const Note &n : visible) {
+        sig += QString::number(n.id) + QLatin1Char('\x1f') + n.content + QLatin1Char('\x1f')
+               + n.tags.join(QLatin1Char('\x1e')) + QLatin1Char('\x1f')
+               + (n.pinned ? QLatin1Char('1') : QLatin1Char('0')) + QLatin1Char('\x1f')
+               + (n.deleted ? QLatin1Char('1') : QLatin1Char('0')) + QLatin1Char('\x1f')
+               + QString::number(n.commentParentId) + QLatin1Char('\x1f') + n.updatedAt + QLatin1Char('\x1f')
+               + (n.commentParentId != 0 ? parentPreview(n.commentParentId) : QString())
+               + QLatin1Char('\n');
+    }
+    if (!force && m_pendingJumpId == 0 && sig == m_renderSig) {
+        // 本次「刷新」没有可见变化：顺手清掉待消费的入场动画，避免下次真正的重建莫名淡入
+        m_animateCards = false;
+        return;
+    }
+    m_renderSig = sig;
+
+    m_rebuilding = true;
     m_visibleIds.clear();
     m_list->clear();
     for (const Note &n : visible) {

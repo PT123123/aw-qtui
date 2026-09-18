@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo 任务页重设计</title>
+    <style id="theme-vars">
+:root {
+  --todo-background: #1a1d21;
+  --todo-foreground: #e6e6e6;
+  --todo-muted: #9aa4b0;
+  --todo-muted-foreground: #9aa4b0;
+  --todo-card: #22262c;
+  --todo-card-foreground: #e6e6e6;
+  --todo-primary: #4c8bf5;
+  --todo-primary-foreground: #ffffff;
+  --todo-border: #343a44;
+  --todo-input: #2a2f37;
+  --todo-ring: #4c8bf5;
+  --todo-popover: #2a2f37;
+  --todo-popover-foreground: #e6e6e6;
+  --todo-accent: #4c8bf5;
+  --todo-accent-foreground: #ffffff;
+  --todo-destructive: #e5534b;
+  --todo-destructive-foreground: #ffffff;
+  --todo-success: #3fb950;
+  --todo-warning: #d29922;
+
+  --todo-radius-sm: 6px;
+  --todo-radius-md: 8px;
+  --todo-radius-lg: 12px;
+  --todo-radius-xl: 16px;
+
+  --todo-font-sans: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+}
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--todo-background);
+    --color-foreground: var(--todo-foreground);
+    --color-card: var(--todo-card);
+    --color-card-foreground: var(--todo-card-foreground);
+    --color-popover: var(--todo-popover);
+    --color-popover-foreground: var(--todo-popover-foreground);
+    --color-primary: var(--todo-primary);
+    --color-primary-foreground: var(--todo-primary-foreground);
+    --color-muted: var(--todo-muted);
+    --color-muted-foreground: var(--todo-muted-foreground);
+    --color-accent: var(--todo-accent);
+    --color-accent-foreground: var(--todo-accent-foreground);
+    --color-destructive: var(--todo-destructive);
+    --color-destructive-foreground: var(--todo-destructive-foreground);
+    --color-border: var(--todo-border);
+    --color-input: var(--todo-input);
+    --color-ring: var(--todo-ring);
+    --radius-sm: var(--todo-radius-sm);
+    --radius-md: var(--todo-radius-md);
+    --radius-lg: var(--todo-radius-lg);
+    --radius-xl: var(--todo-radius-xl);
+  }
+  @layer base {
+    body {
+      background: var(--todo-background);
+      color: var(--todo-foreground);
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      font-size: 13px;
+    }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--todo-background); }
+      .text-background { color: var(--todo-background); }
+      .border-background { border-color: var(--todo-background); }
+      .ring-background { --tw-ring-color: var(--todo-background); }
+      .bg-foreground { background-color: var(--todo-foreground); }
+      .text-foreground { color: var(--todo-foreground); }
+      .border-foreground { border-color: var(--todo-foreground); }
+      .ring-foreground { --tw-ring-color: var(--todo-foreground); }
+      .bg-card { background-color: var(--todo-card); }
+      .text-card { color: var(--todo-card); }
+      .border-card { border-color: var(--todo-card); }
+      .ring-card { --tw-ring-color: var(--todo-card); }
+      .bg-card-foreground { background-color: var(--todo-card-foreground); }
+      .text-card-foreground { color: var(--todo-card-foreground); }
+      .border-card-foreground { border-color: var(--todo-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--todo-card-foreground); }
+      .bg-popover { background-color: var(--todo-popover); }
+      .text-popover { color: var(--todo-popover); }
+      .border-popover { border-color: var(--todo-popover); }
+      .ring-popover { --tw-ring-color: var(--todo-popover); }
+      .bg-popover-foreground { background-color: var(--todo-popover-foreground); }
+      .text-popover-foreground { color: var(--todo-popover-foreground); }
+      .border-popover-foreground { border-color: var(--todo-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--todo-popover-foreground); }
+      .bg-primary { background-color: var(--todo-primary); }
+      .text-primary { color: var(--todo-primary); }
+      .border-primary { border-color: var(--todo-primary); }
+      .ring-primary { --tw-ring-color: var(--todo-primary); }
+      .bg-primary-foreground { background-color: var(--todo-primary-foreground); }
+      .text-primary-foreground { color: var(--todo-primary-foreground); }
+      .border-primary-foreground { border-color: var(--todo-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--todo-primary-foreground); }
+      .bg-muted { background-color: var(--todo-muted); }
+      .text-muted { color: var(--todo-muted); }
+      .border-muted { border-color: var(--todo-muted); }
+      .ring-muted { --tw-ring-color: var(--todo-muted); }
+      .bg-muted-foreground { background-color: var(--todo-muted-foreground); }
+      .text-muted-foreground { color: var(--todo-muted-foreground); }
+      .border-muted-foreground { border-color: var(--todo-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--todo-muted-foreground); }
+      .bg-accent { background-color: var(--todo-accent); }
+      .text-accent { color: var(--todo-accent); }
+      .border-accent { border-color: var(--todo-accent); }
+      .ring-accent { --tw-ring-color: var(--todo-accent); }
+      .bg-accent-foreground { background-color: var(--todo-accent-foreground); }
+      .text-accent-foreground { color: var(--todo-accent-foreground); }
+      .border-accent-foreground { border-color: var(--todo-accent-foreground); }
+      .ring-accent-foreground { --tw-ring-color: var(--todo-accent-foreground); }
+      .bg-destructive { background-color: var(--todo-destructive); }
+      .text-destructive { color: var(--todo-destructive); }
+      .border-destructive { border-color: var(--todo-destructive); }
+      .ring-destructive { --tw-ring-color: var(--todo-destructive); }
+      .bg-destructive-foreground { background-color: var(--todo-destructive-foreground); }
+      .text-destructive-foreground { color: var(--todo-destructive-foreground); }
+      .border-destructive-foreground { border-color: var(--todo-destructive-foreground); }
+      .ring-destructive-foreground { --tw-ring-color: var(--todo-destructive-foreground); }
+      .bg-border { background-color: var(--todo-border); }
+      .text-border { color: var(--todo-border); }
+      .border-border { border-color: var(--todo-border); }
+      .ring-border { --tw-ring-color: var(--todo-border); }
+      .bg-input { background-color: var(--todo-input); }
+      .text-input { color: var(--todo-input); }
+      .border-input { border-color: var(--todo-input); }
+      .ring-input { --tw-ring-color: var(--todo-input); }
+      .bg-ring { background-color: var(--todo-ring); }
+      .text-ring { color: var(--todo-ring); }
+      .border-ring { border-color: var(--todo-ring); }
+      .ring-ring { --tw-ring-color: var(--todo-ring); }
+    </style>
+    <style>
+/* 自定义滚动条 —— 细窄、低对比 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(52, 58, 68, 0.6);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(76, 139, 245, 0.5); }
+
+/* 复选框自定义 */
+.todo-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid #343a44;
+  border-radius: 5px;
+  background: #2a2f37;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.todo-checkbox:hover { border-color: #4c8bf5; }
+.todo-checkbox:checked {
+  background: #4c8bf5;
+  border-color: #4c8bf5;
+}
+.todo-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* 任务行 hover 动画 */
+.todo-row {
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.todo-row:hover {
+  background: rgba(76, 139, 245, 0.08);
+  border-color: rgba(76, 139, 245, 0.25);
+}
+.todo-row.active {
+  background: rgba(76, 139, 245, 0.14);
+  border-color: rgba(76, 139, 245, 0.55);
+}
+
+/* 视图切换按钮 */
+.view-btn {
+  transition: all 0.15s ease;
+  position: relative;
+}
+.view-btn::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 2px;
+  background: #4c8bf5;
+  border-radius: 2px 2px 0 0;
+  transition: width 0.2s ease;
+}
+.view-btn.active::after { width: 60%; }
+.view-btn.active { color: #4c8bf5; font-weight: 600; }
+
+/* 卡片玻璃质感 */
+.glass-card {
+  background: linear-gradient(180deg, rgba(34, 38, 44, 0.96) 0%, rgba(34, 38, 44, 0.93) 100%);
+  border: 1px solid rgba(52, 58, 68, 0.7);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px);
+}
+
+/* 输入框聚焦光晕 */
+.input-glow:focus {
+  box-shadow: 0 0 0 3px rgba(76, 139, 245, 0.15);
+}
+
+/* 标签胶囊 */
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(76, 139, 245, 0.12);
+  color: #7ea8f7;
+  border: 1px solid rgba(76, 139, 245, 0.2);
+}
+
+/* 优先级标记 */
+.priority-high { color: #e5534b; }
+.priority-medium { color: #4c8bf5; }
+.priority-low { color: #3fb950; }
+
+/* 截止日期徽章 */
+.due-badge {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid #343a44;
+  color: #9aa4b0;
+}
+.due-badge.overdue {
+  color: #e5534b;
+  border-color: rgba(229, 83, 75, 0.4);
+  background: rgba(229, 83, 75, 0.08);
+}
+.due-badge.today {
+  color: #4c8bf5;
+  border-color: rgba(76, 139, 245, 0.4);
+  background: rgba(76, 139, 245, 0.08);
+}
+
+/* 按钮层级 */
+.btn-primary {
+  background: linear-gradient(180deg, #4c8bf5 0%, #3a7af0 100%);
+  color: white;
+  border: 1px solid rgba(76, 139, 245, 0.6);
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+.btn-primary:hover {
+  background: linear-gradient(180deg, #5f99f7 0%, #4c8bf5 100%);
+  box-shadow: 0 2px 8px rgba(76, 139, 245, 0.3);
+}
+.btn-secondary {
+  background: #2a2f37;
+  color: #e6e6e6;
+  border: 1px solid #343a44;
+  transition: all 0.15s ease;
+}
+.btn-secondary:hover {
+  background: #343a44;
+  border-color: #4c8bf5;
+}
+.btn-ghost {
+  background: transparent;
+  color: #9aa4b0;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+.btn-ghost:hover {
+  background: rgba(76, 139, 245, 0.1);
+  color: #e6e6e6;
+}
+.btn-danger {
+  background: transparent;
+  color: #e5534b;
+  border: 1px solid rgba(229, 83, 75, 0.4);
+  transition: all 0.15s ease;
+}
+.btn-danger:hover {
+  background: rgba(229, 83, 75, 0.1);
+  border-color: #e5534b;
+}
+
+/* 字段分组标签 */
+.field-label {
+  font-size: 12px;
+  color: #9aa4b0;
+  font-weight: 500;
+}
+
+/* 分隔线 */
+.divider-soft {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, #343a44 20%, #343a44 80%, transparent 100%);
+}
+
+/* 批量操作条 */
+.bulk-bar {
+  background: rgba(76, 139, 245, 0.08);
+  border: 1px solid rgba(76, 139, 245, 0.3);
+  backdrop-filter: blur(10px);
+}
+    </style>
+</head>
+<body class="min-h-screen">
+
+<!-- ============================================================
+     整体页面容器：模拟主窗口内的 TodoPage
+     ============================================================ -->
+<div class="w-full min-h-screen p-5 flex flex-col" style="gap: 12px;">
+
+  <!-- ── 顶部视图切换栏（TodoTopBar） ── -->
+  <div class="flex items-center h-[52px] gap-1 px-1">
+    <!-- 左侧：视图切换 Tab -->
+    <div class="flex items-center gap-1">
+      <button class="view-btn active h-9 px-4 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-white/5 flex items-center gap-2">
+        <i data-lucide="inbox" class="w-4 h-4"></i>
+        收集箱
+      </button>
+      <button class="view-btn h-9 px-4 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-white/5 flex items-center gap-2">
+        <i data-lucide="calendar" class="w-4 h-4"></i>
+        今天
+      </button>
+      <button class="view-btn h-9 px-4 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-white/5 flex items-center gap-2">
+        <i data-lucide="calendar-range" class="w-4 h-4"></i>
+        最近 7 天
+      </button>
+      <button class="view-btn h-9 px-4 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-white/5 flex items-center gap-2">
+        <i data-lucide="list-todo" class="w-4 h-4"></i>
+        全部
+      </button>
+      <button class="view-btn h-9 px-4 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-white/5 flex items-center gap-2">
+        <i data-lucide="folder" class="w-4 h-4"></i>
+        清单
+        <i data-lucide="chevron-down" class="w-3.5 h-3.5 opacity-60"></i>
+      </button>
+    </div>
+
+    <div class="flex-1"></div>
+
+    <!-- 右侧：多选按钮 -->
+    <button class="btn-secondary h-9 px-4 rounded-lg text-sm flex items-center gap-2">
+      <i data-lucide="check-square" class="w-4 h-4"></i>
+      多选
+    </button>
+  </div>
+
+  <!-- ── 主内容卡片（TodoSurface） ── -->
+  <div class="glass-card rounded-xl flex-1 flex overflow-hidden">
+
+    <!-- ═══ 左栏：任务列表（listCol） ═══ -->
+    <div class="flex-1 flex flex-col py-5" style="padding-left: 20px; padding-right: 16px; min-width: 0;">
+
+      <!-- 列表头部：标题 + 计数 + 排序 -->
+      <div class="flex items-center gap-3 mb-3">
+        <h2 class="text-[15px] font-semibold text-foreground">收集箱</h2>
+        <span class="text-[12px] text-muted-foreground">5 项待办</span>
+        <div class="flex-1"></div>
+        <div class="flex items-center gap-2">
+          <button class="btn-ghost h-8 px-3 rounded-md text-xs flex items-center gap-1.5">
+            <i data-lucide="arrow-up-down" class="w-3.5 h-3.5"></i>
+            默认排序
+            <i data-lucide="chevron-down" class="w-3 h-3 opacity-60"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 快速添加输入框 -->
+      <div class="relative mb-3">
+        <input
+          type="text"
+          placeholder="添加任务到「收集箱」…"
+          class="w-full h-9 px-3 pl-9 rounded-lg bg-input border border-border text-foreground text-sm outline-none input-glow transition-all placeholder:text-muted-foreground"
+        />
+        <i data-lucide="plus" class="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2"></i>
+      </div>
+
+      <!-- 任务列表 -->
+      <div class="flex-1 overflow-y-auto space-y-1 pr-1" style="min-height: 0;">
+
+        <!-- 任务行 1：高优先级 + 今天截止（激活态） -->
+        <div class="todo-row active flex items-center gap-3 px-3 py-3 rounded-lg border border-transparent cursor-pointer">
+          <input type="checkbox" class="todo-checkbox">
+          <div class="flex-1 min-w-0">
+            <div class="text-[14px] font-semibold text-foreground truncate">完成项目设计方案评审</div>
+            <div class="flex items-center gap-2 mt-1">
+              <span class="tag-chip">设计</span>
+              <span class="tag-chip" style="background: rgba(163, 113, 247, 0.12); color: #b794f4; border-color: rgba(163, 113, 247, 0.2);">P0</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <span class="priority-high text-sm font-bold" title="高优先级">▲</span>
+            <span class="due-badge today">今天</span>
+            <span class="w-2.5 h-2.5 rounded-full bg-[#4c8bf5] flex-shrink-0" title="工作清单"></span>
+          </div>
+        </div>
+
+        <!-- 任务行 2：中优先级 -->
+        <div class="todo-row flex items-center gap-3 px-3 py-3 rounded-lg border border-transparent cursor-pointer">
+          <input type="checkbox" class="todo-checkbox">
+          <div class="flex-1 min-w-0">
+            <div class="text-[14px] font-semibold text-foreground truncate">编写用户使用文档</div>
+            <div class="flex items-center gap-2 mt-1">
+              <span class="tag-chip" style="background: rgba(63, 185, 80, 0.10); color: #4ade80; border-color: rgba(63, 185, 80, 0.2);">文档</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <span class="priority-medium text-sm font-bold" title="中优先级">◆</span>
+            <span class="due-badge">明天</span>
+            <span class="w-2.5 h-2.5 rounded-full bg-[#3fb950] flex-shrink-0" title="个人清单"></span>
+          </div>
+        </div>
+
+        <!-- 任务行 3：低优先级 -->
+        <div class="todo-row flex items-center gap-3 px-3 py-3 rounded-lg border border-transparent cursor-pointer">
+          <input type="checkbox" class="todo-checkbox">
+          <div class="flex-1 min-w-0">
+            <div class="text-[14px] font-semibold text-foreground truncate">整理会议纪要并同步</div>
+            <div class="flex items-center gap-2 mt-1">
+              <span class="tag-chip">会议</span>
+              <span class="tag-chip">协作</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <span class="priority-low text-sm font-bold" title="低优先级">▼</span>
+            <span class="due-badge">周五</span>
+            <span class="w-2.5 h-2.5 rounded-full bg-[#d29922] flex-shrink-0" title="学习清单"></span>
+          </div>
+        </div>
+
+        <!-- 任务行 4：逾期 -->
+        <div class="todo-row flex items-center gap-3 px-3 py-3 rounded-lg border border-transparent cursor-pointer">
+          <input type="checkbox" class="todo-checkbox">
+          <div class="flex-1 min-w-0">
+            <div class="text-[14px] font-semibold text-foreground truncate">回复客户邮件反馈</div>
+            <div class="flex items-center gap-2 mt-1">
+              <span class="tag-chip" style="background: rgba(229, 83, 75, 0.10); color: #f87171; border-color: rgba(229, 83, 75, 0.2);">紧急</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <span class="priority-high text-sm font-bold" title="高优先级">▲</span>
+            <span class="due-badge overdue">昨天</span>
+            <span class="w-2.5 h-2.5 rounded-full bg-[#4c8bf5] flex-shrink-0"></span>
+          </div>
+        </div>
+
+        <!-- 任务行 5：无优先级 -->
+        <div class="todo-row flex items-center gap-3 px-3 py-3 rounded-lg border border-transparent cursor-pointer">
+          <input type="checkbox" class="todo-checkbox">
+          <div class="flex-1 min-w-0">
+            <div class="text-[14px] font-semibold text-foreground truncate">采购办公用品</div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <span class="w-2.5 h-2.5 rounded-full bg-[#a371f7] flex-shrink-0"></span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 底部分隔 + 已完成折叠 + 进度 -->
+      <div class="border-t border-border/60 mt-3 pt-3 flex items-center gap-3 h-[42px]">
+        <button class="btn-ghost h-7 px-2.5 rounded-md text-xs flex items-center gap-1.5">
+          <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+          显示已完成 (3)
+        </button>
+        <div class="flex-1"></div>
+        <span class="text-[12px] text-muted-foreground">已完成 3 / 8</span>
+      </div>
+    </div>
+
+    <!-- ═══ 中部分隔线（colSep） ═══ -->
+    <div class="w-px bg-border/55 my-5 flex-shrink-0"></div>
+
+    <!-- ═══ 右栏：详情面板（TodoDetail） ═══ -->
+    <div class="w-[360px] flex flex-col py-5 flex-shrink-0" style="padding-left: 16px; padding-right: 20px;">
+
+      <!-- 详情头部 -->
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-[13px] font-semibold text-foreground">任务详情</span>
+        <div class="flex-1"></div>
+        <button class="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- 标题编辑（大字号、无边框默认态，聚焦才显描边） -->
+      <div class="mb-3">
+        <div class="text-[16px] font-semibold text-foreground leading-relaxed px-2 py-1.5 rounded-lg border border-transparent hover:border-border/50 focus-within:border-primary focus-within:bg-input/50 transition-all cursor-text outline-none" contenteditable="true">
+          完成项目设计方案评审
+        </div>
+      </div>
+
+      <!-- 完成开关 -->
+      <label class="flex items-center gap-2.5 mb-3 cursor-pointer">
+        <input type="checkbox" class="todo-checkbox">
+        <span class="text-sm text-foreground">标记为已完成</span>
+      </label>
+
+      <!-- 字段表单区 -->
+      <div class="space-y-2.5 mb-3">
+
+        <!-- 清单 -->
+        <div class="grid grid-cols-[56px_1fr] items-center gap-2">
+          <label class="field-label">清单</label>
+          <div class="relative">
+            <select class="w-full h-7 px-2.5 rounded-lg bg-input border border-border text-sm text-foreground outline-none focus:border-primary appearance-none cursor-pointer">
+              <option>收集箱</option>
+              <option>工作</option>
+              <option>个人</option>
+              <option>学习</option>
+            </select>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-muted-foreground absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+          </div>
+        </div>
+
+        <!-- 优先级 -->
+        <div class="grid grid-cols-[56px_1fr] items-center gap-2">
+          <label class="field-label">优先级</label>
+          <div class="relative">
+            <select class="w-full h-7 px-2.5 rounded-lg bg-input border border-border text-sm text-foreground outline-none focus:border-primary appearance-none cursor-pointer">
+              <option>无优先级</option>
+              <option style="color:#3fb950;">低</option>
+              <option style="color:#4c8bf5;">中</option>
+              <option style="color:#e5534b;">高</option>
+            </select>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-muted-foreground absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+          </div>
+        </div>
+
+        <!-- 截止日期 -->
+        <div class="grid grid-cols-[56px_1fr] items-center gap-2">
+          <label class="field-label">截止</label>
+          <div class="flex items-center gap-2">
+            <input type="checkbox" class="todo-checkbox" style="width:16px;height:16px;">
+            <div class="relative flex-1">
+              <input type="date" value="2026-09-18" class="w-full h-7 px-2.5 rounded-lg bg-input border border-border text-sm text-foreground outline-none focus:border-primary">
+            </div>
+          </div>
+        </div>
+
+        <!-- 重复 -->
+        <div class="grid grid-cols-[56px_1fr] items-center gap-2">
+          <label class="field-label">重复</label>
+          <div class="relative">
+            <select class="w-full h-7 px-2.5 rounded-lg bg-input border border-border text-sm text-foreground outline-none focus:border-primary appearance-none cursor-pointer">
+              <option>不重复</option>
+              <option>每天</option>
+              <option>每个工作日</option>
+              <option>每周</option>
+              <option>每月</option>
+            </select>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-muted-foreground absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+          </div>
+        </div>
+
+        <!-- 标签 -->
+        <div class="grid grid-cols-[56px_1fr] items-center gap-2">
+          <label class="field-label">标签</label>
+          <input type="text" value="设计, P0" class="w-full h-7 px-2.5 rounded-lg bg-input border border-border text-sm text-foreground outline-none focus:border-primary placeholder:text-muted-foreground" placeholder="逗号分隔">
+        </div>
+      </div>
+
+      <!-- 分隔 -->
+      <div class="divider-soft my-2"></div>
+
+      <!-- 备注区 -->
+      <div class="mb-3">
+        <label class="field-label block mb-1.5">备注</label>
+        <textarea
+          rows="3"
+          placeholder="添加备注…"
+          class="w-full px-2.5 py-2 rounded-lg bg-input border border-border text-sm text-foreground outline-none focus:border-primary resize-none placeholder:text-muted-foreground"
+        >准备好设计稿和评审文档，周四下午 3 点会议室 A。</textarea>
+      </div>
+
+      <!-- 子任务区 -->
+      <div class="flex-1 flex flex-col min-h-0 mb-3">
+        <label class="field-label block mb-1.5">子任务</label>
+        <div class="flex-1 border border-border rounded-lg overflow-hidden flex flex-col bg-input/30">
+          <!-- 子任务列表 -->
+          <div class="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+            <div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 cursor-pointer">
+              <input type="checkbox" class="todo-checkbox" style="width:15px;height:15px;" checked>
+              <span class="text-sm text-muted-foreground line-through flex-1 truncate">收集竞品分析资料</span>
+              <button class="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity">
+                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 cursor-pointer">
+              <input type="checkbox" class="todo-checkbox" style="width:15px;height:15px;">
+              <span class="text-sm text-foreground flex-1 truncate">输出设计规范文档</span>
+            </div>
+            <div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 cursor-pointer">
+              <input type="checkbox" class="todo-checkbox" style="width:15px;height:15px;">
+              <span class="text-sm text-foreground flex-1 truncate">预约评审会议</span>
+            </div>
+          </div>
+          <!-- 添加子任务输入 -->
+          <div class="border-t border-border/60">
+            <input
+              type="text"
+              placeholder="添加子任务…"
+              class="w-full h-8 px-3 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- 删除按钮 -->
+      <button class="btn-danger w-full h-8 rounded-lg text-sm flex items-center justify-center gap-2">
+        <i data-lucide="trash-2" class="w-4 h-4"></i>
+        删除任务
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<script>lucide.createIcons();</script>
+</body>
+</html>
