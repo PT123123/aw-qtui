@@ -233,6 +233,13 @@ void QueryPage::onTimeZoneChanged(int idx)
     Q_UNUSED(idx);
 }
 
+void QueryPage::releaseWeight()
+{
+    m_resultEdit->clear();
+    if (m_statusLabel)
+        m_statusLabel->clear();
+}
+
 void QueryPage::refresh()
 {
     m_resultEdit->clear();

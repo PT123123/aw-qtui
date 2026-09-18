@@ -579,6 +579,12 @@ void FocusDetailPage::applyUiScale()
     setStyleSheet(QString());
 }
 
+void FocusDetailPage::releaseWeight()
+{
+    if (m_list)
+        m_list->clear();
+}
+
 void FocusDetailPage::refresh()
 {
     if (!m_focus)
@@ -860,6 +866,12 @@ void FocusMemorialPage::refresh()
         m_list->addItem(item);
         m_list->setItemWidget(item, row);
     }
+}
+
+void FocusMemorialPage::releaseWeight()
+{
+    if (m_list)
+        m_list->clear();
 }
 
 void FocusMemorialPage::onAdd()
