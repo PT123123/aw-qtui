@@ -1,0 +1,12 @@
+#pragma code_page(65001)
+
+// resources/app.rc —— 把程序图标内嵌进 awqtui.exe。
+//
+// 任务管理器 / 资源管理器 / Alt-Tab 的回落图标只读 exe 里的 RT_GROUP_ICON 资源，
+// 运行时 app.setWindowIcon(makeAppIcon()) 影响不到它们 —— 这正是此前两处图标不一致的由来。
+// app.ico 由 `just icon` 生成（绘制源：theme.h renderAppIconPixmap() 的默认图标变体）。
+// 图标变体可在设置里切换，但 exe 内嵌图标固定用默认款，避免每次换色都要重编二进制。
+
+#define IDI_APP_ICON 101
+
+IDI_APP_ICON ICON "app.ico"

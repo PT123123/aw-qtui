@@ -77,6 +77,19 @@ void saveTodoSortMode(int mode)
     s.sync();
 }
 
+bool loadTodoBoardMode()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    return s.value(QStringLiteral("todo/boardMode"), false).toBool();
+}
+
+void saveTodoBoardMode(bool board)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("todo/boardMode"), board);
+    s.sync();
+}
+
 
 void saveNavCollapsed(bool collapsed)
 {
