@@ -16,12 +16,15 @@
 
 class QCheckBox;
 class QComboBox;
+class QContextMenuEvent;
 class QDateEdit;
 class QGraphicsDropShadowEffect;
 class QLabel;
 class QLineEdit;
 class QListWidget;
 class QMenu;
+class QPainter;
+class QPaintEvent;
 class QPlainTextEdit;
 class QPushButton;
 class QTimer;
@@ -105,9 +108,14 @@ signals:
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
+    // 右键弹任务菜单（与「⋯」同一个菜单）。以前任何按键都会 emit selected，
+    // 于是右键也会把详情栏切过去、整行高亮闪一下。
+    void contextMenuEvent(QContextMenuEvent *event) override;
     void enterEvent(QEnterEvent *event) override;
     void leaveEvent(QEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+    // 完成划线的自绘层（QSS 的 text-decoration 没有动画，只能自己画）
+    void paintEvent(QPaintEvent *event) override;
 
 private:
     void applyRowStyle();
@@ -115,6 +123,9 @@ private:
     // 勾选框 / ⋯ 按钮会截走 hover：鼠标移到它们上面时行收到 Leave，整行高亮闪掉。
     // 所以 hover 不用 QSS 的 :hover 伪态，统一按「光标是否仍在行矩形内」判定。
     void refreshHoverFromCursor();
+    // 点「完成」时先播划线动画，动画跑完再把完成状态写回数据层
+    void playCompleteAnimation();
+    void paintStrike(QPainter &p);
 
     qint64 m_taskId;
     QCheckBox *m_chk = nullptr;      // 完成勾选框（非多选模式下可见）
@@ -128,6 +139,8 @@ private:
     bool m_multi = false;
     bool m_rowStyled = false;   // 行底/hover 样式是否已应用（保证首次即应用）
     bool m_hovered = false;     // 光标是否在行内（含压在子控件之上）
+    qreal m_strike = 0.0;       // 完成划线进度 0..1（paintEvent 用）
+    bool m_completing = false;  // 完成动画进行中：屏蔽重复点击 / 重复提交
 };
 
 class TodoPage : public QWidget
@@ -157,6 +170,8 @@ private slots:
     void onRenameList(qint64 listId);
     void onDeleteList(qint64 listId);
     void onToggleRequested(qint64 id, bool completed);
+    // 完成任务后的「撤销」气泡（3s 内可回退）
+    void showUndoToast(qint64 id, const QString &title);
     void onTaskDelete();
     void onSubtaskAdd();
     // 多选 / 批量操作

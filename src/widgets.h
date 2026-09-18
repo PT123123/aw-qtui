@@ -9,6 +9,8 @@
 #include <QPushButton>
 #include <QWidget>
 
+#include <functional>
+
 #include "models.h"
 
 class QScreen;
@@ -26,6 +28,15 @@ QStringList extractTags(const QString &text);
 // 独立无边框置顶工具窗：不抢焦点、不进任务栏/Alt+Tab，主窗口隐藏时也可见；
 // anchorScreen 为空时取光标所在屏。用于快捷输入提交后的「已发送」等反馈。
 void showToast(const QString &text, QScreen *anchorScreen = nullptr);
+
+// 带一个操作按钮的气泡（默认「撤销」，3s 后淡出自毁），用于「完成任务 → 后悔」这类可回退操作。
+// 与 showToast 同为独立置顶工具窗，但额外做了两件事：
+//   1. 鼠标停在气泡上时暂停倒计时（3s 内点中一个小按钮太紧）；
+//   2. 同一时刻只保留一个（新气泡顶掉旧的）—— 撤销的时效窗口本来就极短。
+// onAction 在按钮点击后调用，回调里请用 QPointer 保护宿主对象（气泡活得可能比它久）。
+void showActionToast(const QString &text, const QString &actionText,
+                     std::function<void()> onAction, int ms = 3000,
+                     QScreen *anchorScreen = nullptr);
 
 // ------------------------------------------------------------------ //
 // 连接状态徽标

@@ -16,6 +16,7 @@
 #include <QListWidgetItem>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QPointer>
 #include <QRegularExpression>
 #include <QScreen>
 #include <QShowEvent>
@@ -116,6 +117,115 @@ void showToast(const QString &text, QScreen *anchorScreen)
         toast->setWindowOpacity(opacity);
     });
     anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+// 当前活跃的「可撤销」气泡（同一时刻只留一个）
+static QPointer<QWidget> g_actionToast;
+
+void showActionToast(const QString &text, const QString &actionText,
+                     std::function<void()> onAction, int ms, QScreen *anchorScreen)
+{
+    // 新气泡顶掉旧的：撤销是针对「刚才那一下」的，堆一屏气泡既乱又没必要
+    if (g_actionToast)
+        g_actionToast->close();
+
+    QScreen *screen = anchorScreen;
+    if (!screen)
+        screen = QGuiApplication::screenAt(QCursor::pos());
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    if (!screen)
+        return;
+
+    // WindowDoesNotAcceptFocus：点「撤销」时不会把主窗口顶成非激活态（标题栏不会变灰）
+    auto *toast = new QWidget(nullptr, Qt::Tool | Qt::FramelessWindowHint
+                                         | Qt::WindowStaysOnTopHint
+                                         | Qt::WindowDoesNotAcceptFocus);
+    toast->setAttribute(Qt::WA_ShowWithoutActivating);
+    toast->setAttribute(Qt::WA_TranslucentBackground);
+    toast->setAttribute(Qt::WA_DeleteOnClose);
+    g_actionToast = toast;
+
+    auto *outer = new QHBoxLayout(toast);
+    outer->setContentsMargins(0, 0, 0, 0);
+
+    auto *card = new QFrame(toast);
+    card->setObjectName(QStringLiteral("ToastCard"));
+    card->setStyleSheet(scaleQss(QStringLiteral(
+        "#ToastCard { background: %1; border: 1px solid %2; border-radius: 10px; }")
+        .arg(gTheme->bgElev, gTheme->border)));
+    outer->addWidget(card);
+
+    auto *lay = new QHBoxLayout(card);
+    lay->setContentsMargins(si(16), si(9), si(8), si(9));
+    lay->setSpacing(si(12));
+
+    auto *label = new QLabel(text, card);
+    label->setStyleSheet(scaleQss(QStringLiteral(
+        "QLabel { color: %1; background: transparent; font-size: 13px; }").arg(gTheme->fg)));
+    lay->addWidget(label);
+
+    auto *btn = new QPushButton(actionText, card);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setStyleSheet(scaleQss(QStringLiteral(
+        "QPushButton { color: %1; background: transparent; border: none; border-radius: 6px;"
+        " padding: 4px 10px; font-size: 13px; font-weight: 600; }"
+        "QPushButton:hover { background: %2; }")
+        .arg(kColorAccent)
+        .arg(withAlpha(kColorAccent, 0.18))));
+    lay->addWidget(btn);
+
+    toast->adjustSize();
+    const QRect avail = screen->availableGeometry();
+    toast->move(avail.x() + (avail.width() - toast->width()) / 2,
+                avail.y() + avail.height() - toast->height() - si(90));
+    toast->show();
+    toast->raise();
+
+    auto fadeOut = [toast] {
+        if (toast->property("fading").toBool())
+            return;
+        toast->setProperty("fading", true);
+        auto *anim = new QVariantAnimation(toast);
+        anim->setDuration(200);
+        anim->setStartValue(1.0);
+        anim->setEndValue(0.0);
+        QObject::connect(anim, &QVariantAnimation::valueChanged, toast, [toast](const QVariant &v) {
+            toast->setWindowOpacity(v.toDouble());
+        });
+        QObject::connect(anim, &QVariantAnimation::finished, toast, [toast] { toast->close(); });
+        anim->start(QAbstractAnimation::DeleteWhenStopped);
+    };
+
+    auto *life = new QTimer(toast);
+    life->setSingleShot(true);
+    life->setInterval(ms);
+    QObject::connect(life, &QTimer::timeout, toast, fadeOut);
+    life->start();
+
+    // 悬停冻结：气泡的子控件会截走 Enter/Leave，所以直接问「光标是否还在气泡矩形内」
+    auto *guard = new QTimer(toast);
+    guard->setInterval(120);
+    QObject::connect(guard, &QTimer::timeout, toast, [toast, life] {
+        if (toast->property("fading").toBool())
+            return;
+        const bool inside = toast->rect().contains(toast->mapFromGlobal(QCursor::pos()));
+        if (inside) {
+            life->stop();
+        } else if (!life->isActive()) {
+            life->start();
+        }
+    });
+    guard->start();
+
+    QObject::connect(btn, &QPushButton::clicked, toast, [toast, onAction] {
+        if (toast->property("fading").toBool())
+            return;
+        toast->setProperty("fading", true);   // 先封口，避免 onAction 触发重建时再次进来
+        if (onAction)
+            onAction();
+        toast->close();
+    });
 }
 
 // ------------------------------------------------------------------ //

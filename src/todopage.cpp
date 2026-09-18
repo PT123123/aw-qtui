@@ -8,11 +8,13 @@
 #include "mockdata.h"
 #include "todoboard.h"
 #include "todostore.h"
+#include "widgets.h"
 
 #include <QAction>
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
+#include <QContextMenuEvent>
 #include <QCursor>
 #include <QDate>
 #include <QDateEdit>
@@ -33,8 +35,10 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPen>
 #include <QPixmap>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QEasingCurve>
 #include <QPropertyAnimation>
@@ -46,9 +50,11 @@
 #include <QStackedWidget>
 #include <QAbstractTextDocumentLayout>
 #include <QTextDocument>
+#include <QTextLayout>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QtMath>
 
 #include <algorithm>
 
@@ -341,12 +347,21 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
     lay->setSpacing(si(10));
 
     // 圆形勾选框（完成框 / 多选框互斥显示在同一位置）
+    //
+    // ⚠ 这里必须用 si() 而不是 sp()：sp() 返回的是 "14px" 这种**带单位**的串，
+    // 拼进 `width:%1px` 会变成 `width:14pxpx` —— 非法值被 Qt 直接丢弃，
+    // 指示器塌缩成 4x4 的小点（实测：box=4x4 全填充），用户看到的就是「勾选框变成一个小点」。
+    //
+    // 尺寸换算（Qt QSS 的 box model，已实测）：
+    //   width/height 是 **content box**，border 画在它外面；
+    //   border-radius 按**含边框的外框**算。
+    //   所以「直径 18px 的正圆」= content 14 + border 2x2，radius = 18/2 = 9。
     const QString chkStyle =
         QStringLiteral("QCheckBox::indicator{width:%1px;height:%2px;border-radius:%3px;"
                        "border:2px solid %4;background:transparent;}"
                        "QCheckBox::indicator:hover{border-color:%5;}"
                        "QCheckBox::indicator:checked{background:%5;border-color:%5;}")
-            .arg(sp(18)).arg(sp(18)).arg(sp(9)).arg(kColorBorder, kColorAccent);
+            .arg(si(14)).arg(si(14)).arg(si(9)).arg(kColorBorder, kColorAccent);
 
     m_selChk = new QCheckBox;
     m_selChk->setCursor(Qt::PointingHandCursor);
@@ -366,6 +381,12 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
     m_chk->setToolTip(task.completed ? QStringLiteral("标记为未完成") : QStringLiteral("标记为已完成"));
     m_chk->setStyleSheet(chkStyle);
     connect(m_chk, &QCheckBox::clicked, this, [this](bool checked) {
+        // 打勾（完成）先播一段划线动画，动画跑完才写回数据 —— 数据一落库本行就被重建掉了。
+        // 取消完成 / 多选模式直接提交，不做动画。
+        if (checked && !m_multi) {
+            playCompleteAnimation();
+            return;
+        }
         emit toggleRequested(m_taskId, checked);
     });
     lay->addWidget(m_chk);
@@ -615,6 +636,11 @@ bool TodoTaskRow::eventFilter(QObject *watched, QEvent *event)
     // 转成「整行是否仍处于 hover」的重新判定。
     if (event->type() == QEvent::Enter || event->type() == QEvent::Leave)
         refreshHoverFromCursor();
+    // 在勾选框 / ⋯ 上右键，也弹本行的任务菜单（否则会被这几个子控件的默认上下文菜单吃掉）
+    if (event->type() == QEvent::ContextMenu) {
+        emit menuRequested(m_taskId, static_cast<QContextMenuEvent *>(event)->globalPos());
+        return true;
+    }
     return QWidget::eventFilter(watched, event);
 }
 
@@ -633,6 +659,16 @@ void TodoTaskRow::leaveEvent(QEvent *event)
 
 void TodoTaskRow::mousePressEvent(QMouseEvent *event)
 {
+    // 右键：既不该「打开详情」，也不该让 QListWidget 顺带改动选中项（那会让详情栏
+    // 切来切去、整行高亮闪一下再复原）。整个吃掉，菜单交给 contextMenuEvent。
+    if (event->button() == Qt::RightButton) {
+        event->accept();
+        return;
+    }
+    if (event->button() != Qt::LeftButton) {
+        QWidget::mousePressEvent(event);
+        return;
+    }
     if (m_multi) {
         // 多选模式：整行点击 = 切换选中（不打开详情）
         setSelected(!m_selected);
@@ -641,6 +677,111 @@ void TodoTaskRow::mousePressEvent(QMouseEvent *event)
         emit selected(m_taskId);
     }
     QWidget::mousePressEvent(event);
+}
+
+void TodoTaskRow::contextMenuEvent(QContextMenuEvent *event)
+{
+    // 右键落在行任意位置（含勾选框 / ⋯ 之上，见 eventFilter）都弹同一个任务菜单
+    emit menuRequested(m_taskId, event->globalPos());
+    event->accept();
+}
+
+// 完成动画：勾选框立刻填充，标题上有一道删除线从左往右扫过，扫完再把完成状态写回数据层。
+// 顺序不能反 —— 一旦提交，列表就会重建、本行当场销毁，动画根本来不及播。
+void TodoTaskRow::playCompleteAnimation()
+{
+    if (m_completing)
+        return;
+    m_completing = true;
+    if (m_chk) {
+        m_chk->setEnabled(false);   // 动画期间不接第二次点击
+        QSignalBlocker block(m_chk);
+        m_chk->setChecked(true);    // 立即变成实心圆（QSS :checked 那档）
+    }
+
+    auto *anim = new QVariantAnimation(this);
+    anim->setDuration(260);
+    anim->setStartValue(0.0);
+    anim->setEndValue(1.0);
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(anim, &QVariantAnimation::valueChanged, this, [this](const QVariant &v) {
+        m_strike = v.toDouble();
+        update();
+    });
+    connect(anim, &QVariantAnimation::finished, this, [this] {
+        m_strike = 1.0;
+        update();
+        // 延到下一轮事件循环再提交：数据变更会同步重建列表并销毁本行，
+        // 直接在动画自己的 finished 回调里走这条路，会踩到正在收尾的动画对象。
+        QTimer::singleShot(0, this, [this] { emit toggleRequested(m_taskId, true); });
+    });
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void TodoTaskRow::paintEvent(QPaintEvent *event)
+{
+    QWidget::paintEvent(event);   // 行底 / hover 底色仍由 QSS（WA_StyledBackground）负责
+    if (m_strike > 0.0) {
+        QPainter p(this);
+        paintStrike(p);
+    }
+}
+
+// 标题删除线：QSS 的 text-decoration 不可动画，只能按标题的换行排版自绘。
+// m_strike 是总进度 0..1，按行依次消费 —— 上一行画满了才轮到下一行。
+void TodoTaskRow::paintStrike(QPainter &p)
+{
+    if (!m_title || m_title->text().isEmpty())
+        return;
+    const QRect tr = m_title->geometry();
+    if (tr.width() <= 4 || tr.height() <= 0)
+        return;
+
+    QFont f = m_title->font();
+    f.setPixelSize(si(14));
+    f.setWeight(QFont::DemiBold);
+
+    QTextLayout layout(m_title->text(), f);
+    QTextOption opt;
+    opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    layout.setTextOption(opt);
+    layout.beginLayout();
+    while (true) {
+        QTextLine line = layout.createLine();
+        if (!line.isValid())
+            break;
+        line.setLineWidth(tr.width());
+    }
+    layout.endLayout();
+
+    const int n = layout.lineCount();
+    if (n <= 0)
+        return;
+    int total = 0;
+    for (int i = 0; i < n; ++i)
+        total += qCeil(layout.lineAt(i).naturalTextWidth());
+    if (total <= 0)
+        return;
+    int remain = qRound(total * qBound(0.0, m_strike, 1.0));
+
+    const QFontMetrics fm(f);
+    QPen pen{QColor(kColorMuted2)};   // 花括号：圆括号会被当成函数声明（most vexing parse）
+    pen.setWidthF(qMax(1.0, qreal(si(1))));
+    pen.setCapStyle(Qt::RoundCap);
+
+    p.save();
+    p.setPen(pen);
+    for (int i = 0; i < n && remain > 0; ++i) {
+        const QTextLine line = layout.lineAt(i);
+        const int w = qCeil(line.naturalTextWidth());
+        const int drawW = qMin(w, remain);
+        remain -= w;
+        // 用字体自己的删除线位置，比 height()/2 更贴合字形中线
+        const qreal y = tr.top() + line.y() + line.ascent() - fm.strikeOutPos();
+        const qreal x = tr.left() + line.x();
+        p.drawLine(QPointF(x, y), QPointF(x + drawW, y));
+    }
+    p.restore();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2109,9 +2250,41 @@ void TodoPage::onDeleteList(qint64 listId)
 // ── 任务完成 / 删除 ────────────────────────────────────────
 void TodoPage::onToggleRequested(qint64 id, bool completed)
 {
+    QString title;
+    for (const auto &t : m_tasks)
+        if (t.id == id) { title = t.title; break; }
+
     m_source->setTaskCompleted(id, completed);
     if (id == m_selectedTask && !m_loadingDetail)
         m_dDone->setChecked(completed);
+
+    if (completed)
+        showUndoToast(id, title);
+}
+
+// 完成任务后的「撤销」气泡：3s 内点按钮即可回退（气泡悬停时倒计时暂停）
+void TodoPage::showUndoToast(qint64 id, const QString &title)
+{
+    QString t = title.simplified();
+    if (t.size() > 24)
+        t = t.left(23) + QStringLiteral("…");
+    const QString text = t.isEmpty() ? QStringLiteral("已完成 1 项任务")
+                                     : QStringLiteral("已完成「%1」").arg(t);
+
+    // 气泡是独立顶层窗口，可能比本页活得久 —— 回调里用 QPointer 兜底
+    QPointer<TodoPage> self(this);
+    showActionToast(text, QStringLiteral("撤销"), [self, id] {
+        if (!self)
+            return;
+        for (const auto &task : self->m_tasks) {
+            if (task.id != id)
+                continue;
+            // 3 秒内该任务可能已被删除或同步覆盖，只在它仍是「已完成」时回退
+            if (task.completed)
+                self->m_source->setTaskCompleted(id, false);
+            return;
+        }
+    }, 3000);
 }
 
 void TodoPage::onTaskDelete()
