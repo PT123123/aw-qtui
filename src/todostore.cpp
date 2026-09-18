@@ -11,6 +11,7 @@
 #include <QJsonParseError>
 #include <QSaveFile>
 #include <QSet>
+#include <QSharedPointer>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QNetworkReply>
@@ -25,6 +26,65 @@ QString nowIso()
     return QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 }
 } // namespace
+
+// ── TodoSource 批量操作默认实现：逐条转发到单项接口 ──────────
+// 子类（如 TodoStore）可覆盖为「改完内存只提交一次」。
+void TodoSource::setTasksCompleted(const QList<qint64> &taskIds, bool completed)
+{
+    for (qint64 id : taskIds)
+        setTaskCompleted(id, completed);
+}
+
+void TodoSource::deleteTasks(const QList<qint64> &taskIds)
+{
+    for (qint64 id : taskIds)
+        deleteTask(id);
+}
+
+void TodoSource::moveTasks(const QList<qint64> &taskIds, qint64 listId)
+{
+    const QList<TodoTask> snap = tasks();
+    for (qint64 id : taskIds) {
+        for (const auto &t : snap) {
+            if (t.id != id)
+                continue;
+            TodoTask u = t;
+            u.listId = listId;
+            updateTask(u);
+            break;
+        }
+    }
+}
+
+void TodoSource::setTasksPriority(const QList<qint64> &taskIds, int priority)
+{
+    const QList<TodoTask> snap = tasks();
+    for (qint64 id : taskIds) {
+        for (const auto &t : snap) {
+            if (t.id != id)
+                continue;
+            TodoTask u = t;
+            u.priority = priority;
+            updateTask(u);
+            break;
+        }
+    }
+}
+
+void TodoSource::setTasksDueDate(const QList<qint64> &taskIds, const QString &dueDate)
+{
+    const QList<TodoTask> snap = tasks();
+    for (qint64 id : taskIds) {
+        for (const auto &t : snap) {
+            if (t.id != id)
+                continue;
+            TodoTask u = t;
+            u.dueDate = dueDate;
+            updateTask(u);
+            break;
+        }
+    }
+}
 
 TodoStore::TodoStore(QObject *parent) : TodoSource(parent) {}
 
@@ -298,7 +358,7 @@ void TodoStore::updateTask(const TodoTask &task)
     commit();
 }
 
-void TodoStore::setTaskCompleted(qint64 taskId, bool completed)
+void TodoStore::applyComplete(qint64 taskId, bool completed)
 {
     TodoTask *t = mutableTask(taskId);
     if (!t)
@@ -316,7 +376,11 @@ void TodoStore::setTaskCompleted(qint64 taskId, bool completed)
             next.updatedAt = nowIso();
             for (auto &s : next.subtasks)
                 s.completed = false;
+            // 注意：append 可能使 m_tasks 重新分配，t 指针随即失效，必须重新取
             m_tasks.append(next);
+            t = mutableTask(taskId);
+            if (!t)
+                return;
         }
         t->completed = true;
         t->completedAt = nowIso();
@@ -326,12 +390,77 @@ void TodoStore::setTaskCompleted(qint64 taskId, bool completed)
         t->completedAt.clear();
         t->updatedAt = nowIso();
     }
+}
+
+void TodoStore::setTaskCompleted(qint64 taskId, bool completed)
+{
+    applyComplete(taskId, completed);
     commit();
 }
 
 void TodoStore::deleteTask(qint64 taskId)
 {
     m_tasks.removeIf([taskId](const TodoTask &t) { return t.id == taskId; });
+    commit();
+}
+
+// ── 批量操作（多选模式）：一次性改完内存，只 commit 一次 ────
+void TodoStore::setTasksCompleted(const QList<qint64> &taskIds, bool completed)
+{
+    if (taskIds.isEmpty())
+        return;
+    for (qint64 id : taskIds)
+        applyComplete(id, completed);
+    commit();
+}
+
+void TodoStore::deleteTasks(const QList<qint64> &taskIds)
+{
+    if (taskIds.isEmpty())
+        return;
+    QSet<qint64> doomed;
+    for (qint64 id : taskIds)
+        doomed.insert(id);
+    m_tasks.removeIf([&doomed](const TodoTask &t) { return doomed.contains(t.id); });
+    commit();
+}
+
+void TodoStore::moveTasks(const QList<qint64> &taskIds, qint64 listId)
+{
+    if (taskIds.isEmpty())
+        return;
+    for (qint64 id : taskIds) {
+        if (TodoTask *t = mutableTask(id)) {
+            t->listId = listId;
+            t->updatedAt = nowIso();
+        }
+    }
+    commit();
+}
+
+void TodoStore::setTasksPriority(const QList<qint64> &taskIds, int priority)
+{
+    if (taskIds.isEmpty())
+        return;
+    for (qint64 id : taskIds) {
+        if (TodoTask *t = mutableTask(id)) {
+            t->priority = priority;
+            t->updatedAt = nowIso();
+        }
+    }
+    commit();
+}
+
+void TodoStore::setTasksDueDate(const QList<qint64> &taskIds, const QString &dueDate)
+{
+    if (taskIds.isEmpty())
+        return;
+    for (qint64 id : taskIds) {
+        if (TodoTask *t = mutableTask(id)) {
+            t->dueDate = dueDate;   // 空串 = 清除截止日期（本地实现支持）
+            t->updatedAt = nowIso();
+        }
+    }
     commit();
 }
 
@@ -631,6 +760,77 @@ void TodoApiStore::removeSubtask(qint64 taskId, qint64 subtaskId)
 {
     mutateSubtasks(taskId, [subtaskId](QList<TodoSubtask> &subs) {
         subs.removeIf([subtaskId](const TodoSubtask &s) { return s.id == subtaskId; });
+    });
+}
+
+// ── 批量操作（多选模式）：并发发请求，全部回包后只 reload 一次 ──
+void TodoApiStore::batchRequests(const QList<qint64> &taskIds,
+                                 const std::function<QNetworkReply *(qint64)> &makeRequest)
+{
+    if (!m_api || taskIds.isEmpty())
+        return;
+    // 计数放在堆上由各 lambda 共享；最后一个回包的人负责触发一次 reload
+    auto remaining = QSharedPointer<int>::create(taskIds.size());
+    for (qint64 id : taskIds) {
+        QNetworkReply *reply = makeRequest(id);
+        if (!reply) {
+            if (--(*remaining) == 0)
+                reload();
+            continue;
+        }
+        connect(reply, &QNetworkReply::finished, this, [this, reply, remaining]() {
+            reply->deleteLater();
+            if (--(*remaining) == 0)
+                reload();
+        });
+    }
+}
+
+void TodoApiStore::setTasksCompleted(const QList<qint64> &taskIds, bool completed)
+{
+    batchRequests(taskIds, [this, completed](qint64 id) -> QNetworkReply * {
+        QJsonObject patch;
+        patch.insert(QStringLiteral("completed"), completed);
+        return m_api->updateTodo(id, patch);
+    });
+}
+
+void TodoApiStore::deleteTasks(const QList<qint64> &taskIds)
+{
+    batchRequests(taskIds, [this](qint64 id) -> QNetworkReply * {
+        return m_api->deleteTodo(id);
+    });
+}
+
+void TodoApiStore::moveTasks(const QList<qint64> &taskIds, qint64 listId)
+{
+    batchRequests(taskIds, [this, listId](qint64 id) -> QNetworkReply * {
+        QJsonObject patch;
+        patch.insert(QStringLiteral("list_id"), listId);
+        return m_api->updateTodo(id, patch);
+    });
+}
+
+void TodoApiStore::setTasksPriority(const QList<qint64> &taskIds, int priority)
+{
+    batchRequests(taskIds, [this, priority](qint64 id) -> QNetworkReply * {
+        QJsonObject patch;
+        patch.insert(QStringLiteral("priority"), priority);
+        return m_api->updateTodo(id, patch);
+    });
+}
+
+void TodoApiStore::setTasksDueDate(const QList<qint64> &taskIds, const QString &dueDate)
+{
+    // 已知缺口：服务端 due_date 是 Option（省略 = 保留原值），无法通过 patch 清空，
+    // 与单项 updateTask 同款限制，故「清除截止日期」在 API 源下不发请求。
+    if (dueDate.isEmpty())
+        return;
+    const QString iso = dueDate + QStringLiteral("T00:00:00Z");
+    batchRequests(taskIds, [this, iso](qint64 id) -> QNetworkReply * {
+        QJsonObject patch;
+        patch.insert(QStringLiteral("due_date"), iso);
+        return m_api->updateTodo(id, patch);
     });
 }
 

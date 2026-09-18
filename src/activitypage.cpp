@@ -295,6 +295,7 @@ void ActivityPage::reloadData()
 
     if (!m_api) {
         // Mock 模式：用 mockdata 生成
+        m_renderSig.clear();
         m_lanes = generateTimelineLanes(m_dateStart);
         updateUiFromLanes();
         updateTrendsFromLanes();
@@ -302,8 +303,12 @@ void ActivityPage::reloadData()
     }
 
     m_loading = true;
-    m_hostLabel->setText(QStringLiteral("主机：加载中…"));
-    m_activeLabel->setText(QStringLiteral("活跃时间：—"));
+    // 已有渲染结果时保留旧数值不动：同步轮询会周期性刷新本页，
+    // 每次都先打成占位文案再填回来，同样是一次肉眼可见的闪动。
+    if (m_renderSig.isEmpty()) {
+        m_hostLabel->setText(QStringLiteral("主机：加载中…"));
+        m_activeLabel->setText(QStringLiteral("活跃时间：—"));
+    }
 
     QNetworkReply *reply = m_api->getBuckets();
     connect(reply, &QNetworkReply::finished, this, &ActivityPage::onBucketsLoaded);
@@ -364,9 +369,38 @@ void ActivityPage::onEventLoaded()
 
     if (--m_pendingEvents <= 0) {
         m_loading = false;
+        // 数据没变就不重建图表：同步轮询每有远端改动就刷新本页，
+        // 但绝大多数轮次活动数据并没有变，重建十几个图表会让整页闪一下。
+        const QString sig = renderSignature();
+        if (sig == m_renderSig)
+            return;   // 数据没变：不重建图表，界面保持原样
+        m_renderSig = sig;
         updateUiFromLanes();
         updateTrendsFromLanes();
     }
+}
+
+// 图表渲染内容签名：日期范围 + 数据集元信息 + 各 bucket 的事件原文
+QString ActivityPage::renderSignature() const
+{
+    QJsonObject root;
+    root.insert(QStringLiteral("from"), m_dateStart.toString(Qt::ISODate));
+    root.insert(QStringLiteral("to"), m_dateEnd.toString(Qt::ISODate));
+    QJsonArray buckets;
+    for (const BucketInfo &b : m_buckets) {
+        QJsonObject o;
+        o.insert(QStringLiteral("id"), b.id);
+        o.insert(QStringLiteral("type"), b.type);
+        o.insert(QStringLiteral("client"), b.client);
+        o.insert(QStringLiteral("hostname"), b.hostname);
+        buckets.append(o);
+    }
+    root.insert(QStringLiteral("buckets"), buckets);
+    QJsonObject events;
+    for (auto it = m_eventsMap.constBegin(); it != m_eventsMap.constEnd(); ++it)
+        events.insert(it.key(), it.value());
+    root.insert(QStringLiteral("events"), events);
+    return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));
 }
 
 void ActivityPage::updateUiFromLanes()
@@ -448,6 +482,7 @@ void ActivityPage::updateTrendsFromLanes()
 void ActivityPage::showEmptyState(const QString &msg)
 {
     m_loading = false;
+    m_renderSig.clear();   // 空状态绕过了签名守卫，下次成功加载必须重新渲染
     m_lanes.clear();
     m_hostLabel->setText(QStringLiteral("主机：—"));
     m_activeLabel->setText(QStringLiteral("活跃时间：—"));

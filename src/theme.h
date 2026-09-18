@@ -138,41 +138,62 @@ struct Theme {
     const char *warn;
     const char *tagBg;
     const char *tagFg;
+    const char *bgGrad2; // 渐变主题：主背景底部色（nullptr=纯色背景，顶部色为 bg）
 };
 
 inline const Theme kThemes[] = {
     // 1 暗夜蓝（默认）
     { "midnight", "暗夜蓝", "默认主题，深蓝基调、蓝色点缀", "🌙", false,
       "#1a1d21", "#22262c", "#2a2f37", "#343a44", "#e6e6e6", "#9aa4b0",
-      "#4c8bf5", "#5f99f7", "#e5534b", "#3fb950", "#d29922", "#3a5c9e", "#cfe0ff" },
+      "#4c8bf5", "#5f99f7", "#e5534b", "#3fb950", "#d29922", "#3a5c9e", "#cfe0ff", nullptr },
     // 2 石墨（GitHub 风格中性灰）
     { "graphite", "石墨灰", "GitHub 风格中性灰", "🪨", false,
       "#161b22", "#1f242c", "#282e36", "#363d46", "#e6edf3", "#8b949e",
-      "#2f81f7", "#58a6ff", "#f85149", "#3fb950", "#d29922", "#1f6feb", "#c9d1d9" },
+      "#2f81f7", "#58a6ff", "#f85149", "#3fb950", "#d29922", "#1f6feb", "#c9d1d9", nullptr },
     // 3 紫罗兰
     { "violet", "紫罗兰", "柔和的紫色系", "💜", false,
       "#17151f", "#211e2d", "#2b2738", "#3a3550", "#e8e6f0", "#9d97b5",
-      "#a78bfa", "#c4b5fd", "#f87171", "#34d399", "#fbbf24", "#6d28d9", "#e9d5ff" },
+      "#a78bfa", "#c4b5fd", "#f87171", "#34d399", "#fbbf24", "#6d28d9", "#e9d5ff", nullptr },
     // 4 森林绿
     { "emerald", "森林绿", "深绿护眼、青绿点缀", "🌲", false,
       "#0f1a16", "#16241e", "#1d2f27", "#2a4238", "#e2efe7", "#93b3a4",
-      "#34d399", "#4ade80", "#f87171", "#22c55e", "#f59e0b", "#0e9f6e", "#c9f2e2" },
+      "#34d399", "#4ade80", "#f87171", "#22c55e", "#f59e0b", "#0e9f6e", "#c9f2e2", nullptr },
     // 5 琥珀暖
     { "amber", "琥珀暖", "暖棕底色、琥珀点缀", "🔥", false,
       "#1c1712", "#241d16", "#2e251b", "#45392a", "#f0e6d6", "#b8a68a",
-      "#f59e0b", "#fbbf24", "#f87171", "#34d399", "#fb923c", "#b45309", "#fde9c8" },
+      "#f59e0b", "#fbbf24", "#f87171", "#34d399", "#fb923c", "#b45309", "#fde9c8", nullptr },
     // 6 海洋青
     { "ocean", "海洋青", "深海蓝青、青色点缀", "🌊", false,
       "#0b1a22", "#10222c", "#16303c", "#20404f", "#d8eef7", "#86b3c4",
-      "#22d3ee", "#67e8f9", "#fb7185", "#2dd4bf", "#facc15", "#0e7490", "#cffafe" },
+      "#22d3ee", "#67e8f9", "#fb7185", "#2dd4bf", "#facc15", "#0e7490", "#cffafe", nullptr },
     // 7 珊瑚红
     { "rose", "珊瑚红", "低饱和红粉、暖色点缀", "🌹", false,
       "#1a1216", "#221820", "#2c2029", "#43313a", "#f0e4e9", "#bb9fa9",
-      "#fb7185", "#fda4af", "#f43f5e", "#34d399", "#fbbf24", "#be123c", "#ffe4e6" },
+      "#fb7185", "#fda4af", "#f43f5e", "#34d399", "#fbbf24", "#be123c", "#ffe4e6", nullptr },
     // 8 明亮浅色
     { "light", "明亮", "浅色护眼主题", "☀️", true,
       "#f5f6f8", "#ffffff", "#eceff3", "#d9dee5", "#24292f", "#6b7280",
-      "#2f6fed", "#1f5fd0", "#d13438", "#1a7f37", "#9a6700", "#d7e5ff", "#1a3f7a" },
+      "#2f6fed", "#1f5fd0", "#d13438", "#1a7f37", "#9a6700", "#d7e5ff", "#1a3f7a", nullptr },
+    // 9 翡翠绿（渐变背景：墨绿 → 深海蓝）
+    { "jade", "翡翠绿", "墨绿渐变深海蓝、翡翠点缀", "💎", false,
+      "#0F4938", "#143F35", "#1B4F43", "#2A4F46", "#e6eef0", "#8fa8a6",
+      "#34d399", "#4ade80", "#f87171", "#22c55e", "#f59e0b", "#134e4a", "#a7f3d0",
+      "#0A2442" },
+    // 10 深空蓝（渐变背景：深蓝 → 蓝黑）
+    { "deepblue", "深空蓝", "深蓝渐变蓝黑、星空暗调", "🌌", false,
+      "#0D2A49", "#112F4E", "#173B5F", "#1E3A57", "#e3ecf5", "#8aa3bd",
+      "#38bdf8", "#7dd3fc", "#f87171", "#34d399", "#fbbf24", "#0c4a6e", "#bae6fd",
+      "#060F1E" },
+    // 11 暮光紫（渐变背景：深紫 → 蓝黑紫）
+    { "twilight", "暮光紫", "深紫渐变蓝黑、暮色氛围", "🌆", false,
+      "#2B1D45", "#312250", "#3A2A63", "#413566", "#ece8f5", "#a395c4",
+      "#c084fc", "#d8b4fe", "#f87171", "#34d399", "#fbbf24", "#581c87", "#e9d5ff",
+      "#120A24" },
+    // 12 荣艳红（渐变背景：暗红 → 酒黑）
+    { "crimson", "荣艳红", "暗红渐变酒黑、华贵暗调", "🌺", false,
+      "#471524", "#4C1A2A", "#5C2235", "#5C2E3E", "#f5e8ec", "#c09aa6",
+      "#f87171", "#fca5a5", "#e11d48", "#34d399", "#fbbf24", "#881337", "#fecdd3",
+      "#1C0B14" },
 };
 
 inline const Theme *gTheme = &kThemes[0];
@@ -560,6 +581,11 @@ inline void substIn(QString &s, const char *token, const QString &val)
 inline QString themeQss(const Theme &t)
 {
     const qreal d = t.light ? -1.0 : 1.0;
+    const bool grad = (t.bgGrad2 && *t.bgGrad2);
+    const QString gradBg = grad
+        ? QStringLiteral("qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 %1, stop:1 %2)")
+              .arg(QString::fromLatin1(t.bg), QString::fromLatin1(t.bgGrad2))
+        : QString::fromLatin1(t.bg);
     const QString hover = shade(t.bgElev2, 0.06 * d);
     const QString pressed = shade(t.bgElev2, -0.05 * d);
     const QString muted2 = mix(t.fgMuted, t.bg, 0.45);
@@ -579,9 +605,9 @@ inline QString themeQss(const Theme &t)
             font-size: 13px;
             color: @FG@;
         }
-        QMainWindow, QWidget { background: @BG@; }
+        @MAINBG@
         QToolTip { background: @BGL2@; color: @FG@; border: 1px solid @BORDER@; border-radius: 6px; padding: 4px 8px; }
-        QDialog { background: @BG@; }
+        @DLGBG@
         QGroupBox { border: 1px solid @BORDER@; border-radius: 8px; margin-top: 12px; padding-top: 10px; }
         QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color: @MUTED@; }
         QWidget#NavSidebar {
@@ -659,7 +685,7 @@ inline QString themeQss(const Theme &t)
             selection-background-color: @ACCENT@; selection-color: white; padding: 4px;
         }
         QListWidget, QTableWidget, QTreeWidget {
-            background: @BG@; border: 1px solid @BORDER@; border-radius: 8px; outline: none;
+            background: @BGBASE@; border: 1px solid @BORDER@; border-radius: 8px; outline: none;
             alternate-background-color: @ROWALT@;
         }
         QListWidget::item { border: none; border-bottom: 1px solid @BORDER@; padding: 10px 12px; }
@@ -719,6 +745,17 @@ inline QString themeQss(const Theme &t)
     // 两处调用点均先设 gTheme、kColorBorder 再生成 QSS，此处取值即当前主题）
     substIn(q, "GLASSBG", glassBg(t.bgElev));
     substIn(q, "GLASSBORDER", glassBorder());
+    // 渐变背景：只让主窗口/对话框这一层绘制渐变，其余控件透明透出，避免每个控件
+    // 以自身矩形各画一段渐变产生接缝；纯色主题维持原有平面背景行为不变
+    if (grad) {
+        substIn(q, "MAINBG", QStringLiteral("QWidget { background: transparent; }\n        QMainWindow { background: %1; }").arg(gradBg));
+        substIn(q, "DLGBG", QStringLiteral("QDialog { background: %1; }").arg(gradBg));
+        substIn(q, "BGBASE", QStringLiteral("transparent"));
+    } else {
+        substIn(q, "MAINBG", QStringLiteral("QMainWindow, QWidget { background: %1; }").arg(gradBg));
+        substIn(q, "DLGBG", QStringLiteral("QDialog { background: %1; }").arg(gradBg));
+        substIn(q, "BGBASE", gradBg);
+    }
     Q_UNUSED(chartBg);
     Q_UNUSED(axis);
     return q;

@@ -56,6 +56,8 @@ private:
     void buildUi();
     void reloadData();
     void fetchAllEvents();
+    // 图表渲染内容签名：一致说明图表不会变，跳过重建（同步轮询会周期性触发 refresh）
+    QString renderSignature() const;
     void updateUiFromLanes();
     void showEmptyState(const QString &msg);
     QStringList computeHourlyCategories() const;
@@ -72,6 +74,8 @@ private:
     QHash<QString, QJsonArray> m_eventsMap;
     int m_pendingEvents = 0;
     bool m_loading = false;
+    // 上次实际渲染的内容签名：相同则跳过图表重建，避免无变化的刷新让界面闪动
+    QString m_renderSig;
 
     QLabel *m_dateLabel = nullptr;
     QLabel *m_hostLabel = nullptr;

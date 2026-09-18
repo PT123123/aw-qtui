@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(aw-qtui VERSION 0.1.5 LANGUAGES CXX)
+project(aw-qtui VERSION 0.1.10 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,6 +23,8 @@ add_executable(awqtui WIN32
     src/globalshortcut.h
     src/settingsdialog.cpp
     src/settingsdialog.h
+    src/singleinstance.cpp
+    src/singleinstance.h
     src/models.h
     src/apiclient.cpp
     src/apiclient.h

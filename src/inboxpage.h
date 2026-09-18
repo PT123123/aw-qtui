@@ -91,8 +91,9 @@ private:
     void updateFilterBar();           // 同步筛选面包屑条（显示/隐藏、文案、↑ 可用性）
     void applyTagFilterPath(const QString &path); // 进入/切换/清除层级标签筛选（空 = 清除）
     static QList<TagNode> buildTagTreeFromExact(const QMap<QString, qint64> &exact);
-    void applyClientFilter();
-    void appendNotes(const QList<Note> &notes, bool clear);
+    // force=true 时无条件重建（缩放变化后卡片需按新比例重取样式）
+    void applyClientFilter(bool force = false);
+    void appendNotes(const QList<Note> &notes, bool reset);
     void setStatus(StatusBadge::State s, const QString &text = QString());
     QWidget *makeCard(const Note &n);
     // 把新内容应用到笔记（在线 PUT / 离线本地），供编辑与任务勾选共用
@@ -136,6 +137,10 @@ private:
     QString m_currentTag;             // 当前筛选路径（空 = 无筛选；?tag= 段边界前缀匹配）
     // 当前渲染列表的笔记 id 顺序（与 m_list 逐项对应），供「跳转到被评论笔记」定位
     QList<qint64> m_visibleIds;
+    // 上次实际渲染的笔记内容签名：相同则跳过重建，避免同步轮询把列表清空重画导致闪动
+    QString m_renderSig;
+    // 上次实际渲染的标签树签名：相同则跳过重建，避免侧栏标签树闪动/收起
+    QString m_tagTreeSig;
     // 待跳转目标：目标笔记被过滤掉时先清过滤重载，渲染完成后消费
     qint64 m_pendingJumpId = 0;
 
