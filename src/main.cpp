@@ -167,7 +167,39 @@ int main(int argc, char *argv[])
                                        QStringLiteral("打开设置对话框并截图后退出（测试用）"),
                                        QStringLiteral("dir"));
     parser.addOption(shotSettingsOpt);
+    QCommandLineOption emitIconOpt(QStringLiteral("emit-icon"),
+                                   QStringLiteral("把程序图标导出为各尺寸 PNG 后退出（构建 app.ico 用，见 just icon）"),
+                                   QStringLiteral("dir"));
+    parser.addOption(emitIconOpt);
+    QCommandLineOption iconVariantOpt(
+        QStringLiteral("icon-variant"),
+        QStringLiteral("配合 --emit-icon 使用：指定图标变体 id（green/teal/blue），缺省读当前设置"),
+        QStringLiteral("id"));
+    parser.addOption(iconVariantOpt);
     parser.process(app);
+
+    // 图标导出：纯离屏渲染，不建窗口、不参与单实例仲裁
+    const QString emitIconDir = parser.value(emitIconOpt);
+    if (!emitIconDir.isEmpty()) {
+        // 内嵌进 exe 的图标必须与用户当前选中的变体同色，否则任务管理器 / 资源管理器里
+        // 显示的仍是默认款，跟窗口、托盘上的图标对不上。这里在 gAppIcon 由设置赋值
+        // （见下方启动流程）之前就返回了，所以要自己赋一次。
+        const QString vid = parser.value(iconVariantOpt);
+        gAppIcon = findAppIcon(vid.isEmpty() ? loadAppIconId() : vid);
+        qInfo().noquote() << "[emit-icon] variant =" << QString::fromLatin1(gAppIcon->id)
+                          << QString::fromLatin1(gAppIcon->stroke);
+        QDir().mkpath(emitIconDir);
+        int written = 0;
+        for (const int px : {16, 24, 32, 48, 64, 128, 256}) {
+            const QString out = emitIconDir + QStringLiteral("/icon_%1.png").arg(px);
+            if (renderAppIconPixmap(px).save(out, "PNG"))
+                ++written;
+            else
+                qWarning() << "[emit-icon] write failed:" << out;
+        }
+        qInfo() << "[emit-icon]" << written << "PNG written to" << emitIconDir;
+        return written == 7 ? 0 : 1;
+    }
 
     // ── 跨版本单实例仲裁（必须在 exec 之前，会阻塞等旧实例退出）──
     // 规则：持锁者更旧 → 请求它优雅让位后本实例接管；同版本 → 唤起已有窗口且本实例退出；
@@ -241,7 +273,7 @@ int main(int argc, char *argv[])
         const int shotDelay = qMax(0, parser.value(shotDelayOpt).toInt());
         QTimer::singleShot(shotDelay, &win, [&win, &app, shotDir] {
             win.grab().save(shotDir + QStringLiteral("/inbox.png"));
-            win.switchPage(3); // Todo
+            win.switchPage(2); // Todo（PAGE_TODO=2；3 是 PAGE_FOCUS_TIMER，未登记栈映射，switchPage 会直接 return）
             QTimer::singleShot(600, &win, [&win, &app, shotDir] {
                 win.grab().save(shotDir + QStringLiteral("/todo.png"));
                 win.switchPage(1); // Timeline（沿用原 sync.png 命名，保持测试脚本兼容）

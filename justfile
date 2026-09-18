@@ -58,6 +58,7 @@ help:
     Write-Host '  just server        build & deploy aw-server.exe (full /api/0 + /inbox + /todo) to build/server/'
     Write-Host '  just server-aw-server  alias of server (backward compat)'
     Write-Host '  just deploy        deploy Qt runtimes (windeployqt)'
+    Write-Host '  just icon          生成 exe 内嵌图标 resources/app.ico（需先 just build）'
     Write-Host '  just stage-dist     暂存正式版到 build/dist/'
     Write-Host '  just dist          package dist/aw-qtui-<ver>-win64.zip (bump +0.01)'
     Write-Host '  just deploy-workshop  build release & copy to c:/workshop/aw-qtui-<ver> (patch +1)'
@@ -99,6 +100,27 @@ deploy-dbg:
     $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
     & '{{QT}}/bin/windeployqt.exe' --debug --no-translations --no-system-d3d-compiler --no-opengl-sw '{{DBG}}/awqtui.exe'
 
+# ---------- 生成 exe 内嵌图标 resources/app.ico ----------
+# 图标绘制真相只有一份（theme.h renderAppIconPixmap）：先让编译好的 exe 离屏导出各尺寸 PNG，
+# 再合成 .ico 供 resources/app.rc 内嵌进 awqtui.exe；aw-server.exe 复用同一文件。
+icon:
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    # 导出源必须是「当前源码编出来的 exe」——否则改了 renderAppIconPixmap 之后
+    # 仍会按旧图案生成 app.ico。ninja 增量无改动时几乎瞬完，所以无条件走一次。
+    just build
+    . '{{VCENV}}'
+    $exe = '{{BUILD}}/awqtui.exe'
+    if (-not (Test-Path -LiteralPath $exe)) { throw "找不到 $exe - 先 just build" }
+    $exeAbs = (Get-Item -LiteralPath $exe).FullName
+    $tmpAbs = Join-Path (Get-Item -LiteralPath '{{BUILD}}').FullName 'icon-src'
+    if (Test-Path -LiteralPath $tmpAbs) { Remove-Item -Recurse -Force -LiteralPath $tmpAbs }
+    # GUI 子系统 exe：PowerShell 的 & 不会等待，必须 Start-Process -Wait
+    $p = Start-Process -FilePath $exeAbs -ArgumentList @('--emit-icon', $tmpAbs) -Wait -PassThru -NoNewWindow
+    if ($p.ExitCode -ne 0) { throw "--emit-icon 失败 (exit $($p.ExitCode))" }
+    & 'tools/make-ico.ps1' -PngDir $tmpAbs -Out 'resources/app.ico'
+    Write-Host '[icon] resources/app.ico 已更新 - 重新 just build 才会内嵌进 exe'
+
 # ---------- 服务端：cargo 编 aw-server workspace（aw-server.exe：/api/0 + /inbox + /todo）并部署 ----------
 server:
     #!pwsh -NoProfile
@@ -107,6 +129,14 @@ server:
     $ws = 'vendor/aw-server-rust'
     if (-not (Test-Path -LiteralPath "$ws/Cargo.toml")) {
         throw "aw-server-rust workspace not found: run 'git submodule update --init vendor/aw-server-rust'"
+    }
+    # 图标内嵌：aw-server 的 build.rs 用 rc.exe 编 windows/app.rc，ico 由这里从主仓库同步过去
+    $icoDst = "$ws/aw-server/windows/app.ico"
+    if (Test-Path -LiteralPath 'resources/app.ico') {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $icoDst) | Out-Null
+        Copy-Item -Force -LiteralPath 'resources/app.ico' -Destination $icoDst
+    } else {
+        Write-Host '[server] resources/app.ico 缺失，aw-server.exe 将没有内嵌图标 - 先 just icon' -ForegroundColor Yellow
     }
     Write-Host "[server] workspace: $ws"
     cargo build --release -p aw-server --manifest-path "$ws/Cargo.toml"
@@ -181,12 +211,27 @@ dist version="" skip_server="":
     if ('{{skip_server}}') { $extra += '--skip-server' }
     python tools/make_zip.py --root build/dist @extra
 
-# ---------- 部署到 workshop（c:/workshop/aw-qtui-<ver>，patch +1 并写回） ----------
+# ---------- 版本号推进（deploy-workshop 会在构建前调用） ----------
+# 单独拆成一步，是为了守住「目录名 == exe 内 AW_VERSION」这个不变量：
+# 版本必须**先**写回 CMakeLists.txt，构建出来的 exe 才带新号；
+# 否则新版与运行中的旧版内部版本相同，单实例仲裁走同版本分支，交接无声失败。
+bump-version:
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    python tools/deploy_workshop.py --bump-only
+
+# ---------- 部署到 workshop（c:/workshop/aw-qtui-<ver>） ----------
+# 顺序不可换：先 bump 写回 -> 刷图标 -> 再构建 -> 再部署（原因见 tools/deploy_workshop.py 顶部）。
 deploy-workshop:
     #!pwsh -NoProfile
     $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    just bump-version
+    # 内嵌图标必须与设置里选中的变体同色，且要在构建之前就位：
+    # release 里的 just build / just server 会把它编进 awqtui.exe 和 aw-server.exe。
+    # 任务管理器 / 资源管理器只认这份静态资源，运行时 setWindowIcon 影响不到它们。
+    just icon
     just release
-    python tools/deploy_workshop.py
+    python tools/deploy_workshop.py --no-bump
 
 # ---------- 安装（把已部署的 build/ 拷贝到安装目录） ----------
 install install_dir="":

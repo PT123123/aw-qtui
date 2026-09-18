@@ -39,6 +39,11 @@ int loadTodoSortMode();
 // 持久化任务页排序模式
 void saveTodoSortMode(int mode);
 
+// 读取任务页视图模式（false=列表视图（默认） true=平铺/看板视图）
+bool loadTodoBoardMode();
+// 持久化任务页视图模式
+void saveTodoBoardMode(bool board);
+
 // 读取主题 ID（默认 "midnight" 暗夜蓝）
 QString loadThemeId();
 // 持久化主题 ID

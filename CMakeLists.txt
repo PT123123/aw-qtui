@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
-project(aw-qtui VERSION 0.1.12 LANGUAGES CXX)
+project(aw-qtui VERSION 0.1.19 LANGUAGES CXX)
+
+# Ninja 编译 .rc 资源（exe 内嵌图标）需要 CMP0116=NEW（CMake 3.19+ 引入）。
+# 显式设定而非抬高 cmake_minimum_required，保留 3.16 的最低版本声明。
+if(POLICY CMP0116)
+    cmake_policy(SET CMP0116 NEW)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -72,6 +78,8 @@ add_executable(awqtui WIN32
     src/todomodels.h
     src/todostore.cpp
     src/todostore.h
+    src/todoboard.cpp
+    src/todoboard.h
     src/todopage.cpp
     src/todopage.h
     src/todopage.ui
@@ -127,9 +135,15 @@ target_link_libraries(awqtui PRIVATE
     Qt6::Network
 )
 
-# 原生 DNS-SD：链接 Dnsapi；GetExtendedTcpTable 需要 iphlpapi
+# 原生 DNS-SD：链接 Dnsapi；GetExtendedTcpTable 需要 iphlpapi；GetDpiForMonitor 需要 shcore
 if(WIN32)
-    target_link_libraries(awqtui PRIVATE Dnsapi iphlpapi)
+    target_link_libraries(awqtui PRIVATE Dnsapi iphlpapi shcore)
+
+    # exe 内嵌图标：任务管理器 / 资源管理器只读 exe 里的图标资源，
+    # 运行时 app.setWindowIcon(makeAppIcon()) 影响不到它们。
+    # resources/app.ico 由 `just icon` 生成，必须先存在于仓库（已随仓库提交）。
+    enable_language(RC)
+    target_sources(awqtui PRIVATE resources/app.rc)
 endif()
 
 # ---- 版本号注入 C++ ----
