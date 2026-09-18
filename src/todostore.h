@@ -15,6 +15,8 @@
 
 #include "todomodels.h"
 
+class QNetworkReply;
+
 namespace awqtui {
 
 class ApiClient;
@@ -36,6 +38,8 @@ public:
 
     // 能力开关：服务端无 recurrence 字段（Android 端 supportsRecurrence=false 同款语义）
     virtual bool supportsRecurrence() const { return true; }
+    // 能力开关：能否清除截止日期。服务端 due_date 为 Option（省略 = 保留原值），清空不生效
+    virtual bool supportsDueClear() const { return true; }
 
     // 写操作（异步；生效后发 dataChanged）
     virtual void createList(const QString &name, const QString &color) = 0;
@@ -48,6 +52,15 @@ public:
     virtual void addSubtask(qint64 taskId, const QString &title) = 0;
     virtual void toggleSubtask(qint64 taskId, qint64 subtaskId) = 0;
     virtual void removeSubtask(qint64 taskId, qint64 subtaskId) = 0;
+
+    // 批量操作（多选模式）：基类默认逐条转发到上面的单项接口；
+    // 本地实现覆盖为「改完内存只提交一次」，避免 N 次广播 dataChanged。
+    // dueDate 传空串表示清除截止日期（API 源受服务端 Option 语义限制，清除不生效）。
+    virtual void setTasksCompleted(const QList<qint64> &taskIds, bool completed);
+    virtual void deleteTasks(const QList<qint64> &taskIds);
+    virtual void moveTasks(const QList<qint64> &taskIds, qint64 listId);
+    virtual void setTasksPriority(const QList<qint64> &taskIds, int priority);
+    virtual void setTasksDueDate(const QList<qint64> &taskIds, const QString &dueDate);
 
 signals:
     void dataChanged();
@@ -78,11 +91,20 @@ public:
     void toggleSubtask(qint64 taskId, qint64 subtaskId) override;
     void removeSubtask(qint64 taskId, qint64 subtaskId) override;
 
+    // 批量：一次改完内存只 commit 一次
+    void setTasksCompleted(const QList<qint64> &taskIds, bool completed) override;
+    void deleteTasks(const QList<qint64> &taskIds) override;
+    void moveTasks(const QList<qint64> &taskIds, qint64 listId) override;
+    void setTasksPriority(const QList<qint64> &taskIds, int priority) override;
+    void setTasksDueDate(const QList<qint64> &taskIds, const QString &dueDate) override;
+
 private:
     qint64 nextId();
     TodoTask *mutableTask(qint64 id);
     const TodoTask *findTask(qint64 id) const;
     TodoList *mutableList(qint64 id);
+    // 单任务完成状态切换（含重复任务生成下一实例）；不落盘、不广播，由调用方 commit
+    void applyComplete(qint64 taskId, bool completed);
     // 计算重复任务的下一发生日期（basedOn 为空则取今天）；无法推进返回空串
     static QString nextRecurrenceDate(const QString &rule, const QString &basedOn);
     void seed();
@@ -110,6 +132,7 @@ public:
     void load() override;
     bool ready() const override { return m_loaded; }
     bool supportsRecurrence() const override { return false; }
+    bool supportsDueClear() const override { return false; }
 
     QList<TodoList> lists() const override { return m_lists; }
     QList<TodoTask> tasks() const override { return m_tasks; }
@@ -125,6 +148,13 @@ public:
     void toggleSubtask(qint64 taskId, qint64 subtaskId) override;
     void removeSubtask(qint64 taskId, qint64 subtaskId) override;
 
+    // 批量：并发发 N 个请求，全部回包后只 reload 一次（否则 N 次整体刷新会闪）
+    void setTasksCompleted(const QList<qint64> &taskIds, bool completed) override;
+    void deleteTasks(const QList<qint64> &taskIds) override;
+    void moveTasks(const QList<qint64> &taskIds, qint64 listId) override;
+    void setTasksPriority(const QList<qint64> &taskIds, int priority) override;
+    void setTasksDueDate(const QList<qint64> &taskIds, const QString &dueDate) override;
+
 private:
     static TodoTask todoToTask(const QJsonObject &o);
     void fetchTodos();
@@ -133,6 +163,9 @@ private:
     void mutateSubtasks(qint64 taskId, const std::function<void(QList<TodoSubtask> &)> &fn);
     // 全局唯一子任务 id：所有任务已有子任务 id 的最大值 + 1（对齐 Android nextSubtaskId）
     qint64 nextSubtaskId() const;
+    // 对一批任务各发一个请求，全部 finished 后只 reload 一次
+    void batchRequests(const QList<qint64> &taskIds,
+                       const std::function<QNetworkReply *(qint64 taskId)> &makeRequest);
     void reload();
 
     ApiClient *m_api = nullptr;
