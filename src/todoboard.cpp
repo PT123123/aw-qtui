@@ -100,13 +100,18 @@ QString columnScrollQss()
 }
 
 // 勾选框样式（与列表视图的 TodoTaskRow 保持一致：圆形）
+//
+// ⚠ 数值必须用 si()：sp() 返回的是 "12px" 这种带单位的串，拼进 `width:%1px` 就成了
+// `width:12pxpx`（非法 → 被 Qt 丢弃），指示器会塌缩成 4x4 的小点。
+// Qt QSS 的 width/height 是 content box，border 画在它外面，border-radius 按含边框的外框算，
+// 所以「直径 16px 的圆」= content 12 + border 2x2，radius = 16/2 = 8。
 QString checkQss()
 {
     return QStringLiteral("QCheckBox::indicator{width:%1px;height:%2px;border-radius:%3px;"
                           "border:2px solid %4;background:transparent;}"
                           "QCheckBox::indicator:hover{border-color:%5;}"
                           "QCheckBox::indicator:checked{background:%5;border-color:%5;}")
-        .arg(sp(16)).arg(sp(16)).arg(sp(8)).arg(kColorBorder, kColorAccent);
+        .arg(si(12)).arg(si(12)).arg(si(8)).arg(kColorBorder, kColorAccent);
 }
 
 // 自绘专用的「带透明度取色」。
