@@ -36,6 +36,8 @@ public:
     explicit StatsPage(ApiClient *api, TagStore *store, QWidget *parent = nullptr);
     ~StatsPage() override;
     void refresh();
+    // B 方案：切走隐藏页时释放驻留数据（每日 lanes / 表格行），切回时由 refresh() 重拉
+    void releaseWeight();
     // 按当前主题重建页面内联样式与图表（主题切换时调用）
     void applyTheme();
 
@@ -79,6 +81,8 @@ private:
     QList<BucketInfo> m_buckets;
     QMap<QDate, QList<TimelineLane>> m_dailyLanes;
     int m_pendingDays = 0;
+    // 每次 fetchAllDays/releaseWeight 递增：in-flight lambda 落地时比对代次，切页期间作废的请求不污染新加载
+    int m_fetchGen = 0;
     bool m_loading = false;
 };
 

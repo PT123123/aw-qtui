@@ -2,6 +2,7 @@
 #include "awserver.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
@@ -9,10 +10,15 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTcpSocket>
+#include <QThread>
 #include <QTimer>
 
 #include <string>
+#include <array>
 #ifdef Q_OS_WIN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
 #include <windows.h>
 #include <shellapi.h>
 #endif
@@ -21,7 +27,9 @@ namespace awqtui {
 
 namespace {
 constexpr const char *kServerExeName = "aw-server.exe";
-}
+// 同族版本目录前缀：c:/workshop/aw-qtui-<ver>/…（用于识别运行中的 server 来自哪个发行版）
+constexpr const char *kAppFamilyDirPrefix = "aw-qtui-";
+} // namespace
 
 ServerLauncher::ServerLauncher(QObject *parent)
     : QObject(parent), m_timer(new QTimer(this))
@@ -63,8 +71,14 @@ QString ServerLauncher::defaultServerDataDir()
 
 bool ServerLauncher::ensureServerRunning(const QString &host, quint16 port, const QString &dataDir)
 {
-    if (probePort(host, port, 600))
-        return true; // 已在运行
+    if (probePort(host, port, 600)) {
+        // 端口已被监听：识别占用者是否为本族旧版本打包的 aw-server，是则淘汰并拉起当前版。
+        // 这样部署新版本后，运行中的旧服务端会被新发行版覆盖、由当前版接替（对齐客户端交接）。
+        if (replaceStaleServer(port))
+            ; // 旧版已让位、端口空出 → 继续走拉起分支
+        else
+            return true; // 占用者就是当前版 / 不可判定 / 替换失败 → 复用现状，不折腾
+    }
 
     const QString exe = locateServerExe();
     if (exe.isEmpty()) {
@@ -84,6 +98,96 @@ bool ServerLauncher::ensureServerRunning(const QString &host, quint16 port, cons
     const bool ok = QProcess::startDetached(exe, args, dataDir);
     qInfo() << "[awserver] 拉起服务端" << (ok ? "成功" : "失败") << exe << args;
     return ok;
+}
+
+QString ServerLauncher::processExePath(quint32 pid)
+{
+    if (pid == 0)
+        return QString();
+    const HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!h)
+        return QString();
+    DWORD size = 1024;
+    std::array<wchar_t, 1024> buf{};
+    if (!QueryFullProcessImageNameW(h, 0, buf.data(), &size)) {
+        CloseHandle(h);
+        return QString();
+    }
+    CloseHandle(h);
+    return QString::fromWCharArray(buf.data(), size);
+}
+
+// 端口已被同族旧版本 aw-server 占用时的替换：判定 → 结束旧进程 → 等端口释放。
+bool ServerLauncher::replaceStaleServer(quint16 port)
+{
+#ifdef Q_OS_WIN
+    // 1) 枚举监听端口的进程 pid
+    quint32 pid = 0;
+    ULONG size = 0;
+    if (GetExtendedTcpTable(nullptr, &size, FALSE, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0)
+            == ERROR_INSUFFICIENT_BUFFER
+        && size > 0) {
+        QByteArray buf(int(size), Qt::Uninitialized);
+        if (GetExtendedTcpTable(buf.data(), &size, FALSE, AF_INET,
+                                TCP_TABLE_OWNER_PID_LISTENER, 0)
+                == NO_ERROR) {
+            const auto *tab = reinterpret_cast<MIB_TCPTABLE_OWNER_PID *>(buf.data());
+            for (ULONG i = 0; i < tab->dwNumEntries; ++i) {
+                const auto &row = tab->table[i];
+                if (row.dwState != MIB_TCP_STATE_LISTEN)
+                    continue;
+                if (row.dwLocalPort == htons(port)) {
+                    pid = row.dwOwningPid;
+                    break;
+                }
+            }
+        }
+    }
+    if (!pid)
+        return false; // 拿不到 pid（如非管理员查看不了他人监听表）→ 保守不动
+
+    // 2) 判定：必须是本族版本目录下的 aw-server.exe，且不是当前发行版打包的那个
+    const QString exe = processExePath(pid);
+    if (exe.isEmpty())
+        return false;
+    const QFileInfo fi(exe);
+    if (fi.fileName().compare(QLatin1String(kServerExeName), Qt::CaseInsensitive) != 0)
+        return false; // 占用者不是 aw-server（可能是用户自己的服务）→ 不碰
+    const QString parentDirName = QFileInfo(QFileInfo(fi.absolutePath()).absolutePath()).fileName();
+    if (!parentDirName.startsWith(QLatin1String(kAppFamilyDirPrefix)))
+        return false; // 不在 aw-qtui-<ver> 家族目录 → 无法判定版本，保守不动
+
+    const QString mine = locateServerExe();
+    const QString mineNorm = QDir::cleanPath(mine).toLower();
+    const QString theirsNorm = QDir::cleanPath(exe).toLower();
+    if (!mine.isEmpty() && !mineNorm.isEmpty()
+        && mineNorm == theirsNorm)
+        return false; // 就是当前发行版打包的 server → 已在最新，无需替换
+
+    // 3) 结束旧版本进程。服务端是无状态 sidecar，无优雅退出 IPC（纯 HTTP 监听者），
+    //    数据全部落在 SQLite（aw-server.db / inbox / todo / sync.db），崩溃安全；
+    //    且本类看护（setWatch）会在探测失败时自动重拉，故终止进程是安全的替换手段。
+    qWarning() << "[awserver] 检测到旧版本服务端 (pid=" << pid << ")，结束并由当前版接替"
+               << exe;
+    const HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+    if (h) {
+        TerminateProcess(h, 0);
+        CloseHandle(h);
+    }
+
+    // 4) 等待端口释放（最多约 6 秒）；未释放则回退保留现状
+    const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + 6000;
+    while (QDateTime::currentMSecsSinceEpoch() < deadline) {
+        if (!probePort(kServerProbeHost, port, 200))
+            return true; // 端口空出，可拉起当前版
+        QThread::msleep(200);
+    }
+    qWarning() << "[awserver] 旧版服务端未在超时内退出，保留现状";
+    return false;
+#else
+    Q_UNUSED(port);
+    return false;
+#endif
 }
 
 void ServerLauncher::setWatch(bool on, const QString &host, quint16 port, const QString &dataDir,

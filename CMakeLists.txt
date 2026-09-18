@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(aw-qtui VERSION 0.1.10 LANGUAGES CXX)
+project(aw-qtui VERSION 0.1.12 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -41,6 +41,8 @@ add_executable(awqtui WIN32
     src/syncpage.cpp
     src/syncpage.h
     src/syncpage.ui
+    src/syncservice.cpp
+    src/syncservice.h
     src/syncdetailspage.cpp
     src/syncdetailspage.h
     src/syncdetailspage.ui
@@ -125,9 +127,9 @@ target_link_libraries(awqtui PRIVATE
     Qt6::Network
 )
 
-# 原生 DNS-SD：链接 Dnsapi
+# 原生 DNS-SD：链接 Dnsapi；GetExtendedTcpTable 需要 iphlpapi
 if(WIN32)
-    target_link_libraries(awqtui PRIVATE Dnsapi)
+    target_link_libraries(awqtui PRIVATE Dnsapi iphlpapi)
 endif()
 
 # ---- 版本号注入 C++ ----

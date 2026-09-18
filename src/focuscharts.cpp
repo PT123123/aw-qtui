@@ -213,6 +213,12 @@ void FocusWeekPage::refresh()
         m_heat->setSessions(m_focus->sessions(), m_weekStart);
 }
 
+void FocusWeekPage::releaseWeight()
+{
+    if (m_heat)
+        m_heat->setSessions({}, m_weekStart); // 清空图表持有的 session 副本，切回 refresh() 再填
+}
+
 // ==================================================================== //
 // 月度热力图
 // ==================================================================== //
@@ -487,6 +493,14 @@ void FocusHeatmapPage::refresh()
     m_yearHeat->setSessions(m_focus->sessions(), m_year);
 }
 
+void FocusHeatmapPage::releaseWeight()
+{
+    if (m_monthHeat)
+        m_monthHeat->setSessions({}, m_month);
+    if (m_yearHeat)
+        m_yearHeat->setSessions({}, m_year);
+}
+
 // ==================================================================== //
 // 最佳专注时间（24h 柱状）
 // ==================================================================== //
@@ -641,6 +655,12 @@ void FocusBestPage::refresh()
     updateTitle();
     if (m_focus)
         m_chart->setSessions(m_focus->sessions(), m_month);
+}
+
+void FocusBestPage::releaseWeight()
+{
+    if (m_chart)
+        m_chart->setSessions({}, m_month);
 }
 
 // ==================================================================== //
@@ -854,6 +874,16 @@ void FocusCalendarPage::refresh()
         updateDayDetail(m_cal->selectedDate());
     else
         onDateSelected(QDate::currentDate());
+}
+
+void FocusCalendarPage::releaseWeight()
+{
+    if (m_cal)
+        m_cal->setSessions({}, m_month);
+    if (m_taskList)
+        m_taskList->clear();
+    if (m_focusList)
+        m_focusList->clear();
 }
 
 void FocusCalendarPage::onDateSelected(const QDate &date)

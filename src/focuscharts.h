@@ -45,6 +45,7 @@ public:
     explicit FocusWeekPage(FocusSource *focus, QWidget *parent = nullptr);
     void applyUiScale();
     void refresh();
+    void releaseWeight();
 
 private:
     void shiftWeek(int n);
@@ -98,6 +99,7 @@ public:
     explicit FocusHeatmapPage(FocusSource *focus, QWidget *parent = nullptr);
     void applyUiScale();
     void refresh();
+    void releaseWeight();
 
 private:
     void shiftMonth(int n);
@@ -139,6 +141,7 @@ public:
     explicit FocusBestPage(FocusSource *focus, QWidget *parent = nullptr);
     void applyUiScale();
     void refresh();
+    void releaseWeight();
 
 private:
     void shiftMonth(int n);
@@ -183,6 +186,7 @@ public:
     explicit FocusCalendarPage(FocusSource *focus, TodoSource *todo, QWidget *parent = nullptr);
     void applyUiScale();
     void refresh();
+    void releaseWeight();
 
 private:
     void shiftMonth(int n);

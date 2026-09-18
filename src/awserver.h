@@ -69,6 +69,12 @@ private slots:
     void onWatchTick();
 
 private:
+    // 端口已被「同族旧版本」服务端占用时：结束它并等待端口释放。
+    // 返回 true = 旧的已让位、端口空出（可立刻拉起当前版）；false = 仍是当前版/替换失败（保持现状）。
+    bool replaceStaleServer(quint16 port);
+    // 查询进程可执行文件绝对路径（只读、低权限探查）。
+    static QString processExePath(quint32 pid);
+
     QString m_host;
     quint16 m_port = 0;
     QString m_dataDir;

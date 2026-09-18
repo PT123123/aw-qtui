@@ -1,10 +1,11 @@
-// syncpage.cpp —— 局域网同步页 (aw-sync-rust /api/0/sync)
+// syncpage.cpp —— 局域网同步页视图 (aw-sync-rust /api/0/sync)
 #include "syncpage.h"
 #include "ui_syncpage.h"
 
 #include "apiclient.h"
 #include "config.h"
 #include "mdnsdiscovery.h"
+#include "syncservice.h"
 #include "theme.h"
 #include "widgets.h"
 
@@ -37,39 +38,29 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
-#include <QNetworkInterface>
 
 namespace awqtui {
 
-SyncPage::SyncPage(ApiClient *api, MdnsDiscovery *mdns, QWidget *parent)
-    : QWidget(parent), m_api(api), m_mdns(mdns)
+SyncPage::SyncPage(ApiClient *api, SyncService *service, QWidget *parent)
+    : QWidget(parent), m_api(api), m_service(service)
 {
     buildUi();
     connect(m_api, &ApiClient::destroyed, this, [this] { m_api = nullptr; });
 
-    // 定时刷新：进入页面后周期性拉取设备/状态，及时呈现 UDP 广播发现的设备
-    m_refreshTimer = new QTimer(this);
-    m_refreshTimer->setInterval(5000);
-    connect(m_refreshTimer, &QTimer::timeout, this, &SyncPage::onRefreshTimer);
-
-    // 事件驱动同步：本机数据变更后去抖 4 秒推送一次（合并连续编辑）
-    m_syncDebounce = new QTimer(this);
-    m_syncDebounce->setSingleShot(true);
-    m_syncDebounce->setInterval(4000);
-    connect(m_syncDebounce, &QTimer::timeout, this, [this] {
-        // 服务端自动循环本就会按周期同步；这里只做「改完立刻到对端」的加速
-        if (!m_chkEnabled->isChecked())
-            return;
-        bool anyOnline = false;
-        for (const SyncDevice &d : m_devices)
-            if (d.paired && !d.isSelf && d.isOnline)
-                anyOnline = true;
-        if (!anyOnline)
-            return; // 对端都不在线，等自动循环
-        log(QStringLiteral("本机数据有改动，立即推送…"));
-        doSync();
-    });
-    connect(m_api, &ApiClient::localDataChanged, this, &SyncPage::onLocalDataChanged);
+    // 引擎信号 → 视图：设备表 / 徽标 / 日志 / 配对横幅
+    connect(m_service, &SyncService::devicesChanged, this, &SyncPage::renderDevices);
+    connect(m_service, &SyncService::statusUpdated, this,
+            [this](const QString &text) { m_lastStatusText = text; applyBadgeState(0, text); });
+    connect(m_service, &SyncService::statusError, this,
+            [this](const QString &err) { applyBadgeState(3, err); });
+    connect(m_service, &SyncService::syncBusy, this,
+            [this](const QString &name) {
+                applyBadgeState(1, name.isEmpty() ? QStringLiteral("查询设备…")
+                                                  : QStringLiteral("同步中…"));
+            });
+    connect(m_service, &SyncService::syncIdle, this,
+            [this] { applyBadgeState(0, m_lastStatusText); });
+    connect(m_service, &SyncService::logLine, this, &SyncPage::log);
 }
 
 SyncPage::~SyncPage()
@@ -77,54 +68,38 @@ SyncPage::~SyncPage()
     delete ui;
 }
 
-void SyncPage::onLocalDataChanged()
+// 徽标状态映射（0=已连接 1=同步中 2=断开 3=错误）
+void SyncPage::applyBadgeState(int state, const QString &text)
 {
-    if (m_syncDebounce)
-        m_syncDebounce->start();
-}
-
-// 探测是否处于可局域网同步的网络环境：存在至少一个非 loopback 的 IPv4 地址
-bool SyncPage::onLocalNetwork()
-{
-    for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
-        if (!(iface.flags() & QNetworkInterface::IsUp))
-            continue;
-        if (iface.flags() & QNetworkInterface::IsLoopBack)
-            continue;
-        for (const QHostAddress &addr : iface.allAddresses()) {
-            if (addr.protocol() == QAbstractSocket::IPv4Protocol && !addr.isLoopback())
-                return true;
-        }
-    }
-    return false;
+    if (!m_serverBadge)
+        return;
+    auto s = StatusBadge::State::Connected;
+    if (state == 1) s = StatusBadge::State::Syncing;
+    else if (state == 2) s = StatusBadge::State::Disconnected;
+    else if (state == 3) s = StatusBadge::State::Error;
+    m_serverBadge->setState(s, text);
 }
 
 void SyncPage::onEnteredSyncPage()
 {
-    // 进入局域网同步界面时启动服务端发现广播（aw-server-rust 9bcbc01）
+    // 进入局域网同步界面时启动服务端发现广播（aw-server-rust 9bcbc01；桌面端实为常驻）
     if (m_api)
         m_api->discoveryStart();
-    // 若在网络环境且同步尚未开启，自动开启（对齐 Android LanSyncNetworkMonitor 行为）
-    if (onLocalNetwork() && !m_chkEnabled->isChecked()) {
-        m_chkEnabled->setChecked(true);
-        log(QStringLiteral("已探测到局域网环境，自动开启局域网同步"));
-        onSaveConfig();
-    }
-    refreshDevices();
-    refreshSyncConfig();
-    m_refreshTimer->start();
+    // 引擎：局域网自动开启同步 + 立即拉取设备/心跳
+    if (m_service)
+        m_service->onSyncPageOpened();
 }
 
-void SyncPage::onRefreshTimer()
+void SyncPage::refreshDevices()
 {
-    refreshDevices();
-    heartbeat(true);
+    if (m_service)
+        m_service->refreshDevices();
 }
 
-void SyncPage::stopRefresh()
+void SyncPage::heartbeat(bool quiet)
 {
-    if (m_refreshTimer)
-        m_refreshTimer->stop();
+    if (m_service)
+        m_service->heartbeat(quiet);
 }
 
 void SyncPage::buildUi()
@@ -133,7 +108,7 @@ void SyncPage::buildUi()
     ui = new Ui::SyncPage;
     ui->setupUi(this);
 
-    // ── 成员别名：历史逻辑沿用 m_* 指针，静态布局归属 .ui 文件 ──
+    // ── 成员别名：静态布局归属 .ui 文件 ──
     m_serverEdit = ui->serverEdit;
     m_serverBadge = ui->serverBadge;
     m_devTable = ui->devTable;
@@ -157,21 +132,17 @@ void SyncPage::buildUi()
     m_pairBannerLbl = ui->pairBannerLbl;
 
     // ── 运行时才能确定的内容：主题色、DPI 缩放、菜单、档位数据 ──
-
-    // 主题色是运行时可变的（theme.h applyTheme 会切换），无法写进 .ui
     m_pairBanner->setStyleSheet(QStringLiteral(
         "QWidget { background: rgba(76,139,245,0.14); border: 1px solid %1; border-radius: 6px; }")
                                     .arg(kColorAccent));
     ui->discoverHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
     ui->syncRangeHint->setStyleSheet(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
 
-    // 主题按 objectName 选择器（#PrimaryBtn）渲染高亮按钮
     m_btnSyncNow->setObjectName(QStringLiteral("PrimaryBtn"));
     ui->btnAcceptPair->setObjectName(QStringLiteral("PrimaryBtn"));
     m_btnSaveConfig->setObjectName(QStringLiteral("PrimaryBtn"));
 
-    // 表格列宽 / 行高（si() 按全局缩放适配，.ui 中无法表达）
-    m_devTable->verticalHeader()->setDefaultSectionSize(si(42)); // 行高容纳操作列 34px 按钮（setCellWidget 不会自动撑高行）
+    m_devTable->verticalHeader()->setDefaultSectionSize(si(42));
     m_devTable->setColumnWidth(0, 180);
     m_devTable->setColumnWidth(1, 70);
     m_devTable->setColumnWidth(2, 110);
@@ -180,13 +151,11 @@ void SyncPage::buildUi()
     m_devTable->setColumnWidth(5, 140);
     m_devTable->setColumnWidth(7, si(240));
 
-    // 自动同步频率的档位数值（itemData 无法在 .ui 中表达；0 = 仅手动）
     m_cmbSyncInterval->setItemData(0, 10);
     m_cmbSyncInterval->setItemData(1, 60);
     m_cmbSyncInterval->setItemData(2, 300);
     m_cmbSyncInterval->setItemData(3, 0);
 
-    // 低频操作收纳进「更多」菜单，主流程只留同步/移除（动作绑定槽函数，保留在代码中）
     auto *moreMenu = new QMenu(ui->btnMore);
     moreMenu->addAction(QStringLiteral("设置别名…"), this, &SyncPage::onSetAlias);
     moreMenu->addAction(QStringLiteral("使用配对码配对…"), this, &SyncPage::onUsePairCode);
@@ -197,7 +166,6 @@ void SyncPage::buildUi()
     moreMenu->addAction(QStringLiteral("清空所有配对"), this, &SyncPage::onClearAllDevices);
     ui->btnMore->setMenu(moreMenu);
 
-    // 服务端地址初值
     m_serverEdit->setText(m_api ? m_api->baseUrl() : kDefaultServerUrl);
 
     // ── 信号连接 ──
@@ -210,8 +178,8 @@ void SyncPage::buildUi()
     connect(ui->btnRefreshDevices, &QPushButton::clicked, this, &SyncPage::refreshDevices);
     connect(ui->btnAcceptPair, &QPushButton::clicked, this, &SyncPage::onAcceptPair);
     connect(ui->btnIgnorePair, &QPushButton::clicked, this, [this] {
-        if (!m_pairBannerId.isEmpty())
-            m_notifiedPairReq.append(m_pairBannerId); // 本轮不再提醒
+        if (m_service && !m_pairBannerId.isEmpty())
+            m_service->markPairIgnored(m_pairBannerId);
         m_pairBanner->setVisible(false);
     });
     connect(m_btnSaveConfig, &QPushButton::clicked, this, &SyncPage::onSaveConfig);
@@ -236,7 +204,6 @@ void SyncPage::buildUi()
                     .arg(formatLocal(e.timestamp), e.direction, e.eventType, e.message));
                 if (!e.hasDetails())
                     continue;
-                // 逐条传输明细：某次同步中每条记录的落地结果
                 m_log->appendPlainText(QStringLiteral("    ── 传输明细 %1 条 ──").arg(e.details.size()));
                 for (const TransferRecord &rec : e.details) {
                     const QString label = rec.title.isEmpty() ? rec.logicalKey : rec.title;
@@ -260,7 +227,7 @@ void SyncPage::buildUi()
     connect(m_btnDeleteTrash, &QPushButton::clicked, this, &SyncPage::onDeleteTrashRow);
     connect(m_btnClearTrash, &QPushButton::clicked, this, &SyncPage::onClearAllTrash);
 
-    // 底部状态栏
+    // 底部状态栏（本页操作日志）；引擎日志经 SyncService::logLine 也汇入这里
     connect(this, &SyncPage::logMessage, this, [this](const QString &line) {
         m_log->appendPlainText(QStringLiteral("[%1] %2").arg(
             QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss")), line));
@@ -288,121 +255,92 @@ void SyncPage::log(const QString &line)
     emit logMessage(line);
 }
 
-void SyncPage::refreshDevices()
+// 渲染设备表（引擎 devicesChanged 回调 / 页面主动刷新后）
+void SyncPage::renderDevices(const QList<SyncDevice> &devices)
 {
-    if (!m_api)
-        return;
-    m_serverBadge->setState(StatusBadge::State::Syncing, QStringLiteral("查询设备…"));
-    QNetworkReply *r = m_api->getSyncDevices();
-    connect(r, &QNetworkReply::finished, this, [this, r] {
-        QJsonDocument doc;
-        QString err;
-        if (!ApiClient::parseReply(r, &doc, &err)) {
-            m_serverBadge->setState(StatusBadge::State::Disconnected, err);
-            log(QStringLiteral("获取设备失败：%1").arg(err));
-            return;
+    m_devices = devices;
+    m_devTable->setRowCount(0);
+    int row = 0;
+    for (const SyncDevice &d : m_devices) {
+        m_devTable->insertRow(row);
+        m_devTable->setRowHeight(row, si(42)); // 逐行显式设高，保证操作列按钮完整可见
+        const auto put = [&](int col, const QString &s, bool bold = false) {
+            auto *it = new QTableWidgetItem(s);
+            if (bold)
+                it->setForeground(QColor(kColorAccent));
+            m_devTable->setItem(row, col, it);
+        };
+        put(0, d.displayName(), d.isSelf);
+        put(1, d.deviceKind);
+        put(2, d.ip);
+        put(3, QString::number(d.port));
+        put(4, formatLocal(d.lastSeenAt));
+        put(5, formatLocal(d.lastSyncAt));
+        // 在线状态（对齐 Android Device.isEffectivelyOnline）：
+        bool online = d.isOnline;
+        if (!d.paired && !d.isSelf && !d.lastSeenAt.isEmpty()) {
+            const QDateTime seen = QDateTime::fromString(d.lastSeenAt, Qt::ISODate);
+            online = seen.isValid() && seen.secsTo(QDateTime::currentDateTimeUtc()) < 30;
         }
-        m_devices.clear();
-        const auto arr = doc.array();
-        for (const auto &v : arr) {
-            if (v.isObject())
-                m_devices << SyncDevice::fromJson(v.toObject());
-        }
-        m_devTable->setRowCount(0);
-        int row = 0;
-        for (const SyncDevice &d : m_devices) {
-            m_devTable->insertRow(row);
-            m_devTable->setRowHeight(row, si(42)); // 逐行显式设高，保证操作列 34px 按钮完整可见（cell widget 不会自动撑高行）
-            const auto put = [&](int col, const QString &s, bool bold = false) {
-                auto *it = new QTableWidgetItem(s);
-                if (bold)
-                    it->setForeground(QColor(kColorAccent));
-                m_devTable->setItem(row, col, it);
-            };
-            put(0, d.displayName(), d.isSelf);
-            put(1, d.deviceKind);
-            put(2, d.ip);
-            put(3, QString::number(d.port));
-            put(4, formatLocal(d.lastSeenAt));
-            put(5, formatLocal(d.lastSyncAt));
-            // 在线状态（对齐 Android Device.isEffectivelyOnline）：
-            // 已配对设备看服务端 is_online；未配对（刚广播发现的）看 30 秒内是否收到过广播
-            bool online = d.isOnline;
-            if (!d.paired && !d.isSelf && !d.lastSeenAt.isEmpty()) {
-                const QDateTime seen = QDateTime::fromString(d.lastSeenAt, Qt::ISODate);
-                online = seen.isValid() && seen.secsTo(QDateTime::currentDateTimeUtc()) < 30;
-            }
-            QString status;
-            if (d.isSelf)
-                status = QStringLiteral("本机");
-            else if (!d.paired)
-                // 未配对也明确在线状态（对齐 Android discoveredDevices 只收在线设备的语义）
-                status = online ? QStringLiteral("在线 · 未配对") : QStringLiteral("离线 · 未配对");
-            else if (online)
-                status = QStringLiteral("在线");
-            else
-                status = QStringLiteral("离线");
-            put(6, status);
-            // 操作列：按需显示配对按钮。离线设备无法完成配对握手，不显示按钮
-            // （对齐 Android：配对按钮只出现在「发现的设备（在线）」区）
-            auto *opCell = new QWidget;
-            auto *opLay = new QHBoxLayout(opCell);
-            opLay->setContentsMargins(4, 0, 4, 0);
-            opLay->setSpacing(4);
-            if (!d.isSelf && d.paired && online) {
-                // 已配对在线设备：行内直接同步（免去先选中再点工具栏）
-                auto *btnSync = new QPushButton(QStringLiteral("同步"));
-                btnSync->setProperty("deviceId", d.id);
-                connect(btnSync, &QPushButton::clicked, this, [this] {
-                    auto *b = qobject_cast<QPushButton*>(sender());
-                    if (b)
-                        syncDevice(b->property("deviceId").toString());
-                });
-                btnSync->setMinimumWidth(si(64));
-                btnSync->setFixedHeight(si(34));
-                opLay->addWidget(btnSync);
-            }
-            if (!d.isSelf && !d.paired && online) {
-                auto *btnInitiate = new QPushButton(QStringLiteral("发起配对"));
-                btnInitiate->setProperty("deviceId", d.id);
-                connect(btnInitiate, &QPushButton::clicked, this, &SyncPage::onInitiatePair);
-                btnInitiate->setMinimumWidth(si(110));
-                btnInitiate->setFixedHeight(si(34));
-                QFont f1 = btnInitiate->font();
-                f1.setPixelSize(si(14));
-                f1.setWeight(QFont::Medium);
-                btnInitiate->setFont(f1);
-                opLay->addWidget(btnInitiate);
-            }
-            if (!d.isSelf && !d.paired && online && d.pairRequestPending) {
-                auto *btnAccept = new QPushButton(QStringLiteral("接受配对"));
-                btnAccept->setProperty("deviceId", d.id);
-                connect(btnAccept, &QPushButton::clicked, this, &SyncPage::onAcceptPair);
-                btnAccept->setMinimumWidth(si(110));
-                btnAccept->setFixedHeight(si(34));
-                QFont f2 = btnAccept->font();
-                f2.setPixelSize(si(14));
-                f2.setWeight(QFont::Medium);
-                btnAccept->setFont(f2);
-                opLay->addWidget(btnAccept);
-            }
-            opLay->addStretch(1);
-            m_devTable->setCellWidget(row, 7, opCell);
-            ++row;
-        }
-        if (m_devices.isEmpty())
-            log(QStringLiteral("设备表为空"));
+        QString status;
+        if (d.isSelf)
+            status = QStringLiteral("本机");
+        else if (!d.paired)
+            status = online ? QStringLiteral("在线 · 未配对") : QStringLiteral("离线 · 未配对");
+        else if (online)
+            status = QStringLiteral("在线");
         else
-            log(QStringLiteral("设备 %1 台").arg(m_devices.size()));
-        m_serverBadge->setState(StatusBadge::State::Connected);
-        updatePairBanner();
-    });
-}
-
-void SyncPage::setRefreshInterval(int ms)
-{
-    if (m_refreshTimer)
-        m_refreshTimer->setInterval(ms);
+            status = QStringLiteral("离线");
+        put(6, status);
+        auto *opCell = new QWidget;
+        auto *opLay = new QHBoxLayout(opCell);
+        opLay->setContentsMargins(4, 0, 4, 0);
+        opLay->setSpacing(4);
+        if (!d.isSelf && d.paired && online) {
+            auto *btnSync = new QPushButton(QStringLiteral("同步"));
+            btnSync->setProperty("deviceId", d.id);
+            connect(btnSync, &QPushButton::clicked, this, [this] {
+                auto *b = qobject_cast<QPushButton*>(sender());
+                if (b && m_service)
+                    m_service->syncDevice(b->property("deviceId").toString());
+            });
+            btnSync->setMinimumWidth(si(64));
+            btnSync->setFixedHeight(si(34));
+            opLay->addWidget(btnSync);
+        }
+        if (!d.isSelf && !d.paired && online) {
+            auto *btnInitiate = new QPushButton(QStringLiteral("发起配对"));
+            btnInitiate->setProperty("deviceId", d.id);
+            connect(btnInitiate, &QPushButton::clicked, this, &SyncPage::onInitiatePair);
+            btnInitiate->setMinimumWidth(si(110));
+            btnInitiate->setFixedHeight(si(34));
+            QFont f1 = btnInitiate->font();
+            f1.setPixelSize(si(14));
+            f1.setWeight(QFont::Medium);
+            btnInitiate->setFont(f1);
+            opLay->addWidget(btnInitiate);
+        }
+        if (!d.isSelf && !d.paired && online && d.pairRequestPending) {
+            auto *btnAccept = new QPushButton(QStringLiteral("接受配对"));
+            btnAccept->setProperty("deviceId", d.id);
+            connect(btnAccept, &QPushButton::clicked, this, &SyncPage::onAcceptPair);
+            btnAccept->setMinimumWidth(si(110));
+            btnAccept->setFixedHeight(si(34));
+            QFont f2 = btnAccept->font();
+            f2.setPixelSize(si(14));
+            f2.setWeight(QFont::Medium);
+            btnAccept->setFont(f2);
+            opLay->addWidget(btnAccept);
+        }
+        opLay->addStretch(1);
+        m_devTable->setCellWidget(row, 7, opCell);
+        ++row;
+    }
+    if (m_devices.isEmpty())
+        log(QStringLiteral("设备表为空"));
+    else
+        log(QStringLiteral("设备 %1 台").arg(m_devices.size()));
+    updatePairBanner();
 }
 
 void SyncPage::updatePairBanner()
@@ -417,7 +355,6 @@ void SyncPage::updatePairBanner()
     }
     if (pendingId.isEmpty()) {
         m_pairBanner->setVisible(false);
-        setRefreshInterval(5000);
         return;
     }
     m_pairBannerId = pendingId;
@@ -427,13 +364,7 @@ void SyncPage::updatePairBanner()
         if (b->text() == QStringLiteral("接受"))
             b->setProperty("deviceId", pendingId);
     }
-    if (!m_notifiedPairReq.contains(pendingId)) {
-        m_notifiedPairReq.append(pendingId);
-        log(QStringLiteral("收到来自「%1」的配对请求").arg(pendingName));
-        emit pairRequestReceived(pendingName); // MainWindow 弹系统托盘通知
-    }
     m_pairBanner->setVisible(true);
-    setRefreshInterval(3000); // 有待处理请求时加快刷新，尽快呈现状态变化
 }
 
 void SyncPage::onUsePairCode()
@@ -450,7 +381,7 @@ void SyncPage::onUsePairCode()
             return;
         }
         const QString myCode = doc.object().value(QStringLiteral("code")).toString();
-        // ② 输入对端的配对码（两端各持一码互输即可，先输对端码的一方完成配对）
+        // ② 输入对端的配对码
         bool ok = false;
         const QString peerCode = QInputDialog::getText(
             this, QStringLiteral("使用配对码配对"),
@@ -458,7 +389,7 @@ void SyncPage::onUsePairCode()
             QLineEdit::Normal, QString(), &ok);
         if (!ok || peerCode.trimmed().isEmpty())
             return;
-        // ③ 带上本机设备信息加入（对端会把本机写入信任列表，实现双向互见）
+        // ③ 带上本机设备信息加入
         QJsonObject self;
         for (const SyncDevice &d : m_devices)
             if (d.isSelf)
@@ -474,119 +405,23 @@ void SyncPage::onUsePairCode()
             log(QStringLiteral("配对码配对成功"));
             refreshDevices();
             // 配对成功立即补一次全量同步
-            m_syncQueue.clear();
-            for (const SyncDevice &d : m_devices)
-                if (d.paired && !d.isSelf && d.isOnline)
-                    m_syncQueue.append(d.id);
-            if (!m_syncQueue.isEmpty())
-                QTimer::singleShot(800, this, [this] { processSyncQueue(); });
+            if (m_service)
+                QTimer::singleShot(800, this, [this] { m_service->doSync(); });
         });
     });
 }
 
-void SyncPage::doSync()
+void SyncPage::onSyncNow()
 {
     // 选中了有效设备 → 只同步它；否则同步全部已配对在线设备
     const int row = m_devTable->currentRow();
     if (row >= 0 && row < m_devices.size() && !m_devices[row].isSelf && m_devices[row].paired) {
-        syncDevice(m_devices[row].id);
+        if (m_service)
+            m_service->syncDevice(m_devices[row].id);
         return;
     }
-    m_syncQueue.clear();
-    for (const SyncDevice &d : m_devices)
-        if (d.paired && !d.isSelf && d.isOnline)
-            m_syncQueue.append(d.id);
-    if (m_syncQueue.isEmpty()) {
-        log(QStringLiteral("没有已配对且在线的设备可同步"));
-        return;
-    }
-    log(QStringLiteral("开始与 %1 台在线设备同步…").arg(m_syncQueue.size()));
-    processSyncQueue();
-}
-
-void SyncPage::syncDevice(const QString &deviceId)
-{
-    if (!m_api)
-        return;
-    QString name = deviceId.left(8);
-    for (const SyncDevice &d : m_devices)
-        if (d.id == deviceId)
-            name = d.displayName();
-    m_serverBadge->setState(StatusBadge::State::Syncing, QStringLiteral("同步中…"));
-    log(QStringLiteral("开始与 %1 同步…").arg(name));
-
-    QNetworkReply *r = m_api->triggerSync(deviceId);
-    connect(r, &QNetworkReply::finished, this, [this, r] {
-        QJsonDocument doc;
-        QString err;
-        if (!ApiClient::parseReply(r, &doc, &err)) {
-            m_serverBadge->setState(StatusBadge::State::Error, QStringLiteral("同步失败"));
-            log(QStringLiteral("同步失败：%1").arg(err));
-            processSyncQueue();
-            return;
-        }
-        syncComplete(ApplyResult::fromJson(doc.object().value(QStringLiteral("result")).toObject()));
-        refreshDevices();
-        processSyncQueue();
-    });
-}
-
-void SyncPage::processSyncQueue()
-{
-    // 队列非空时由上一台完成回调驱动继续；空即收尾
-    if (m_syncQueue.isEmpty()) {
-        if (m_serverBadge)
-            m_serverBadge->setState(StatusBadge::State::Connected);
-        return;
-    }
-    const QString next = m_syncQueue.takeFirst();
-    syncDevice(next);
-}
-
-void SyncPage::syncComplete(const ApplyResult &r)
-{
-    log(QStringLiteral("同步完成：%1").arg(r.summary()));
-    for (const TransferRecord &rec : r.records) {
-        const QString label = rec.title.isEmpty() ? rec.logicalKey : rec.title;
-        QString line = QStringLiteral("  · [%1] %2 %3")
-                           .arg(rec.kind, TransferRecord::actionLabel(rec.action), label);
-        if (!rec.reason.isEmpty())
-            line += QStringLiteral("（%1）").arg(rec.reason);
-        log(line);
-    }
-    for (const QString &e : r.errors)
-        log(QStringLiteral("  ✗ %1").arg(e));
-    m_serverBadge->setState(StatusBadge::State::Connected);
-}
-
-void SyncPage::heartbeat(bool quiet)
-{
-    if (!m_api)
-        return;
-    if (!quiet)
-        log(QStringLiteral("发送心跳…"));
-    // 心跳通过 GET /status 实现（同时拿到同步开关/发现状态/监听端口，展示真实服务端状态）
-    QNetworkReply *r = m_api->getSyncStatus();
-    connect(r, &QNetworkReply::finished, this, [this, r, quiet] {
-        QJsonDocument doc;
-        QString err;
-        if (!ApiClient::parseReply(r, &doc, &err)) {
-            if (!quiet)
-                log(QStringLiteral("心跳失败：%1").arg(err));
-            return;
-        }
-        if (!quiet)
-            log(QStringLiteral("心跳已发送"));
-        const auto o = doc.object();
-        const bool enabled = o.value(QStringLiteral("enabled")).toBool();
-        const bool discovery = o.value(QStringLiteral("discovery_running")).toBool();
-        const int listenPort = o.value(QStringLiteral("listen_port")).toInt(5600);
-        QString text = enabled ? QStringLiteral("同步已开启") : QStringLiteral("同步未开启");
-        if (enabled)
-            text += QStringLiteral(" · 监听 %1").arg(listenPort);
-        text += discovery ? QStringLiteral(" · 发现运行中") : QStringLiteral(" · 发现未开启");
-        m_serverBadge->setState(StatusBadge::State::Connected, text);
-    });
+    if (m_service)
+        m_service->doSync();
 }
 
 // ------------------------------------------------------------------ //
@@ -612,15 +447,12 @@ void SyncPage::refreshSyncConfig()
         SyncConfig cfg = SyncConfig::fromJson(doc.object());
         m_chkEnabled->setChecked(cfg.enabled);
         m_chkHttp->setChecked(cfg.httpEnabled);
-        // syncInbox / syncActivity / syncTodo 已移至 Settings → 同步 Tab，UI 不再展示
         m_editAlias->setText(cfg.selfAlias);
         m_editListenPort->setText(QString::number(cfg.listenPort));
         m_editUdpPort->setText(QString::number(cfg.udpPort));
-        // 自动同步频率：四档预设（实时10/标准60/省电300/仅手动0），
-        // 服务端有旧自定义值（如 1800）时插入临时「自定义」项以保留原值
         {
             const quint64 val = cfg.syncInterval;
-            while (m_cmbSyncInterval->count() > 4) // 清掉上次的临时自定义项
+            while (m_cmbSyncInterval->count() > 4)
                 m_cmbSyncInterval->removeItem(m_cmbSyncInterval->count() - 1);
             int idx = m_cmbSyncInterval->findData(val);
             if (idx < 0) {
@@ -629,6 +461,8 @@ void SyncPage::refreshSyncConfig()
             }
             m_cmbSyncInterval->setCurrentIndex(idx);
         }
+        if (m_service)
+            m_service->setEnabled(cfg.enabled);
         log(QStringLiteral("同步配置已刷新（同步范围请在「设置 → 同步」中查看）"));
     });
 }
@@ -640,7 +474,6 @@ void SyncPage::onSaveConfig()
     SyncConfig cfg;
     cfg.enabled = m_chkEnabled->isChecked();
     cfg.httpEnabled = m_chkHttp->isChecked();
-    // syncInbox / syncActivity / syncTodo 由 SettingsDialog 统一管理，此处不修改
     cfg.selfAlias = m_editAlias->text().trimmed();
     cfg.listenPort = m_editListenPort->text().toInt();
     cfg.udpPort = m_editUdpPort->text().toInt();
@@ -655,13 +488,15 @@ void SyncPage::onSaveConfig()
             log(QStringLiteral("保存配置失败：%1").arg(err));
             return;
         }
+        if (m_service)
+            m_service->setEnabled(m_chkEnabled->isChecked());
         log(QStringLiteral("同步配置已保存"));
         refreshSyncConfig();
     });
 }
 
 // ------------------------------------------------------------------ //
-// 配对（对齐 Android：addDevice + pair/initiate + pair/accept）
+// 配对
 
 void SyncPage::onInitiatePair()
 {
@@ -711,11 +546,6 @@ void SyncPage::onAcceptPair()
 
 // ------------------------------------------------------------------ //
 // 设备操作
-
-void SyncPage::onSyncNow()
-{
-    doSync();
-}
 
 void SyncPage::onRemoveDevice()
 {
@@ -828,7 +658,7 @@ void SyncPage::onClearAllTrash()
     });
 }
 
-// 回收站单条恢复 / 删除（restoreTrash / deleteTrash）
+// 回收站单条恢复 / 删除
 void SyncPage::onRestoreTrashRow()
 {
     if (!m_api)
@@ -1017,8 +847,5 @@ void SyncPage::refreshDeviceStats(const QString &deviceId)
             .arg(s.lastError.isEmpty() ? QStringLiteral("无") : s.lastError));
     });
 }
-
-// ------------------------------------------------------------------ //
-// 设备发现（UDP 广播，端口 46000）
 
 } // namespace awqtui

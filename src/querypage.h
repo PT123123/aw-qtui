@@ -25,6 +25,8 @@ public:
     ~QueryPage() override;
 
     void refresh();
+    // B 方案：切走隐藏页时释放大结果文本（QPlainTextEdit 可能持有很大的 JSON 串），切回不自动重跑
+    void releaseWeight();
 private slots:
     void onPresetChanged(int idx);
     void onRun();

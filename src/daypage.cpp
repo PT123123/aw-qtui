@@ -380,6 +380,26 @@ qint64 DayPage::rangeEndMs() const
 }
 
 // ── 刷新 ────────────────────────────────────────────────────
+// B 方案：切走隐藏时释放驻留数据（时间线/事件缓存/明细/表格），仅释放不重拉，
+// 切回时由 refresh() → reload() 重新拉取并重建。
+void DayPage::releaseWeight()
+{
+    ++m_fetchGen; // 作废在途请求，避免其落地污染切回后的新一轮加载
+    m_pendingEvents = 0;
+    m_loading = false;
+    m_buckets.clear();
+    m_eventsMap.clear();
+    m_lanes.clear();
+    m_details.clear();
+    m_selection.clear();
+    if (m_detailsTable)
+        m_detailsTable->setRowCount(0);
+    if (m_summaryTable)
+        m_summaryTable->setRowCount(0);
+    if (m_topAppsTable)
+        m_topAppsTable->setRowCount(0);
+}
+
 void DayPage::reload()
 {
     updateRangeWidgets();
@@ -445,6 +465,7 @@ void DayPage::fetchAllEvents()
 {
     m_eventsMap.clear();
     m_pendingEvents = m_buckets.size();
+    ++m_fetchGen; // 新载入代次：作废上一次尚未落地的在途请求
 
     const qint64 dayStart = rangeStartMs();
     const qint64 dayEnd = rangeEndMs();
@@ -452,6 +473,7 @@ void DayPage::fetchAllEvents()
     for (const BucketInfo &b : m_buckets) {
         QNetworkReply *reply = m_api->getEvents(b.id, dayStart, dayEnd);
         reply->setProperty("bucketId", b.id);
+        reply->setProperty("fetchGen", m_fetchGen);
         connect(reply, &QNetworkReply::finished, this, &DayPage::onEventLoaded);
     }
 }
@@ -461,6 +483,11 @@ void DayPage::onEventLoaded()
     auto *reply = qobject_cast<QNetworkReply *>(sender());
     if (!reply)
         return;
+    const int gen = reply->property("fetchGen").toInt();
+    if (gen != m_fetchGen) { // 切页后作废的在途请求：丢弃，不污染新一轮加载
+        reply->deleteLater();
+        return;
+    }
     const QString bucketId = reply->property("bucketId").toString();
     QJsonDocument doc;
     QString err;

@@ -107,6 +107,8 @@ public:
     explicit FocusDetailPage(FocusSource *focus, TodoSource *todo = nullptr, QWidget *parent = nullptr);
     void applyUiScale();
     void refresh();
+    // B 方案：切走隐藏页时清空专注列表行（数据源在内存中的 FocusStore，切回 refresh() 便宜重填）
+    void releaseWeight();
 
 private:
     void onAddManual();
@@ -128,6 +130,8 @@ public:
     explicit FocusMemorialPage(FocusSource *focus, QWidget *parent = nullptr);
     void applyUiScale();
     void refresh();
+    // B 方案：切走隐藏页时清空纪念日列表行，切回由 refresh() 便宜重填
+    void releaseWeight();
 
 private:
     void onAdd();
