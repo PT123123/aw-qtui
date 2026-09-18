@@ -1,6 +1,8 @@
 // mainwindow.h —— 主窗口：左侧导航 + 页面堆栈
 #pragma once
 
+#include <QHash>
+#include <QList>
 #include <QMainWindow>
 #include <QStackedWidget>
 #include <QStringList>
@@ -34,6 +36,7 @@ class StatsPage;
 class InboxPage;
 class InboxSettingsPage;
 class SyncPage;
+class SyncService;
 class D1SyncPage;
 class QueryPage;
 class SyncDetailsPage;
@@ -156,8 +159,42 @@ private:
         PAGE_COUNT
     };
 
+    // ── 可淘汰页生命周期（懒建 + 离开即回收 + LRU 有界缓存）──
+    // 常驻 Residet（不可淘汰）：收件箱 / 任务。
+    //    同步的「后台代码」（心跳/设备轮询/去抖自动推送/配对检测）由独立的无界面
+    //    SyncService（m_syncService，随主窗口常驻）承担，故同步页控件可整体淘汰；
+    //    设置页亦无后台逻辑，同样可淘汰。
+    // 可淘汰 Evitable（懒建 + 离开销毁）：活动容器、专注容器、同步容器、设置容器。
+    //    切到容器页才构造子页面（懒建）；一旦切走，把子页面整个 widget 树 delete 回收
+    //    （较 B 方案只清数据更进一步：控件本身也被释放），并在重建时还原其子标签现场。
+    bool isResidentPage(int page) const;
+    // 进入可淘汰页：懒建子页面 + 恢复子标签 + 记录最近使用；超出常驻上限时淘汰最久未用页
+    void enterEvictable(int page);
+    // 离开可淘汰页：保存子标签并销毁其全部子页面（常驻页/当前页不受影响）
+    void leaveEvictable(int page);
+    // 活动容器子页面构造/销毁（构造幂等：已建则直接返回；销毁幂等：未建则空操作）
+    bool ensureActivityPages();
+    void releaseActivityPages();
+    // 专注容器子页面构造/销毁
+    bool ensureFocusPages();
+    void releaseFocusPages();
+    // 同步容器（局域网同步/详情/D1云/冷备）子页面构造/销毁；后台引擎常驻不受影响
+    bool ensureSyncPages();
+    void releaseSyncPages();
+    // 设置容器（收件箱设置/通用设置）子页面构造/销毁
+    bool ensureSettingsPages();
+    void releaseSettingsPages();
+    // 活动/专注容器的子标签现场（销毁前存、重建后还原，跨销毁保留）
+    QHash<int, int> m_savedSubtab;
+    // 可淘汰容器常驻上限（LRU 有界缓存；进入新可淘汰页且超过上限时淘汰最久未用者）
+    int m_evictableCap = 1;
+    // 可淘汰容器的最近使用顺序（front = 最近使用）；恒不淘汰当前页与常驻页
+    QList<int> m_residentEvictable;
+
     ApiClient *m_api = nullptr;
     MdnsDiscovery *m_mdns = nullptr;
+    // 无界面常驻的局域网同步引擎：独立于同步页生命周期（即使页控件被销毁也照常工作）
+    SyncService *m_syncService = nullptr;
     GlobalHotkey *m_hotkey = nullptr;
     TagStore *m_tagStore = nullptr;
     TodoSource *m_todoStore = nullptr;
@@ -214,6 +251,8 @@ private:
     QTabWidget *m_settingsTabs = nullptr;
     // 「通用设置」Tab 内嵌的设置编辑组件（原设置对话框内容）
     SettingsWidget *m_settingsEditor = nullptr;
+    // 内嵌设置编辑组件的宿主容器（releaseSettingsPages 时整树回收）
+    QWidget *m_settingsEditorHost = nullptr;
     // 子标签样式（随主题/缩放重建），专注统计与 ActivityWatch 容器共用
     void styleSubTabs(QTabWidget *tabs);
     // 专注模块页面指针（Todo 内部持有，这里也存一份供快捷键/刷新用）

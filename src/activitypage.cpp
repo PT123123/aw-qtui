@@ -282,6 +282,18 @@ void ActivityPage::uncheckAllChips()
         act->setChecked(false);
 }
 
+void ActivityPage::releaseWeight()
+{
+    ++m_fetchGen;   // 作废在途请求，避免其落地污染切回后的新一轮加载
+    m_pendingEvents = 0;
+    m_loading = false;
+    m_buckets.clear();
+    m_eventsMap.clear();
+    m_lanes.clear();
+    // 清掉渲染签名，让切回后的 refresh() 强制重建图表（而不是因签名相同而跳过）
+    m_renderSig.clear();
+}
+
 void ActivityPage::reloadData()
 {
     const QString dateText = (m_dateStart == m_dateEnd)
@@ -341,6 +353,7 @@ void ActivityPage::fetchAllEvents()
 {
     m_eventsMap.clear();
     m_pendingEvents = m_buckets.size();
+    ++m_fetchGen; // 新载入代次：作废上一次尚未落地的在途请求
 
     const qint64 dayStart = QDateTime(m_dateStart, QTime(0, 0), Qt::LocalTime).toMSecsSinceEpoch();
     const qint64 dayEnd = QDateTime(m_dateEnd, QTime(23, 59, 59), Qt::LocalTime).toMSecsSinceEpoch() + 1;
@@ -348,6 +361,7 @@ void ActivityPage::fetchAllEvents()
     for (const BucketInfo &b : m_buckets) {
         QNetworkReply *reply = m_api->getEvents(b.id, dayStart, dayEnd);
         reply->setProperty("bucketId", b.id);
+        reply->setProperty("fetchGen", m_fetchGen);
         connect(reply, &QNetworkReply::finished, this, &ActivityPage::onEventLoaded);
     }
 }
@@ -357,6 +371,11 @@ void ActivityPage::onEventLoaded()
     auto *reply = qobject_cast<QNetworkReply *>(sender());
     if (!reply)
         return;
+    const int gen = reply->property("fetchGen").toInt();
+    if (gen != m_fetchGen) { // 切页后作废的在途请求：丢弃，不污染新一轮加载
+        reply->deleteLater();
+        return;
+    }
     const QString bucketId = reply->property("bucketId").toString();
     QJsonDocument doc;
     QString err;

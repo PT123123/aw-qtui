@@ -374,6 +374,18 @@ void StatsPage::rebuildTab(TabData &tab)
     }
 }
 
+void StatsPage::releaseWeight()
+{
+    ++m_fetchGen;   // 作废在途请求：stale lambda 仅各自回收共享临时结构，不落到 m_dailyLanes
+    m_pendingDays = 0;
+    m_loading = false;
+    m_buckets.clear();
+    m_dailyLanes.clear();
+    for (auto &tab : m_tabsData)
+        if (tab.table)
+            tab.table->setRowCount(0);
+}
+
 void StatsPage::refresh()
 {
     const QDate from = m_fromEdit->date();
@@ -436,6 +448,7 @@ void StatsPage::fetchAllDays()
     const QDate to = m_toEdit->date();
     const int days = from.daysTo(to) + 1;
     m_pendingDays = days;
+    const int gen = ++m_fetchGen; // 新载入代次：作废上一次尚未落地的在途请求
 
     for (int i = 0; i < days; ++i) {
         const QDate date = from.addDays(i);
@@ -450,7 +463,16 @@ void StatsPage::fetchAllDays()
             QNetworkReply *reply = m_api->getEvents(b.id, dayStart, dayEnd);
             reply->setProperty("bucketId", b.id);
             reply->setProperty("date", date);
-            connect(reply, &QNetworkReply::finished, this, [this, dayEvents, pending, date, reply]() {
+            connect(reply, &QNetworkReply::finished, this,
+                    [this, dayEvents, pending, date, gen, reply]() {
+                if (gen != m_fetchGen) { // 切页后作废的在途请求
+                    reply->deleteLater();
+                    if (--(*pending) <= 0) { // 该日所有在途请求均已作废：回收共享临时结构
+                        delete dayEvents;
+                        delete pending;
+                    }
+                    return;
+                }
                 const QString bid = reply->property("bucketId").toString();
                 QJsonDocument doc;
                 QString err;

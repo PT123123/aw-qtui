@@ -1,4 +1,9 @@
-// syncpage.h —— 局域网同步页 (aw-sync-rust /api/0/sync)
+// syncpage.h —— 局域网同步页视图 (aw-sync-rust /api/0/sync)
+//
+// 后台同步逻辑（心跳 / 设备轮询 / 去抖自动推送 / 配对检测）已抽入无界面常驻的
+// SyncService（syncservice.h）。本页仅负责展示与用户操作：订阅服务信号渲染设备、
+// 状态、日志，并把配置/配对/回收站/快照等操作转发给 ApiClient。SynPage 属可淘汰页，
+// 切走即销毁，服务常驻不受影响。
 #pragma once
 
 #include <QWidget>
@@ -6,13 +11,13 @@
 #include "models.h"
 
 #include <QCheckBox>
-#include <QComboBox>
+#include <QList>
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
 class QTableWidget;
-class QTabWidget;
 class QTimer;
 
 // Qt Designer 布局（syncpage.ui），全局命名空间
@@ -21,40 +26,27 @@ namespace Ui { class SyncPage; }
 namespace awqtui {
 
 class ApiClient;
-class MdnsDiscovery;
+class SyncService;
 class StatusBadge;
 
 class SyncPage : public QWidget
 {
     Q_OBJECT
 public:
-    explicit SyncPage(ApiClient *api, MdnsDiscovery *mdns, QWidget *parent = nullptr);
+    explicit SyncPage(ApiClient *api, SyncService *service, QWidget *parent = nullptr);
     ~SyncPage() override;
 
-    int deviceCount() const { return m_devices.size(); }
-
-    void refreshDevices();
-    // 同步一台设备（空 = 全部已配对在线设备依次同步；选中行时「立即同步」优先同步选中设备）
-    void doSync();
-    void heartbeat(bool quiet = false);
+    void refreshDevices();          // 请求服务拉取设备并回显
+    void heartbeat(bool quiet = false); // 请求服务心跳并刷新徽标
     void setServerUrl(const QString &url);
     QString serverUrl() const;
 
-    // 探测是否处于可局域网同步的网络环境（存在非 loopback 的 IPv4）
-    static bool onLocalNetwork();
-
-    // 进入同步页时调用（启动 UDP 广播发现 + 网络环境自动开启同步 + 定时刷新）
+    // 进入同步页：启动服务端发现广播 + 服务「局域网自动开启同步」+ 立即刷新
     void onEnteredSyncPage();
-    // 离开同步页时停止定时刷新（由 MainWindow 调用）
-    void stopRefresh();
-
-    // 本机数据变更（apiclient 写操作成功）：去抖后立即推送，不必等轮询周期
-    void onLocalDataChanged();
 
 signals:
+    // 日志追加（SyncDetailsPage 转发引擎/本页日志到此）
     void logMessage(const QString &line);
-    // 发现新的配对请求（MainWindow 弹系统托盘通知）
-    void pairRequestReceived(const QString &deviceName);
 
 private slots:
     void onRefreshConfig();
@@ -71,7 +63,6 @@ private slots:
     void onDeleteTrashRow();
     void onExportSnapshot();
     void onImportSnapshot();
-    void onRefreshTimer();
     void onUsePairCode();
 
 private:
@@ -79,17 +70,15 @@ private:
     Ui::SyncPage *ui = nullptr;
     void buildUi();
     void log(const QString &line);
-    void syncComplete(const ApplyResult &r);
     void refreshSyncConfig();
     void refreshDeviceStats(const QString &deviceId);
     void refreshTrash();
-    void syncDevice(const QString &deviceId);
-    void processSyncQueue();
+    void renderDevices(const QList<SyncDevice> &devices);
     void updatePairBanner();
-    void setRefreshInterval(int ms);
+    void applyBadgeState(int state, const QString &text);
 
     ApiClient *m_api;
-    MdnsDiscovery *m_mdns; // 保留指针但不再作为发现源（服务端用 UDP 广播发现）
+    SyncService *m_service;
     QList<SyncDevice> m_devices;
 
     // 服务端地址
@@ -123,20 +112,11 @@ private:
     QPushButton *m_btnDeleteTrash;
     QPushButton *m_btnClearTrash;
 
-    // 定时刷新（进入页面后周期性拉取设备/状态，及时呈现 UDP 广播发现的设备）
-    QTimer *m_refreshTimer = nullptr;
-
-    // 事件驱动同步：本机数据变更后去抖推送
-    QTimer *m_syncDebounce = nullptr;
-
     // 配对请求横幅（有 incoming_pair_request 的设备时显示在设备表上方）
     QWidget *m_pairBanner = nullptr;
     QLabel *m_pairBannerLbl = nullptr;
     QString m_pairBannerId;        // 当前横幅对应的请求方
-    QStringList m_notifiedPairReq; // 已提醒/已忽略的请求方，避免重复打扰
-
-    // 「立即同步」的顺序同步队列（多台在线设备逐台执行）
-    QStringList m_syncQueue;
+    QString m_lastStatusText;      // 最近一次心跳成功的状态文本（同步结束回显徽标）
 };
 
 } // namespace awqtui

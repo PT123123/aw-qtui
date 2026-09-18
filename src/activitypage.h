@@ -37,6 +37,8 @@ public:
     void setDate(const QDate &date);
     QDate date() const { return m_dateStart; }
     void refresh();
+    // B 方案：切走隐藏页时释放驻留数据（事件缓存/时间线/数据集），切回时由 refresh() 重拉
+    void releaseWeight();
     // 按当前主题重建页面内联样式（主题切换时调用）
     void applyTheme();
     // 按全局 gUiScale 重应用主题样式（Ctrl± 缩放时调用）
@@ -73,6 +75,8 @@ private:
     QList<BucketInfo> m_buckets;
     QHash<QString, QJsonArray> m_eventsMap;
     int m_pendingEvents = 0;
+    // 每次 fetchAllEvents/releaseWeight 递增：在途 reply 落地时比对代次，切页期间作废的请求不污染新加载
+    int m_fetchGen = 0;
     bool m_loading = false;
     // 上次实际渲染的内容签名：相同则跳过图表重建，避免无变化的刷新让界面闪动
     QString m_renderSig;

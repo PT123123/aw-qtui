@@ -19,6 +19,7 @@
 #include "settingsdialog.h"
 #include "statspage.h"
 #include "syncpage.h"
+#include "syncservice.h"
 #include "syncdetailspage.h"
 #include "cloudbackuppage.h"
 #include "querypage.h"
@@ -122,6 +123,16 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     auto *afkWatcher = new AfkWatcher(m_api, this);
     afkWatcher->start();
     m_mdns = new MdnsDiscovery(this);
+    // 无界面常驻的局域网同步引擎：独立于同步页生命周期（页控件销毁/重建照常工作）
+    m_syncService = new SyncService(m_api, this);
+    // 配对请求到达 → 系统托盘气泡（无论是否打开同步页都能第一时间知道）
+    connect(m_syncService, &SyncService::pairRequestReceived, this,
+            [this](const QString &deviceName) {
+                if (m_tray)
+                    m_tray->showMessage(QStringLiteral("局域网同步"),
+                                        QStringLiteral("设备「%1」想与本机配对，请在同步页确认").arg(deviceName),
+                                        QSystemTrayIcon::Information, 6000);
+            });
     m_tagStore = new TagStore;
     m_tagStore->load();
     m_todoStore = new TodoApiStore(m_api, this);
@@ -401,62 +412,13 @@ void MainWindow::buildUi()
     m_awTabs = ui->awTabs;
     m_syncTabs = ui->syncTabs;
 
-    // 创建页面
+    // 创建页面：仅构造常驻页（收件箱 / 任务）。
+    // 活动/专注/同步/设置容器在此不构造子页面 —— 属「可淘汰页」，首次点入才经
+    // ensure*Pages 懒建，切走时由 leaveEvictable 销毁其整个子页面 widget 树（见下）。
+    // 同步容器的后台引擎（SyncService）已在构造函数创建并常驻，不因页控件回收而停摆。
     m_inbox = new InboxPage(m_api);
-    m_inboxSettings = new InboxSettingsPage(m_localStore);
     m_todo = new TodoPage(m_todoStore);
-    m_timerPage = new FocusTimerPage(m_focusStore, m_todoStore);
-    m_overviewPage = new FocusOverviewPage(m_focusStore);
-    m_detailPage = new FocusDetailPage(m_focusStore, m_todoStore);
-    m_weekPage = new FocusWeekPage(m_focusStore);
-    m_heatmapPage = new FocusHeatmapPage(m_focusStore);
-    m_bestPage = new FocusBestPage(m_focusStore);
-    m_calendarPage = new FocusCalendarPage(m_focusStore, m_todoStore);
-    m_memorialPage = new FocusMemorialPage(m_focusStore);
 
-    // 装入 .ui 中声明好的子标签 host 容器（Tab 标题/顺序由 .ui 决定）
-    ui->focusRecordHostLay->addWidget(m_overviewPage);
-    ui->focusDetailHostLay->addWidget(m_detailPage);
-    ui->focusWeekHostLay->addWidget(m_weekPage);
-    ui->focusHeatmapHostLay->addWidget(m_heatmapPage);
-    ui->focusBestHostLay->addWidget(m_bestPage);
-    ui->focusCalendarHostLay->addWidget(m_calendarPage);
-    ui->focusMemorialHostLay->addWidget(m_memorialPage);
-    // 计时专注并入「专注」统计页，作为第一个子标签
-    m_focusTabs->insertTab(0, m_timerPage, QStringLiteral("🍅 计时"));
-    styleSubTabs(m_focusTabs);
-    // 专注容器内切换子标签时，把该页按当前缩放补齐（switchPage 只覆盖到容器层）
-    connect(m_focusTabs, &QTabWidget::currentChanged, this, [this] {
-        if (m_currentPage == PAGE_FOCUS_STATS)
-            scaleCurrentView();
-    });
-
-    m_activity = new ActivityPage(m_api);
-    m_day = new DayPage(m_api, m_tagStore);
-    m_stats = new StatsPage(m_api, m_tagStore);
-    m_sync = new SyncPage(m_api, m_mdns);
-    // 配对请求到达 → 系统托盘气泡（用户不在同步页也能第一时间知道）
-    connect(m_sync, &SyncPage::pairRequestReceived, this, [this](const QString &deviceName) {
-        if (m_tray)
-            m_tray->showMessage(QStringLiteral("局域网同步"),
-                                QStringLiteral("设备「%1」想与本机配对，请在同步页确认").arg(deviceName),
-                                QSystemTrayIcon::Information, 6000);
-    });
-    m_d1Sync = new D1SyncPage(m_api);
-    m_syncDetails = new SyncDetailsPage(m_api);
-    m_cloudBackup = new CloudBackupPage(m_api);
-    m_query = new QueryPage(m_api);
-
-    ui->awActivityHostLay->addWidget(m_activity);
-    ui->awDayHostLay->addWidget(m_day);
-    ui->awStatsHostLay->addWidget(m_stats);
-    ui->awQueryHostLay->addWidget(m_query);
-    styleSubTabs(m_awTabs);
-
-    ui->syncHostLay->addWidget(m_sync);
-    ui->syncDetailsHostLay->addWidget(m_syncDetails);
-    ui->d1HostLay->addWidget(m_d1Sync);
-    ui->cloudBackupHostLay->addWidget(m_cloudBackup);
     styleSubTabs(m_syncTabs);
     // 同步容器内切换子标签时，把该页按当前缩放补齐
     connect(m_syncTabs, &QTabWidget::currentChanged, this, [this] {
@@ -464,9 +426,55 @@ void MainWindow::buildUi()
             scaleCurrentView();
     });
 
-    ui->inboxHostLay->addWidget(m_inboxSettings);
-    // 通用设置 Tab：内嵌设置编辑组件（原设置对话框内容），运行时构建
-    buildSettingsEditor();
+    // 活动容器（懒建）：切子标签时释放上一停留页驻留数据、切回重拉。
+    // 子页面构建期为 nullptr（尚未懒建），此处一律空转；真切页时 m_currentPage==PAGE_ACTIVITY
+    // 且子页面必然已由 enterEvictable 建好，故以下可直接用。
+    connect(m_awTabs, &QTabWidget::currentChanged, this, [this] {
+        if (m_currentPage != PAGE_ACTIVITY)
+            return;
+        if (!m_activity) // 尚未懒建或已离开销毁
+            return;
+        m_activity->releaseWeight();
+        m_day->releaseWeight();
+        m_stats->releaseWeight();
+        m_query->releaseWeight();
+        scaleCurrentView();
+        switch (m_awTabs->currentIndex()) {
+        case 0: m_activity->refresh(); break;
+        case 1: m_day->refresh(); break;
+        case 2: m_stats->refresh(); break;
+        case 3: m_query->refresh(); break;
+        default: break;
+        }
+    });
+
+    // 专注容器（懒建）：同上 —— 切子标签释放驻留数据、切回重拉。
+    connect(m_focusTabs, &QTabWidget::currentChanged, this, [this] {
+        if (m_currentPage != PAGE_FOCUS_STATS)
+            return;
+        if (!m_timerPage) // 尚未懒建或已离开销毁
+            return;
+        m_detailPage->releaseWeight();
+        m_weekPage->releaseWeight();
+        m_heatmapPage->releaseWeight();
+        m_bestPage->releaseWeight();
+        m_calendarPage->releaseWeight();
+        m_memorialPage->releaseWeight();
+        scaleCurrentView();
+        switch (m_focusTabs->currentIndex()) {
+        case 0: m_timerPage->refresh(); break;
+        case 1: m_overviewPage->refresh(); break;
+        case 2: m_detailPage->refresh(); break;
+        case 3: m_weekPage->refresh(); break;
+        case 4: m_heatmapPage->refresh(); break;
+        case 5: m_bestPage->refresh(); break;
+        case 6: m_calendarPage->refresh(); break;
+        case 7: m_memorialPage->refresh(); break;
+        default: break;
+        }
+    });
+
+    // 收件箱设置与通用设置编辑组件改为懒建（settings 容器属可淘汰页，见 ensureSettingsPages）
     styleSubTabs(m_settingsTabs);
 
     // 其余 8 个页面按「枚举→栈索引」紧凑映射重建：先移开 .ui 容器的 4 个页面，
@@ -494,10 +502,7 @@ void MainWindow::buildUi()
     reg(PAGE_SYNC, syncContainer);          // 栈 5
 
     connect(m_inbox, &InboxPage::settingsRequested, this, &MainWindow::openSettings);
-
-    // SyncDetailsPage：「返回同步」切到容器内第一个子标签 + 转发日志信号
-    connect(m_syncDetails, &SyncDetailsPage::backToSync, this, [this] { m_syncTabs->setCurrentIndex(0); });
-    connect(m_syncDetails, &SyncDetailsPage::logMessage, m_sync, &SyncPage::logMessage);
+    // SyncDetailsPage 与 SyncPage 的互相接线在 ensureSyncPages 懒建时建立（见下）
 
     // 默认显示收件箱
     switchPage(PAGE_INBOX);
@@ -513,6 +518,182 @@ void MainWindow::buildUi()
     setWindowTitle(QStringLiteral("aw-qtui — ActivityWatch 客户端"));
     resize(1280, 820);
     applyWindowMinimumSize(this);
+}
+
+// ==================================================================== //
+// 可淘汰页生命周期：懒建 + 离开即回收 + LRU 有界缓存。
+// 常驻页（收件箱/任务）始终构造、绝不淘汰。同步页与设置页虽无后台逻辑驻留，但同步容器
+// 的后台代码（心跳/发现/配对提醒）已抽入无界面常驻的 SyncService，因此两容器都属可淘汰：
+// 首次点入才经 ensure*Pages 构造其全部子页面，一旦切走就把整个 widget 树 delete 回收，
+// 重建时还原其子标签现场（m_savedSubtab）。
+// ==================================================================== //
+bool MainWindow::isResidentPage(int page) const
+{
+    return page == PAGE_INBOX || page == PAGE_TODO;
+}
+
+bool MainWindow::ensureActivityPages()
+{
+    if (m_activity) // 已懒建
+        return true;
+    m_activity = new ActivityPage(m_api);
+    m_day = new DayPage(m_api, m_tagStore);
+    m_stats = new StatsPage(m_api, m_tagStore);
+    m_query = new QueryPage(m_api);
+    ui->awActivityHostLay->addWidget(m_activity);
+    ui->awDayHostLay->addWidget(m_day);
+    ui->awStatsHostLay->addWidget(m_stats);
+    ui->awQueryHostLay->addWidget(m_query);
+    styleSubTabs(m_awTabs);
+    // 还原上次离开时的子标签现场
+    if (m_savedSubtab.contains(PAGE_ACTIVITY))
+        m_awTabs->setCurrentIndex(m_savedSubtab.value(PAGE_ACTIVITY));
+    return true;
+}
+
+void MainWindow::releaseActivityPages()
+{
+    if (m_awTabs && m_activity)
+        m_savedSubtab[PAGE_ACTIVITY] = m_awTabs->currentIndex();
+    if (m_activity) { ui->awActivityHostLay->removeWidget(m_activity); m_activity->deleteLater(); m_activity = nullptr; }
+    if (m_day)      { ui->awDayHostLay->removeWidget(m_day);      m_day->deleteLater();      m_day = nullptr; }
+    if (m_stats)    { ui->awStatsHostLay->removeWidget(m_stats);   m_stats->deleteLater();    m_stats = nullptr; }
+    if (m_query)    { ui->awQueryHostLay->removeWidget(m_query);   m_query->deleteLater();    m_query = nullptr; }
+}
+
+bool MainWindow::ensureFocusPages()
+{
+    if (m_timerPage) // 已懒建
+        return true;
+    m_timerPage = new FocusTimerPage(m_focusStore, m_todoStore);
+    m_overviewPage = new FocusOverviewPage(m_focusStore);
+    m_detailPage = new FocusDetailPage(m_focusStore, m_todoStore);
+    m_weekPage = new FocusWeekPage(m_focusStore);
+    m_heatmapPage = new FocusHeatmapPage(m_focusStore);
+    m_bestPage = new FocusBestPage(m_focusStore);
+    m_calendarPage = new FocusCalendarPage(m_focusStore, m_todoStore);
+    m_memorialPage = new FocusMemorialPage(m_focusStore);
+    // 计时专注并入「专注」统计页，作为第一个子标签（.ui 的 7 个统计 host 依次后移）
+    m_focusTabs->insertTab(0, m_timerPage, QStringLiteral("🍅 计时"));
+    ui->focusRecordHostLay->addWidget(m_overviewPage);
+    ui->focusDetailHostLay->addWidget(m_detailPage);
+    ui->focusWeekHostLay->addWidget(m_weekPage);
+    ui->focusHeatmapHostLay->addWidget(m_heatmapPage);
+    ui->focusBestHostLay->addWidget(m_bestPage);
+    ui->focusCalendarHostLay->addWidget(m_calendarPage);
+    ui->focusMemorialHostLay->addWidget(m_memorialPage);
+    styleSubTabs(m_focusTabs);
+    // 还原上次离开时的子标签现场
+    if (m_savedSubtab.contains(PAGE_FOCUS_STATS))
+        m_focusTabs->setCurrentIndex(m_savedSubtab.value(PAGE_FOCUS_STATS));
+    return true;
+}
+
+void MainWindow::releaseFocusPages()
+{
+    if (m_focusTabs && m_timerPage)
+        m_savedSubtab[PAGE_FOCUS_STATS] = m_focusTabs->currentIndex();
+    // 计时子标签经 insertTab 挂入 QTabWidget，其余经 hostLay 挂入，移除方式不同
+    if (m_timerPage) { m_focusTabs->removeTab(m_focusTabs->indexOf(m_timerPage)); m_timerPage->deleteLater(); m_timerPage = nullptr; }
+    if (m_overviewPage)  { ui->focusRecordHostLay->removeWidget(m_overviewPage);  m_overviewPage->deleteLater();  m_overviewPage = nullptr; }
+    if (m_detailPage)    { ui->focusDetailHostLay->removeWidget(m_detailPage);    m_detailPage->deleteLater();    m_detailPage = nullptr; }
+    if (m_weekPage)      { ui->focusWeekHostLay->removeWidget(m_weekPage);        m_weekPage->deleteLater();      m_weekPage = nullptr; }
+    if (m_heatmapPage)   { ui->focusHeatmapHostLay->removeWidget(m_heatmapPage);  m_heatmapPage->deleteLater();   m_heatmapPage = nullptr; }
+    if (m_bestPage)      { ui->focusBestHostLay->removeWidget(m_bestPage);        m_bestPage->deleteLater();      m_bestPage = nullptr; }
+    if (m_calendarPage)  { ui->focusCalendarHostLay->removeWidget(m_calendarPage); m_calendarPage->deleteLater(); m_calendarPage = nullptr; }
+    if (m_memorialPage)  { ui->focusMemorialHostLay->removeWidget(m_memorialPage); m_memorialPage->deleteLater(); m_memorialPage = nullptr; }
+}
+
+// 同步容器：懒建 4 个子页（局域网同步/详情/D1云/冷备）+ 还原上次子标签现场
+bool MainWindow::ensureSyncPages()
+{
+    if (m_sync) // 已懒建
+        return true;
+    m_sync = new SyncPage(m_api, m_syncService);
+    m_d1Sync = new D1SyncPage(m_api);
+    m_syncDetails = new SyncDetailsPage(m_api);
+    m_cloudBackup = new CloudBackupPage(m_api);
+    ui->syncHostLay->addWidget(m_sync);
+    ui->syncDetailsHostLay->addWidget(m_syncDetails);
+    ui->d1HostLay->addWidget(m_d1Sync);
+    ui->cloudBackupHostLay->addWidget(m_cloudBackup);
+    styleSubTabs(m_syncTabs);
+    // SyncDetailsPage：「返回同步」切到容器内第一个子标签 + 转发日志到同步页
+    connect(m_syncDetails, &SyncDetailsPage::backToSync, this, [this] { m_syncTabs->setCurrentIndex(0); });
+    connect(m_syncDetails, &SyncDetailsPage::logMessage, m_sync, &SyncPage::logMessage);
+    // 还原上次离开时的子标签现场
+    if (m_savedSubtab.contains(PAGE_SYNC))
+        m_syncTabs->setCurrentIndex(m_savedSubtab.value(PAGE_SYNC));
+    return true;
+}
+
+void MainWindow::releaseSyncPages()
+{
+    if (m_syncTabs && m_sync)
+        m_savedSubtab[PAGE_SYNC] = m_syncTabs->currentIndex();
+    if (m_sync)       { ui->syncHostLay->removeWidget(m_sync);       m_sync->deleteLater();       m_sync = nullptr; }
+    if (m_d1Sync)     { ui->d1HostLay->removeWidget(m_d1Sync);       m_d1Sync->deleteLater();     m_d1Sync = nullptr; }
+    if (m_syncDetails){ ui->syncDetailsHostLay->removeWidget(m_syncDetails); m_syncDetails->deleteLater(); m_syncDetails = nullptr; }
+    if (m_cloudBackup){ ui->cloudBackupHostLay->removeWidget(m_cloudBackup); m_cloudBackup->deleteLater(); m_cloudBackup = nullptr; }
+}
+
+// 设置容器：懒建「收件箱设置」+「通用设置」内嵌编辑器 + 还原上次子标签现场
+bool MainWindow::ensureSettingsPages()
+{
+    if (m_inboxSettings) // 已懒建
+        return true;
+    m_inboxSettings = new InboxSettingsPage(m_localStore);
+    ui->inboxHostLay->addWidget(m_inboxSettings);
+    buildSettingsEditor();
+    if (m_savedSubtab.contains(PAGE_SETTINGS))
+        m_settingsTabs->setCurrentIndex(m_savedSubtab.value(PAGE_SETTINGS));
+    return true;
+}
+
+void MainWindow::releaseSettingsPages()
+{
+    if (m_settingsTabs && m_inboxSettings)
+        m_savedSubtab[PAGE_SETTINGS] = m_settingsTabs->currentIndex();
+    if (m_inboxSettings) { ui->inboxHostLay->removeWidget(m_inboxSettings); m_inboxSettings->deleteLater(); m_inboxSettings = nullptr; }
+    // 回收内嵌设置编辑器整树（含 SettingsWidget；rebuildSettingsEditor 同样用它）
+    if (QLayoutItem *item = ui->generalHostLay->takeAt(0)) {
+        if (QWidget *w = item->widget())
+            w->deleteLater();
+        delete item;
+    }
+    m_settingsEditor = nullptr;
+    m_settingsEditorHost = nullptr;
+}
+
+void MainWindow::enterEvictable(int page)
+{
+    if (!isResidentPage(page)) {
+        // 懒建子页面 + 在重建时由 ensure 内部还原子标签
+        if (page == PAGE_ACTIVITY)   ensureActivityPages();
+        else if (page == PAGE_FOCUS_STATS) ensureFocusPages();
+        else if (page == PAGE_SYNC)  ensureSyncPages();
+        else if (page == PAGE_SETTINGS) ensureSettingsPages();
+    }
+    // LRU 有界缓存：记当前页为最近使用；超过常驻上限则淘汰最久未用者（恒不淘汰当前页）
+    m_residentEvictable.removeAll(page);
+    m_residentEvictable.prepend(page);
+    while (m_residentEvictable.size() > m_evictableCap) {
+        const int victim = m_residentEvictable.takeLast();
+        if (victim == page) { m_residentEvictable.prepend(page); break; } // 避免误淘汰当前页
+        if (victim == PAGE_ACTIVITY)   releaseActivityPages();
+        else if (victim == PAGE_FOCUS_STATS) releaseFocusPages();
+        else if (victim == PAGE_SYNC)  releaseSyncPages();
+        else if (victim == PAGE_SETTINGS) releaseSettingsPages();
+    }
+}
+
+void MainWindow::leaveEvictable(int page)
+{
+    if (page == PAGE_ACTIVITY)   releaseActivityPages();
+    else if (page == PAGE_FOCUS_STATS) releaseFocusPages();
+    else if (page == PAGE_SYNC)  releaseSyncPages();
+    else if (page == PAGE_SETTINGS) releaseSettingsPages();
+    m_residentEvictable.removeAll(page);
 }
 
 // 左侧导航在「窄栏（仅图标）」与「展开（图标+文字）」之间切换：
@@ -616,6 +797,14 @@ void MainWindow::switchPage(int index)
     if (it == m_pageToStack.constEnd())
         return;
     const int stackIndex = it.value();
+
+    // 进入可淘汰页（活动/专注/同步/设置）：懒建其子页面并还原子标签现场。
+    // 必须在设 m_currentPage 之前处理，避免子标签 currentChanged 的
+    // m_currentPage==PAGE_X 守卫在本页仍显示时被误触发而重复刷新。
+    if (index == PAGE_ACTIVITY || index == PAGE_FOCUS_STATS || index == PAGE_SYNC
+        || index == PAGE_SETTINGS)
+        enterEvictable(index);
+
     m_stack->setCurrentIndex(stackIndex);
     m_currentPage = index;
     // 切到新页：把之前延迟重建的页面按当前缩放补齐
@@ -630,18 +819,47 @@ void MainWindow::switchPage(int index)
     m_navSync->setChecked(index == PAGE_SYNC);
     updateNavIcons();
 
+    // 离开上一可淘汰页：保存子标签并回收其整个子页面 widget 树（懒建的逆操作）
+    if (m_prevPage != index && (m_prevPage == PAGE_ACTIVITY || m_prevPage == PAGE_FOCUS_STATS
+                                 || m_prevPage == PAGE_SYNC || m_prevPage == PAGE_SETTINGS))
+        leaveEvictable(m_prevPage);
+
     // 页面特定处理
     if (index == PAGE_SYNC) {
-        // 进入局域网同步界面：启动 UDP 广播发现 + 网络环境自动开启同步 + 定时刷新
-        m_sync->onEnteredSyncPage();
+        // 进入局域网同步界面：启动 UDP 广播发现 + 引擎「局域网自动开启同步」+ 立即刷新
+        if (m_sync)
+            m_sync->onEnteredSyncPage();
     } else if (m_prevPage == PAGE_SYNC) {
-        // 从同步页切走：停掉本页的定时刷新。
-        // discoveryStop 保留调用，但桌面端服务端会把它当 no-op —— 桌面端设备发现必须常驻，
+        // 从同步页切走：停掉服务端发现广播。
+        // discoveryStop 桌面端服务端会当 no-op —— 桌面端设备发现必须常驻，
         // 否则离开页面就等于关掉广播/监听，对端换 IP、换 device id、上下线全都感知不到
         // （见 aw-sync-rust manager.rs 的 discovery_persistent）。该分支只对 Android 端服务端生效。
         if (m_api)
             m_api->discoveryStop();
-        m_sync->stopRefresh();
+    }
+    if (index == PAGE_ACTIVITY) {
+        // 进入活动容器：懒建已完成，现重拉当前子标签
+        switch (m_awTabs->currentIndex()) {
+        case 0: m_activity->refresh(); break;
+        case 1: m_day->refresh(); break;
+        case 2: m_stats->refresh(); break;
+        case 3: m_query->refresh(); break;
+        default: break;
+        }
+    }
+    if (index == PAGE_FOCUS_STATS) {
+        // 进入专注容器：懒建已完成，现重拉当前子标签
+        switch (m_focusTabs->currentIndex()) {
+        case 0: m_timerPage->refresh(); break;
+        case 1: m_overviewPage->refresh(); break;
+        case 2: m_detailPage->refresh(); break;
+        case 3: m_weekPage->refresh(); break;
+        case 4: m_heatmapPage->refresh(); break;
+        case 5: m_bestPage->refresh(); break;
+        case 6: m_calendarPage->refresh(); break;
+        case 7: m_memorialPage->refresh(); break;
+        default: break;
+        }
     }
     if (index == PAGE_TODO)
         m_todo->refresh();
@@ -694,8 +912,9 @@ void MainWindow::styleSubTabs(QTabWidget *tabs)
 
 void MainWindow::updateStatus()
 {
-    // 设备名称/操作系统已移入设置对话框，此处仅维持同步心跳
-    m_sync->heartbeat();
+    // 设备名称/操作系统已移入设置对话框，此处仅维持同步心跳（无界面引擎常驻）
+    if (m_syncService)
+        m_syncService->heartbeat();
 }
 
 // 远端变更监视：轮询 GET /api/0/sync/revision。
@@ -895,17 +1114,28 @@ void MainWindow::buildSettingsEditor()
     lay->addLayout(btnRow);
     auto *host = new QWidget;
     host->setLayout(lay);
+    m_settingsEditorHost = host; // 供 releaseSettingsPages / rebuildSettingsEditor 整树回收
     ui->generalHostLay->addWidget(host);
 }
 
 // 应用后按当前设置重建编辑组件，同步新主题/图标/效果的配色与已保存值
 void MainWindow::rebuildSettingsEditor()
 {
-    if (QLayoutItem *item = ui->generalHostLay->takeAt(0)) {
+    if (QWidget *w = m_settingsEditorHost) {
+        QLayoutItem *item = ui->generalHostLay->takeAt(ui->generalHostLay->indexOf(w));
+        if (item) {
+            if (w) {
+                w->deleteLater();
+            }
+            delete item;
+        }
+    } else if (QLayoutItem *item = ui->generalHostLay->takeAt(0)) { // 兼容性兜底
         if (QWidget *w = item->widget())
             w->deleteLater();
         delete item;
     }
+    m_settingsEditor = nullptr;
+    m_settingsEditorHost = nullptr;
     buildSettingsEditor();
 }
 
@@ -1108,7 +1338,9 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
             return;
         }
         if (m_currentPage == PAGE_SYNC) {
-            // 同步容器页：按当前子标签分发刷新
+            // 同步容器页：按当前子标签分发刷新（页面为懒建，此刻必已建好）
+            if (!m_sync)
+                return;
             switch (m_syncTabs->currentIndex()) {
             case 0: m_sync->refreshDevices(); break;
             case 1: m_syncDetails->refreshLogs(); break;
