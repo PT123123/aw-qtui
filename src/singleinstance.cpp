@@ -287,7 +287,12 @@ SingleInstance::Role SingleInstance::acquire(bool enabled)
             sock.waitForBytesWritten(500);
         }
         if (cmp == 0) {
-            m_detail = QStringLiteral("已有同版本实例 v%1 在运行 → 已请求置前，本实例退出").arg(holderVer);
+            // 通道连不上时不要说「已请求置前」—— 那会让人以为窗口已被唤起，
+            // 而实际现象是「点了没反应、界面不出来」，排查方向会被带偏。
+            m_detail = connected
+                           ? QStringLiteral("已有同版本实例 v%1 在运行 → 已请求置前，本实例退出").arg(holderVer)
+                           : QStringLiteral("已有同版本实例 v%1 在运行，但连不上它的 IPC 通道"
+                                            "（无法请求置前）→ 本实例退出").arg(holderVer);
             return Role::ExitSameVersion;
         }
         m_detail = QStringLiteral("已有更新版本 v%1 在运行 → 本实例退出（不降级抢位）").arg(holderVer);

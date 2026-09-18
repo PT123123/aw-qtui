@@ -6,6 +6,7 @@
 #include "appsettings.h"
 #include "theme.h"
 #include "mockdata.h"
+#include "todoboard.h"
 #include "todostore.h"
 
 #include <QAction>
@@ -15,6 +16,7 @@
 #include <QCursor>
 #include <QDate>
 #include <QDateEdit>
+#include <QEnterEvent>
 #include <QFont>
 #include <QFontMetrics>
 #include <QGridLayout>
@@ -137,9 +139,12 @@ TodoNavItem::TodoNavItem(QWidget *parent)
     setCursor(Qt::PointingHandCursor);
     setObjectName(QStringLiteral("TodoNavItem"));
     setMinimumHeight(si(34));
+    // 底色 / 边框 / 左侧色条全部由 QSS 画（含常态的透明边框占位，hover 时不产生位移）
+    setAttribute(Qt::WA_StyledBackground, true);
 
     auto *lay = new QHBoxLayout(this);
-    lay->setContentsMargins(si(10), si(3), si(8), si(3));
+    // 左 6 + border-left 3 + border-right 1 = 内容左起 10；右 7 + 1 = 8，与加边框前一致
+    lay->setContentsMargins(si(6), si(3), si(7), si(3));
     lay->setSpacing(si(8));
 
     m_icon = new QLabel;
@@ -159,6 +164,11 @@ TodoNavItem::TodoNavItem(QWidget *parent)
     m_count->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_count->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     lay->addWidget(m_count);
+
+    // 图标 / 名称 / 计数三个装饰性子控件一律让鼠标事件穿透到本项自身。
+    // 否则鼠标压到它们上面时本项会收到 Leave —— hover 强调当场闪掉。
+    for (QWidget *w : findChildren<QWidget *>())
+        w->setAttribute(Qt::WA_TransparentForMouseEvents);
 
     applyStyle();
 }
@@ -220,28 +230,89 @@ void TodoNavItem::renderIcon()
         QColor c(kColorFgMuted);
         if (m_selected)
             c = (gTheme && gTheme->light) ? QColor(kColorAccent) : QColor(Qt::white);
+        else if (m_hovered)
+            c = QColor(kColorFg);   // hover 时图标提亮，强化「当前指向哪一项」
         m_icon->setPixmap(glyphIcon(m_glyph, c, si(13)).pixmap(si(16), si(16)));
     }
 }
 
+// 导航项样式：选中 > hover > 常态，三档都用 accent 派生色。
+//
+// 不用 QSS 的 :hover 伪态，原因有二：
+//   1) 伪态同样覆盖选中态底色 —— 鼠标划过当前选中项时，选中视觉会当场消失；
+//   2) 清单项随数据变化被 qDeleteAll 重建，新实例收不到 Enter，鼠标不动就一直没有 hover。
+// 统一改成显式 m_hovered 驱动，与 TodoTaskRow 保持同一套写法。
 void TodoNavItem::applyStyle()
 {
-    const QString bg = m_selected ? kColorNavSel : QStringLiteral("transparent");
-    const QString fg = m_selected
-        ? ((gTheme && gTheme->light) ? QString::fromLatin1(kColorAccent) : QStringLiteral("#ffffff"))
-        : QString::fromLatin1(kColorFg);
-    const QString countCol = m_selected
-        ? ((gTheme && gTheme->light) ? QString::fromLatin1(kColorAccent) : QStringLiteral("#ffffff"))
-        : kColorMuted2;
+    QString bg, bd, lf, fg, countCol;
+    const bool light = (gTheme && gTheme->light);
+
+    if (m_selected) {
+        // 选中：accent 淡底 + 左侧 accent 色条 + 完整描边，hover 时整体加深一格
+        bg = withAlpha(kColorAccent, m_hovered ? 0.26 : 0.17);
+        bd = withAlpha(kColorAccent, m_hovered ? 0.60 : 0.40);
+        lf = QString::fromLatin1(kColorAccent);
+        fg = light ? QString::fromLatin1(kColorAccent) : QStringLiteral("#ffffff");
+        countCol = fg;
+    } else if (m_hovered) {
+        // hover：更淡的 accent 底 + 左侧 accent 色条
+        bg = withAlpha(kColorAccent, 0.11);
+        bd = withAlpha(kColorAccent, 0.28);
+        lf = withAlpha(kColorAccent, 0.85);
+        fg = QString::fromLatin1(kColorFg);
+        countCol = kColorMuted2;
+    } else {
+        // 常态：全透明（边框宽度恒定，切到 hover 时不产生任何位移）
+        bg = bd = lf = QStringLiteral("transparent");
+        fg = QString::fromLatin1(kColorFg);
+        countCol = kColorMuted2;
+    }
+
     setStyleSheet(
-        QStringLiteral("QWidget#TodoNavItem{background:%1;border:none;border-radius:8px;}"
-                       "QWidget#TodoNavItem:hover{background:%2;}"
+        QStringLiteral("QWidget#TodoNavItem{background:%1;border:1px solid %2;"
+                       "border-left:3px solid %3;border-radius:8px;}"
                        "QWidget#TodoNavItem QLabel{background:transparent;border:none;}"
-                       "QLabel#TodoNavName{color:%3;font-size:%4;font-weight:%5;}"
-                       "QLabel#TodoNavCount{color:%6;font-size:%7;}")
-            .arg(bg, kColorHover, fg, sp(13), m_selected ? QStringLiteral("600") : QStringLiteral("500"),
+                       "QLabel#TodoNavName{color:%4;font-size:%5;font-weight:%6;}"
+                       "QLabel#TodoNavCount{color:%7;font-size:%8;}")
+            .arg(bg, bd, lf, fg, sp(13), m_selected ? QStringLiteral("600") : QStringLiteral("500"),
                  countCol, sp(11)));
     update();
+}
+
+void TodoNavItem::setHovered(bool on)
+{
+    if (m_hovered == on)
+        return;
+    m_hovered = on;
+    applyStyle();
+    renderIcon();
+}
+
+void TodoNavItem::refreshHoverFromCursor()
+{
+    // 不依赖 Enter/Leave 配对：直接问光标此刻落在哪。
+    setHovered(rect().contains(mapFromGlobal(QCursor::pos())));
+}
+
+void TodoNavItem::enterEvent(QEnterEvent *event)
+{
+    setHovered(true);
+    QWidget::enterEvent(event);
+}
+
+void TodoNavItem::leaveEvent(QEvent *event)
+{
+    // 鼠标可能只是移到了项内的图标 / 名称上，此时不应取消强调
+    refreshHoverFromCursor();
+    QWidget::leaveEvent(event);
+}
+
+void TodoNavItem::showEvent(QShowEvent *event)
+{
+    // 清单项每次数据变化都被重建，新实例收不到 Enter。
+    // 显示时按光标实际位置补一次判定，鼠标没动也不会掉 hover。
+    QWidget::showEvent(event);
+    refreshHoverFromCursor();
 }
 
 void TodoNavItem::mousePressEvent(QMouseEvent *event)
@@ -262,6 +333,8 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
     setCursor(Qt::PointingHandCursor);
     setObjectName(QStringLiteral("TodoRow"));
     setMinimumHeight(si(40));
+    // 行底 / 描边 / 左侧色条全部由 QSS 画
+    setAttribute(Qt::WA_StyledBackground, true);
 
     auto *lay = new QHBoxLayout(this);
     lay->setContentsMargins(si(12), si(8), si(12), si(8));
@@ -390,6 +463,30 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
         m_rightW = rw - si(6);   // 末尾多余的一层间隔不计入簇宽
     }
 
+    // 悬停浮现的「⋯」任务菜单：常驻占位、只切透明度。
+    // 若改成 setVisible，鼠标移上去标题可用宽度会突变 → 换行位置跳动。
+    m_more = new TodoFadeButton(this);
+    m_more->setText(glyph::Menu);
+    m_more->setToolTip(QStringLiteral("任务菜单"));
+    m_more->setFixedSize(si(22), si(22));
+    connect(m_more, &QToolButton::clicked, this, [this] {
+        emit menuRequested(m_taskId, m_more->mapToGlobal(QPoint(0, m_more->height())));
+    });
+    lay->addWidget(m_more, 0, Qt::AlignVCenter);
+    m_rightW += si(10) + si(22);   // 行内间距 + 按钮宽度（始终计入标题可用宽度）
+
+    // 装饰性子控件（标题、标签胶囊、优先级、截止日期、清单圆点）一律让鼠标事件穿透到行自身。
+    // 否则鼠标压到它们上面时行会收到 Leave —— hover 高亮当场闪掉。
+    for (QWidget *w : findChildren<QWidget *>())
+        w->setAttribute(Qt::WA_TransparentForMouseEvents);
+    // 真正需要交互的两个（勾选框 / ⋯ 菜单）恢复接收事件，并由事件过滤器把 hover
+    // 状态同步给整行 —— 这样鼠标停在勾选框上时，整行照样是强调态。
+    for (QWidget *w : {static_cast<QWidget *>(m_chk), static_cast<QWidget *>(m_selChk),
+                       static_cast<QWidget *>(m_more)}) {
+        w->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+        w->installEventFilter(this);
+    }
+
     // 首屏即应用底/hover 样式，保证鼠标移到任务项时有高亮
     setHighlighted(false);
 }
@@ -458,67 +555,80 @@ void TodoTaskRow::setSelected(bool on)
     applyRowStyle();
 }
 
-// 行样式：多选选中 > 详情高亮 > 普通（含 hover）
-// 左侧 accent 色条作为选中/高亮的视觉锚点，比整行描边更精致
+// 行样式：多选选中 > 详情高亮 > 普通；每一档都带 hover 强化。
+// 左侧 accent 色条作为选中/高亮的视觉锚点，比整行描边更精致。
+//
+// hover 用显式状态 m_hovered，而不是 QSS 的 :hover 伪态 —— 实测 :hover 本身可用，
+// 但行内子控件（标题 / 胶囊 / 勾选框）会截走鼠标，行随之收到 Leave，伪态中途失效。
+// 所以统一按「光标是否落在行矩形内」判定，鼠标停在哪都不会掉高亮。
 void TodoTaskRow::applyRowStyle()
 {
     m_rowStyled = true;
-    // 行内文字/勾选框等子控件背景透明，避免与行高亮叠加出深色块
-    const QString sub = QStringLiteral(
-        "QWidget#TodoRow QLabel,QWidget#TodoRow QCheckBox{background:transparent;}");
-
-    // 用左边框模拟 accent 色条（3px 宽、圆角左内边），其余边为极淡描边或透明
-    QString base;
+    QString bg, bd, lf;
     if (m_selected) {
         // 多选选中：accent 色条 + 淡底 + 完整描边
-        base = QStringLiteral(
-            "QWidget#TodoRow{"
-            "background:%1;"
-            "border:1px solid %2;"
-            "border-left:3px solid %3;"
-            "border-radius:8px;"
-            "}"
-            "QWidget#TodoRow:hover{"
-            "background:%4;"
-            "border:1px solid %5;"
-            "border-left:3px solid %3;"
-            "}")
-            .arg(withAlpha(kColorAccent, 0.16), withAlpha(kColorAccent, 0.55), kColorAccent,
-                 withAlpha(kColorAccent, 0.24), withAlpha(kColorAccent, 0.70));
+        bg = withAlpha(kColorAccent, m_hovered ? 0.24 : 0.16);
+        bd = withAlpha(kColorAccent, m_hovered ? 0.70 : 0.55);
+        lf = QString::fromLatin1(kColorAccent);
     } else if (m_highlighted) {
         // 详情高亮：accent 色条 + 更淡底 + 细描边
-        base = QStringLiteral(
-            "QWidget#TodoRow{"
-            "background:%1;"
-            "border:1px solid %2;"
-            "border-left:3px solid %3;"
-            "border-radius:8px;"
-            "}"
-            "QWidget#TodoRow:hover{"
-            "background:%4;"
-            "border:1px solid %5;"
-            "border-left:3px solid %3;"
-            "}")
-            .arg(withAlpha(kColorAccent, 0.10), withAlpha(kColorAccent, 0.35), kColorAccent,
-                 withAlpha(kColorAccent, 0.16), withAlpha(kColorAccent, 0.50));
+        bg = withAlpha(kColorAccent, m_hovered ? 0.16 : 0.10);
+        bd = withAlpha(kColorAccent, m_hovered ? 0.50 : 0.35);
+        lf = QString::fromLatin1(kColorAccent);
+    } else if (m_hovered) {
+        // 普通态 hover：淡 accent 底 + accent 描边 + 左侧 accent 色条（强调）
+        bg = withAlpha(kColorAccent, 0.11);
+        bd = withAlpha(kColorAccent, 0.28);
+        lf = withAlpha(kColorAccent, 0.85);
     } else {
-        // 普通态：透明底 + 透明边框，hover 时淡底 + 极淡描边
-        base = QStringLiteral(
-            "QWidget#TodoRow{"
-            "background:transparent;"
-            "border:1px solid transparent;"
-            "border-left:3px solid transparent;"
-            "border-radius:8px;"
-            "}"
-            "QWidget#TodoRow:hover{"
-            "background:%1;"
-            "border:1px solid %2;"
-            "border-left:3px solid %3;"
-            "}")
-            .arg(withAlpha(kColorAccent, 0.07), withAlpha(kColorBorder, 0.70),
-                 withAlpha(kColorAccent, 0.40));
+        // 普通态：全透明
+        bg = bd = lf = QStringLiteral("transparent");
     }
-    setStyleSheet(sub + base);
+    // 行内文字 / 勾选框等子控件背景透明，避免与行高亮叠加出深色块
+    setStyleSheet(QStringLiteral(
+        "QWidget#TodoRow QLabel,QWidget#TodoRow QCheckBox{background:transparent;}"
+        "QWidget#TodoRow{background:%1;border:1px solid %2;border-left:3px solid %3;"
+        "border-radius:8px;}")
+        .arg(bg, bd, lf));
+}
+
+void TodoTaskRow::setHovered(bool on)
+{
+    if (m_hovered == on)
+        return;
+    m_hovered = on;
+    applyRowStyle();
+    if (m_more)
+        m_more->fadeTo(on ? 1.0 : 0.0);
+}
+
+void TodoTaskRow::refreshHoverFromCursor()
+{
+    // 不依赖 Enter/Leave 的配对：直接问光标此刻落在哪。
+    // 鼠标从行移到行内的勾选框上时行会收到 Leave，但整行理应保持强调。
+    setHovered(rect().contains(mapFromGlobal(QCursor::pos())));
+}
+
+bool TodoTaskRow::eventFilter(QObject *watched, QEvent *event)
+{
+    // 勾选框与 ⋯ 按钮要接收点击，没法设鼠标穿透，于是把它们的 Enter/Leave
+    // 转成「整行是否仍处于 hover」的重新判定。
+    if (event->type() == QEvent::Enter || event->type() == QEvent::Leave)
+        refreshHoverFromCursor();
+    return QWidget::eventFilter(watched, event);
+}
+
+void TodoTaskRow::enterEvent(QEnterEvent *event)
+{
+    setHovered(true);
+    QWidget::enterEvent(event);
+}
+
+void TodoTaskRow::leaveEvent(QEvent *event)
+{
+    // 鼠标可能只是移到了行内的姊妹控件上，此时不应取消强调
+    refreshHoverFromCursor();
+    QWidget::leaveEvent(event);
 }
 
 void TodoTaskRow::mousePressEvent(QMouseEvent *event)
@@ -575,7 +685,8 @@ void TodoPage::applyMetrics()
     ui->surfaceLay->setSpacing(0);
     ui->navSep->setFixedWidth(qMax(1, si(1)));
     ui->colSep->setFixedWidth(qMax(1, si(1)));
-    ui->listLay->setContentsMargins(si(20), 0, si(16), 0);
+    // 平铺视图下详情栏收起、板占满整宽 → 右侧不再需要给分隔线留内缩
+    ui->listLay->setContentsMargins(si(20), 0, m_boardMode ? si(20) : si(16), 0);
     ui->listLay->setSpacing(si(12));
     ui->detailLay->setContentsMargins(si(16), 0, si(20), 0);
     ui->detailLay->setSpacing(si(12));
@@ -670,6 +781,10 @@ void TodoPage::buildUi()
     // ── 左侧列表导航（智能清单 + 自定义清单 + 已完成） ──
     buildNav();
 
+    // ── 视图模式（列表 / 平铺）分段开关，插在「排序」左侧 ──
+    m_boardMode = loadTodoBoardMode();
+    buildViewToggle();
+
     // 字段标签 objectName（applyPageStyles 按 TodoFieldLabel findChildren 匹配）
     for (QLabel *l : {ui->lblList, ui->lblPriority, ui->lblDue, ui->lblRecur,
                       ui->lblTags, ui->notesLabel, ui->subLabel})
@@ -717,6 +832,9 @@ void TodoPage::buildUi()
 
     // ── 多选（批量操作）控件 ──
     buildBulkBar();
+
+    // ── 平铺（看板）视图 ──
+    buildBoardView();
 
     // ── 信号连接 ──
     connect(m_quickAdd, &QLineEdit::returnPressed, this, &TodoPage::onQuickAdd);
@@ -774,6 +892,9 @@ void TodoPage::buildUi()
     rebuildNavLists();
     updateNavCounts();
     setNavChecked();
+
+    // 落到持久化的视图模式（列表 / 平铺）
+    setBoardMode(m_boardMode);
 }
 
 void TodoPage::applyPageStyles()
@@ -1064,6 +1185,215 @@ void TodoPage::buildBulkBar()
     });
 
     updateBulkBar();
+}
+
+// ══════════════════════════════════════════════════════════
+// 平铺（看板）视图
+// ══════════════════════════════════════════════════════════
+// 列表头部的「列表 / 平铺」分段开关（插在排序控件左侧）
+void TodoPage::buildViewToggle()
+{
+    m_viewSeg = new QWidget(this);
+    m_viewSeg->setObjectName(QStringLiteral("TodoViewSeg"));
+    m_viewSeg->setAttribute(Qt::WA_StyledBackground, true);
+
+    auto *lay = new QHBoxLayout(m_viewSeg);
+    lay->setContentsMargins(si(2), si(2), si(2), si(2));
+    lay->setSpacing(0);
+
+    const auto makeBtn = [this, lay](const QString &text, const QString &tip) {
+        auto *b = new QToolButton(m_viewSeg);
+        b->setObjectName(QStringLiteral("TodoSegBtn"));
+        b->setText(text);
+        b->setToolTip(tip);
+        b->setCheckable(true);
+        b->setFocusPolicy(Qt::NoFocus);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        b->setFixedHeight(si(24));
+        lay->addWidget(b);
+        return b;
+    };
+    m_segList = makeBtn(QStringLiteral("列表"), QStringLiteral("列表视图"));
+    m_segBoard = makeBtn(QStringLiteral("平铺"),
+                         QStringLiteral("平铺视图：清单横排成列，任务卡片可直接拖到别的清单"));
+
+    // 用 clicked 而不是 toggled：避免 setBoardMode 内回写 checked 时递归
+    connect(m_segList, &QToolButton::clicked, this, [this] { setBoardMode(false); });
+    connect(m_segBoard, &QToolButton::clicked, this, [this] { setBoardMode(true); });
+
+    m_viewSeg->setStyleSheet(
+        QStringLiteral(
+            "QWidget#TodoViewSeg{background:%1;border:1px solid %2;border-radius:%3;}"
+            "QToolButton#TodoSegBtn{color:%4;background:transparent;border:none;"
+            "border-radius:%5;font-size:%6;padding:0 %7;}"
+            "QToolButton#TodoSegBtn:hover{color:%8;}"
+            "QToolButton#TodoSegBtn:checked{background:%9;color:%10;font-weight:600;}")
+            .arg(withAlpha(kColorFg, 0.05), withAlpha(kColorBorder, 0.70), sp(8),
+                 kColorFgMuted, sp(6), sp(12), sp(10), kColorFg,
+                 withAlpha(kColorAccent, 0.22), kColorAccent));
+
+    const int idx = ui->head->indexOf(ui->sortBox);
+    ui->head->insertWidget(idx >= 0 ? idx : ui->head->count(), m_viewSeg);
+}
+
+void TodoPage::buildBoardView()
+{
+    m_board = new TodoBoardView(this);
+    // 插到原 TodoList 的位置（listLay: 0=head 1=快速添加 2=TodoList 3=批量条 4=底部行）
+    ui->listLay->insertWidget(3, m_board);
+    ui->listLay->setStretchFactor(m_board, 1);
+    m_board->hide();
+
+    connect(m_board, &TodoBoardView::taskActivated, this, [this](qint64 id) {
+        // 平铺视图默认收起详情栏，点卡片才临时展开
+        m_selectedTask = id;
+        m_detailWanted = true;
+        updateDetailVisibility();
+        loadDetail(id);
+        setRowHighlight(id);
+    });
+    connect(m_board, &TodoBoardView::taskToggleRequested, this, &TodoPage::onToggleRequested);
+    connect(m_board, &TodoBoardView::taskMenuRequested, this, &TodoPage::onBoardTaskMenu);
+    connect(m_board, &TodoBoardView::listMenuRequested, this, &TodoPage::onBoardListMenu);
+    connect(m_board, &TodoBoardView::quickAddRequested, this,
+            [this](qint64 listId, const QString &title) {
+                m_source->createTask(title, listId, QString());
+            });
+    connect(m_board, &TodoBoardView::taskDropped, this, [this](qint64 id, qint64 listId) {
+        m_settleTask = id;   // 重建后该卡片播「accent 环淡出」
+        m_source->moveTasks({id}, listId);
+    });
+}
+
+void TodoPage::setBoardMode(bool on)
+{
+    const bool changed = (m_boardMode != on);
+    m_boardMode = on;
+    if (changed)
+        saveTodoBoardMode(on);
+
+    if (m_segList) {
+        QSignalBlocker block(m_segList);
+        m_segList->setChecked(!on);
+    }
+    if (m_segBoard) {
+        QSignalBlocker block(m_segBoard);
+        m_segBoard->setChecked(on);
+    }
+
+    // 看板不支持多选批量操作：切过去先退出多选
+    if (on && m_multiBtn && m_multiBtn->isChecked())
+        m_multiBtn->setChecked(false);
+
+    m_detailWanted = !on;   // 平铺视图：详情栏默认收起
+    applyMetrics();         // 板模式下左右边距对称
+    updateDetailVisibility();
+
+    const bool listMode = !on;
+    m_quickAdd->setVisible(listMode);
+    m_list->setVisible(listMode);
+    if (ui->footRow)
+        ui->footRow->setVisible(listMode);
+    if (m_bulkBar)
+        m_bulkBar->setVisible(listMode && m_multi);
+    if (m_completedBtn)
+        m_completedBtn->setVisible(false);   // 仅列表视图用，rebuildList 会按需重现
+    if (m_multiBtn)
+        m_multiBtn->setVisible(listMode);
+    if (m_board)
+        m_board->setVisible(on);
+
+    m_animateNext = true;
+    if (on)
+        rebuildBoard();
+    else
+        rebuildList();
+}
+
+void TodoPage::rebuildBoard()
+{
+    if (!m_board)
+        return;
+    if (!m_boardMode) {
+        m_board->hide();
+        return;
+    }
+    m_board->setVisible(true);
+
+    m_board->setData(m_lists, m_tasks, m_listColors, m_settleTask,
+                     [this](const TodoTask &a, const TodoTask &b) {
+                         return taskLessThan(a, b, m_sort);
+                     });
+    m_settleTask = 0;
+
+    int open = 0;
+    for (const auto &t : m_tasks)
+        if (!t.completed)
+            ++open;
+    m_viewTitle->setText(QStringLiteral("全部清单"));
+    m_viewCount->setText(QStringLiteral("%1 个清单 · %2 项待办")
+                             .arg(m_lists.size() + 1)
+                             .arg(open));
+}
+
+// 详情栏可见性：列表视图常驻；平铺视图默认收起，点卡片临时展开、点「收起」关回去
+void TodoPage::updateDetailVisibility()
+{
+    const bool show = m_boardMode ? m_detailWanted : true;
+    if (m_detailPanel)
+        m_detailPanel->setVisible(show);
+    if (ui->colSep)
+        ui->colSep->setVisible(show);
+}
+
+void TodoPage::onBoardTaskMenu(qint64 id, const QPoint &globalPos)
+{
+    onTaskRowMenu(id, globalPos);
+}
+
+void TodoPage::onBoardListMenu(qint64 listId, const QPoint &globalPos)
+{
+    if (listId == 0)
+        return;   // 收集箱是内置清单，不可重命名 / 删除
+    QMenu menu(this);
+    menu.addAction(QStringLiteral("重命名清单…"), this, [this, listId] { onRenameList(listId); });
+    menu.addAction(QStringLiteral("删除清单"), this, [this, listId] { onDeleteList(listId); });
+    menu.exec(globalPos);
+}
+
+// 列表行 ⋯ 与看板卡片 ⋯ 共用同一份菜单
+void TodoPage::onTaskRowMenu(qint64 id, const QPoint &globalPos)
+{
+    QMenu menu(this);
+    QMenu *moveTo = menu.addMenu(QStringLiteral("移到清单"));
+    moveTo->addAction(QStringLiteral("收集箱"), this, [this, id] {
+        m_settleTask = id;
+        m_source->moveTasks({id}, 0);
+    });
+    for (const auto &l : m_lists) {
+        moveTo->addAction(l.name, this, [this, id, listId = l.id] {
+            m_settleTask = id;
+            m_source->moveTasks({id}, listId);
+        });
+    }
+    menu.addSeparator();
+    menu.addAction(QStringLiteral("打开详情"), this, [this, id] {
+        m_selectedTask = id;
+        m_detailWanted = true;
+        updateDetailVisibility();
+        loadDetail(id);
+        setRowHighlight(id);
+    });
+    menu.addAction(QStringLiteral("删除任务"), this, [this, id] {
+        QMessageBox box(this);
+        box.setWindowTitle(QStringLiteral("删除任务"));
+        box.setText(QStringLiteral("确定删除该任务？"));
+        box.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+        if (box.exec() == QMessageBox::Yes)
+            m_source->deleteTask(id);
+    });
+    menu.exec(globalPos);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1364,7 +1694,7 @@ void TodoPage::rebuildList()
                     fadeInWidget(rw, 180);
             }
         }
-        m_completedBtn->setVisible(!m_multi);
+        m_completedBtn->setVisible(!m_multi && !m_boardMode);
         m_completedBtn->setChecked(m_showCompleted);
         m_completedBtn->setText(m_showCompleted
                                     ? QStringLiteral("隐藏已完成 (%1)").arg(done.size())
@@ -1397,6 +1727,10 @@ void TodoPage::rebuildList()
     setRowHighlight(m_selectedTask);
     if (m_multi)
         updateBulkBar();
+
+    // 平铺视图：列表控件是隐藏的，同一份数据改走看板渲染
+    if (m_boardMode)
+        rebuildBoard();
 }
 
 QWidget *TodoPage::makeRow(const TodoTask &task)
@@ -1426,6 +1760,7 @@ QWidget *TodoPage::makeRow(const TodoTask &task)
     });
     connect(row, &TodoTaskRow::toggleRequested, this, &TodoPage::onToggleRequested);
     connect(row, &TodoTaskRow::selectionToggled, this, &TodoPage::onSelectionToggled);
+    connect(row, &TodoTaskRow::menuRequested, this, &TodoPage::onTaskRowMenu);
     return row;
 }
 
@@ -1643,6 +1978,24 @@ void TodoPage::onDataChanged()
     for (const auto &l : m_lists)
         m_listColors.insert(l.id, l.color.isEmpty() ? colorForString(l.name).name() : l.color);
 
+    // 拖拽进行中不重建：重建会把卡片 widget delete 掉，而拖拽源卡片此刻正阻塞在
+    // drag.exec() 上，删它就是删掉栈上的 this。清掉签名并挂一个轮询，等拖拽结束后补做。
+    if (boardDragActive()) {
+        m_renderSig.clear();
+        if (!m_dragRefreshPending) {
+            m_dragRefreshPending = true;
+            m_dragRefreshTries = 0;
+        }
+        if (m_dragRefreshTries++ < 40) {
+            QTimer::singleShot(150, this, [this] {
+                m_dragRefreshPending = false;
+                onDataChanged();
+            });
+        }
+        return;
+    }
+    m_dragRefreshPending = false;
+
     // 内容没变就不重建：同步轮询每次落地都会广播 dataChanged，全量重建会让列表
     // 闪一下并把滚动位置拉回顶部，而用户看到的内容其实完全一样。
     const QString sig = renderSignature();
@@ -1836,6 +2189,11 @@ void TodoPage::clearDetail()
         m_detailBody->hide();
     if (m_detailEmpty)
         m_detailEmpty->show();
+    // 平铺视图下「收起」= 把详情栏整个关掉，让板回到全宽
+    if (m_boardMode) {
+        m_detailWanted = false;
+        updateDetailVisibility();
+    }
 }
 
 void TodoPage::commitDetail()

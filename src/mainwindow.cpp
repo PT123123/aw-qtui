@@ -70,7 +70,9 @@
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <dwmapi.h>
+#include <shellscalingapi.h>  // GetDpiForMonitor：按目标显示器取有效 DPI（旧文档里的 shcore.h 在本 SDK 无此名）
 #pragma comment(lib, "dwmapi.lib")
+// shcore.lib 由 CMakeLists 链接
 #endif
 
 #include <cmath>
@@ -1207,14 +1209,86 @@ void MainWindow::applyTheme(const QString &themeId)
     qDebug() << "[MainWindow] theme applied:" << t->id;
 }
 
+// 窗户外屏自愈：多屏环境（混合 DPI、副屏被拔掉、系统首次摆放跑偏）下，窗口可能被摆在
+// **所有显示器之外**。此时进程活着、消息循环正常、show() 也已执行，但用户什么都看不到；
+// 而托盘 / 单实例的「置前」只做 show() + raise()，不会把窗口挪回来 —— 症状就是「界面一直出不来」。
+// 判据与处置都刻意保守：只要窗口还能被抓住就绝不移动它（用户自己摆的位置永远优先）。
+void MainWindow::ensureOnScreen()
+{
+    // 必须在窗口「可见」时判：最小化/隐藏期间系统会把窗口挪到 (-32000,-32000)，
+    // 那是正常的停靠位置，不是跑到屏外 —— 否则每次托盘唤醒都会把用户的窗口重新居中。
+    if (!isVisible())
+        return;
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    if (screens.isEmpty())
+        return;
+
+    const QRect frame = frameGeometry();
+    // 只挨着一点点（比如标题栏整个落到屏外）同样抓不住窗口，所以要判「顶部条带」与某块屏
+    // 可用区域的交叠面积，而不是简单 intersects()。
+    const QRect strip(frame.left(), frame.top(), frame.width(), qMin(si(48), frame.height()));
+    for (const QScreen *s : screens) {
+        const QRect hit = strip.intersected(s->availableGeometry());
+        if (hit.width() >= si(80) && hit.height() >= si(16))
+            return; // 抓得住 → 保持原样
+    }
+
+    QScreen *home = screen();
+    if (!home)
+        home = QGuiApplication::primaryScreen();
+    if (!home)
+        return;
+
+    const bool wasMax = isMaximized();
+    if (wasMax)
+        showNormal();
+    const QRect avail = home->availableGeometry();
+    const QSize sz = size().boundedTo(avail.size());
+    const QPoint pos(avail.left() + (avail.width() - sz.width()) / 2,
+                     avail.top() + (avail.height() - sz.height()) / 2);
+    resize(sz);
+    move(pos);
+    if (wasMax)
+        showMaximized();
+    qInfo().noquote() << "[ui] 窗口原本落在所有显示器之外，已移回" << home->name() << pos;
+}
+
+// 首次显示后复核摆放结果：系统给的初始位置本身可能就是屏外，所以要等这一轮布局落定
+// （singleShot(0)）再判 —— 在 show() 之前判会读到尚未被系统改写的位置，等于没查。
+void MainWindow::showEvent(QShowEvent *event)
+{
+    QMainWindow::showEvent(event);
+    if (m_geomChecked)
+        return;
+    m_geomChecked = true;
+    QTimer::singleShot(0, this, [this] { ensureOnScreen(); });
+}
+
 void MainWindow::wakeUpAndShow()
 {
-    if (isMinimized())
-        showNormal();
+    if (isMinimized()) {
+        // 最大化中被最小化：还原时要回到最大化，否则托盘/热键唤醒一次就悄悄丢掉最大化态
+        if (windowState().testFlag(Qt::WindowMaximized))
+            showMaximized();
+        else
+            showNormal();
+    }
+    // 修位置放在 show() 之后：只有窗口真正可见时，frameGeometry() 才是系统摆放的
+    // 真实结果（隐藏期间读到的可能是停靠位置）。此时若发现它整个在屏外，就挪回来。
     show();
     raise();
     activateWindow();
     raiseWindowToFront(this);
+    ensureOnScreen();
+}
+
+// 跨屏移动 / 改缩放比后重算最小尺寸：applyWindowMinimumSize 读的是窗口当前所在屏，
+// 只在构造时算一次会把旧屏的钳制值带到新屏上（小屏/高缩放屏上最小尺寸可能大于工作区）。
+void MainWindow::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::WindowStateChange)
+        applyWindowMinimumSize(this);
+    QMainWindow::changeEvent(event);
 }
 
 // 单实例让位支撑：同版本被再次启动时，请求方要求把本窗口拉到前台
@@ -1280,27 +1354,49 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
             *result = 0;
         return true;
     }
-    // 最大化时把窗口尺寸钳制到屏幕可用区域，避免无边框/细边框窗口的右侧与底部
-    // 被 Windows 最大化边框延伸到屏幕外（导致笔记卡片「⋯」按钮切出可视区）。
-    // 用 MonitorFromWindow 获取窗口实际所在显示器（比 QWidget::screen() 更可靠，
-    // 副屏/DPI 差异时不会返回错误屏幕）。mi.rcWork 是排除任务栏的工作区。
+    // 最大化几何修正（多屏 / 混合 DPI）。三块屏缩放比不一致时，最大化偏离全部出在这里：
+    // 1) 必须先让 DefWindowProc 填满 MINMAXINFO，取回系统默认的 ptMinPosition / ptMaxTrackSize
+    //    （旧实现在此处直接 return，结构体其余字段留在未初始化状态，行为随 Windows 何时发消息而变）。
+    // 2) Windows 对带边框窗口把「整个窗口矩形」当作最大化结果，而该矩形比可见区域多出
+    //    四周约 7-8px 的不可见 resize 边框 —— 所以要按边框把 rcWork 向外扩，
+    //    旧实现原样写入 rcWork，等于内容四周各内缩一个边框宽（右侧/底部被切掉的由来）。
+    // 3) 边框宽与 DPI 一律按「即将最大化到的那个显示器」取，不能用进程默认值。
+    // 4) Qt 的最小尺寸是逻辑像素，折算成该屏物理像素再交给系统，并钳进工作区内。
     if (eventType == QByteArrayLiteral("windows_generic_MSG")) {
         const auto *msg = static_cast<const MSG *>(message);
-        if (msg->message == WM_GETMINMAXINFO) {
-            if (HWND hwnd = msg->hwnd) {
-                HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-                MONITORINFO mi = { sizeof(mi) };
-                if (GetMonitorInfo(hMon, &mi)) {
-                    auto *mmi = reinterpret_cast<MINMAXINFO *>(msg->lParam);
-                    mmi->ptMaxPosition.x = mi.rcWork.left;
-                    mmi->ptMaxPosition.y = mi.rcWork.top;
-                    mmi->ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
-                    mmi->ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
-                    // 不钳制 ptMaxTrackSize：保留系统默认，允许用户手动拖拽跨屏
-                    if (result)
-                        *result = 0;
-                    return true;
-                }
+        if (msg->message == WM_GETMINMAXINFO && msg->hwnd) {
+            HWND hwnd = msg->hwnd;
+            const HMONITOR hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO mi = { sizeof(mi) };
+            if (hMon && GetMonitorInfo(hMon, &mi)) {
+                DefWindowProcW(hwnd, msg->message, msg->wParam, msg->lParam);
+                auto *mmi = reinterpret_cast<MINMAXINFO *>(msg->lParam);
+
+                UINT dpiX = 96, dpiY = 96;
+                if (FAILED(GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) || !dpiX || !dpiY)
+                    dpiX = dpiY = 96;
+                // 只有 SM_CXPADDEDBORDER 一个索引（没有 SM_CYPADDEDBORDER），
+                // 垂直方向同样叠加它。
+                const int bx = GetSystemMetricsForDpi(dpiX, SM_CXSIZEFRAME)
+                             + GetSystemMetricsForDpi(dpiX, SM_CXPADDEDBORDER);
+                const int by = GetSystemMetricsForDpi(dpiY, SM_CYSIZEFRAME)
+                             + GetSystemMetricsForDpi(dpiX, SM_CXPADDEDBORDER);
+                const LONG workW = mi.rcWork.right - mi.rcWork.left;
+                const LONG workH = mi.rcWork.bottom - mi.rcWork.top;
+
+                mmi->ptMaxPosition.x = mi.rcWork.left - bx;
+                mmi->ptMaxPosition.y = mi.rcWork.top - by;
+                mmi->ptMaxSize.x = workW + bx * 2;
+                mmi->ptMaxSize.y = workH + by * 2;
+
+                const qreal dpr = qreal(dpiX) / 96.0;
+                const QSize minSz = minimumSize();
+                mmi->ptMinTrackSize.x = LONG(qMin<qreal>(minSz.width() * dpr, workW));
+                mmi->ptMinTrackSize.y = LONG(qMin<qreal>(minSz.height() * dpr, workH));
+
+                if (result)
+                    *result = 0;
+                return true;
             }
         }
     }

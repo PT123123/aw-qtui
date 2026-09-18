@@ -93,6 +93,8 @@ protected:
     void keyPressEvent(QKeyEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+    void changeEvent(QEvent *event) override;
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     bool eventFilter(QObject *obj, QEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
@@ -131,6 +133,8 @@ private:
     void applySettingsZoom(SettingsWidget *ed, double v);
     // 全局热键唤醒：还原/置前窗口并激活
     void wakeUpAndShow();
+    // 窗户外屏自愈：窗口整个落在所有显示器之外时挪回某块屏的可用区（见 .cpp 说明）
+    void ensureOnScreen();
     // 页面缩放：以 factor 倍率放大/缩小整体 UI（Ctrl+/-）
     // 设置绝对缩放比并应用（0.3 ~ 3.0），持久化并显示右下角百分比提示
     void setZoom(qreal zoom, bool underMouse);
@@ -267,6 +271,8 @@ private:
     // 系统托盘
     QSystemTrayIcon *m_tray = nullptr;
     bool m_trayExiting = false;   // 托盘菜单「退出」置位：关窗不再拦截
+    // 首次 show 后做过一次「窗口是否落在屏内」检查（只查一次，之后由用户自己摆）
+    bool m_geomChecked = false;
     // 远端变更监视：轮询 /api/0/sync/revision。初始为 -1（首次只记录基线，不刷新）
     QTimer *m_remoteTimer = nullptr;
     qint64 m_remoteRevision = -1;

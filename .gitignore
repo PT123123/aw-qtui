@@ -35,6 +35,8 @@ Thumbs.db
 .commandcode/
 # zcode 临时工作目录（非项目源码）
 .zcode/
+# Trae 分享包临时目录（非项目源码）
+.trae-html-share-packages/
 # Python 字节码缓存
 __pycache__/
 *.pyc

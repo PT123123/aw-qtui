@@ -4,24 +4,35 @@
 deploy_workshop.py —— 把正式 release 发布到本地 workshop 目录，并完成「新旧版本交接」。
 
 逻辑（复用 make_zip.py 的版本处理）：
-    1. 读取 CMakeLists.txt 当前版本，patch +1（如 0.1.6 -> 0.1.7）；
-    2. 把 build/dist/（just release 的产物）整目录拷贝到
+    0. 【构建前】justfile 先调 `--bump-only`：读 CMakeLists.txt 当前版本 patch +1
+       （如 0.1.6 -> 0.1.7）并写回，让接着的构建带上新版本号；
+    1. `--no-bump` 模式把 build/dist/（just release 的产物）整目录拷贝到
        c:/workshop/aw-qtui-<ver>；
-    3. 把新版本写回 CMakeLists.txt（下次运行自动继续 +1）；
-    4. 【交接】若检测到有实例在跑且比新版更旧，就把新版 exe 拉起来：
+    2. 自检「目录名 == exe 内编译进去的 AW_VERSION」，不一致就报警；
+    3. 【交接】若检测到有实例在跑且比新版更旧，就把新版 exe 拉起来：
        新版启动后自己会走单实例仲裁（见 src/singleinstance.h）—— 请求旧版优雅让位并接管。
        旧版若 ≤0.1.6（没有让位通道），新版会明确提示需要手动从托盘退出一次。
+
+为什么版本号必须在构建**之前**推进：
+    单实例仲裁（src/singleinstance.cpp）比的是**两个 exe 各自编译进去的 AW_VERSION**，
+    不是目录名。旧顺序是「构建 → bump → 拷贝」，于是 <ver> 目录里的 exe 其实带着
+    <ver-1> 的版本号。结果：新版与正在运行的旧版「内部版本相同」→ 新版走同版本分支
+    （置前 + 静默退出），交接无声失败。历史上 0.1.7~0.1.13 每一版都踩过。
 
 为什么是「拉起新版」而不是「脚本去关旧版」：
     关闭旧实例的正确做法是让它自己走 flush + quit 的优雅路径。脚本从外面只能发 WM_CLOSE，
     而客户端把 WM_CLOSE 定义成「最小化到托盘」（不会退出），硬杀又违反「不硬杀」的约定。
     所以把交接权交给新版程序——它知道怎么跟旧版谈判。
 
-用法（由 justfile 的 deploy-workshop 目标调用，需先 just release）：
-    python tools/deploy_workshop.py
+用法（由 justfile 的 deploy-workshop 目标按此顺序调用）：
+    python tools/deploy_workshop.py --bump-only   # 1) 先推进版本号并写回 CMakeLists.txt
+    just release                                  # 2) 用新版本号构建
+    python tools/deploy_workshop.py --no-bump     # 3) 拷贝 + 自检 + 交接
 """
+import argparse
 import ctypes
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -187,10 +198,44 @@ def handoff(new_ver, target):
     return False
 
 
+def read_exe_version(exe_path):
+    """读出 exe 里编译进去的 AW_VERSION（kAppVersion 走 QStringLiteral → UTF-16 字面量）。
+
+    只用于部署后自检；读不到就返回 None，不阻断流程。
+    """
+    try:
+        with open(exe_path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    pat = re.compile(rb"(?:\d\x00)+\.\x00(?:\d\x00)+\.\x00(?:\d\x00)+")
+    hits = {m.group(0).decode("utf-16-le") for m in pat.finditer(data)}
+    hits |= {m.group(0).decode("utf-16-le") for m in pat.finditer(data[1:])}  # 兼容奇数起始对齐
+    return hits or None
+
+
 def main() -> None:
+    ap = argparse.ArgumentParser(description="把 release 发布到 c:/workshop 并完成新旧版本交接")
+    ap.add_argument("--bump-only", action="store_true",
+                    help="只把 CMakeLists.txt 的 patch +1 并写回（构建前调用），不做拷贝与交接")
+    ap.add_argument("--no-bump", action="store_true",
+                    help="按 CMakeLists.txt 当前版本部署、不再 +1（版本号已由 --bump-only 推进）")
+    args = ap.parse_args()
+
     base_ver = make_zip.parse_version_from_cmake() or "0.1.0"
-    ver = make_zip.bump_patch(base_ver)
-    print(f"[ver] 版本号: {base_ver} -> {ver}（部署成功后写回 CMakeLists.txt）")
+
+    if args.bump_only:
+        ver = make_zip.bump_patch(base_ver)
+        print(f"[ver] 构建前先推进版本号：{base_ver} -> {ver}")
+        make_zip.write_back_version(base_ver, ver)
+        return
+
+    if args.no_bump:
+        ver = base_ver
+        print(f"[ver] 版本号: {ver}（已由 --bump-only 提前推进，本次不再 +1）")
+    else:
+        ver = make_zip.bump_patch(base_ver)
+        print(f"[ver] 版本号: {base_ver} -> {ver}（部署成功后写回 CMakeLists.txt）")
 
     if not os.path.isdir(SRC_DIR):
         raise SystemExit(f"源目录不存在：{SRC_DIR}\n请先执行 just release")
@@ -200,12 +245,19 @@ def main() -> None:
         shutil.rmtree(target)
     shutil.copytree(SRC_DIR, target)
 
-    make_zip.write_back_version(base_ver, ver)
+    if not args.no_bump:
+        make_zip.write_back_version(base_ver, ver)
 
     print("[done] deploy-workshop 完成:")
     print(f"  {target}")
 
-    # 交接放在版本写回之后：即便交接失败，部署本身已完成、版本号也已推进
+    # 自检：目录名必须等于 exe 内编译进去的 AW_VERSION。不等价时单实例仲裁会退化成
+    # 「同版本 → 新版置前并静默退出」，交接无声失败（0.1.7~0.1.13 长期如此）。
+    hits = read_exe_version(os.path.join(target, EXE_NAME))
+    if hits is not None and ver not in hits:
+        print(f"[warn] exe 内版本 {sorted(hits)} 不含目录版本 {ver} —— 交接可能无法自动完成。")
+
+    # 交接放在版本写回/自检之后：即便交接失败，部署本身已完成、版本号也已推进
     handoff(ver, target)
 
 

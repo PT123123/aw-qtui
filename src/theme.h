@@ -227,17 +227,18 @@ inline const AppIconVariant *findAppIcon(const QString &id)
     return &kAppIconVariants[0];
 }
 
-inline QIcon makeAppIcon(const AppIconVariant *variant = nullptr)
+// 按像素尺寸渲染单个程序图标（透明底 + 单色描边）。
+// 独立成函数是为了让 --emit-icon 能渲染 .ico 需要的任意尺寸（含 24px），
+// 也让 makeAppIcon() 与 exe 内嵌图标共用同一份绘制真相。
+inline QPixmap renderAppIconPixmap(int px, const AppIconVariant *variant = nullptr)
 {
     if (!variant)
         variant = gAppIcon;
     const QColor strokeC(variant->stroke);
 
-    QIcon icon;
-    const int sizes[] = {256, 128, 64, 48, 32, 16};
-    for (const int px : sizes) {
-        QPixmap pm(px, px);
-        pm.fill(Qt::transparent); // 透明背景：只有轮廓线条
+    QPixmap pm(px, px);
+    pm.fill(Qt::transparent); // 透明背景：只有轮廓线条
+    {
         QPainter p(&pm);
         p.setRenderHint(QPainter::Antialiasing);
         p.scale(px / 100.0, px / 100.0); // 切到 100 单位坐标系
@@ -285,10 +286,16 @@ inline QIcon makeAppIcon(const AppIconVariant *variant = nullptr)
         hands.lineTo(c);
         hands.lineTo(c.x() + 20.5, c.y());  // 3 点方向
         p.drawPath(hands);
-
-        p.end();
-        icon.addPixmap(pm);
     }
+    return pm;
+}
+
+inline QIcon makeAppIcon(const AppIconVariant *variant = nullptr)
+{
+    QIcon icon;
+    const int sizes[] = {256, 128, 64, 48, 32, 16};
+    for (const int px : sizes)
+        icon.addPixmap(renderAppIconPixmap(px, variant));
     return icon;
 }
 

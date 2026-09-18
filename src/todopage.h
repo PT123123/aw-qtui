@@ -35,6 +35,8 @@ namespace awqtui {
 
 class FocusSource;
 class TodoSource;
+class TodoBoardView;
+class TodoFadeButton;
 
 // 导航项控件（图标/圆点 + 名称 + 右对齐计数），点击整行选中，仿 TickTick 左侧列表栏
 class TodoNavItem : public QWidget
@@ -54,16 +56,24 @@ signals:
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
+    void enterEvent(QEnterEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
 private:
     void applyStyle();
     void renderIcon();
+    void setHovered(bool on);
+    // 鼠标移到项内图标/名称/计数上时本项不应退出 hover；清单项每次数据变化都被重建，
+    // 新实例收不到 Enter —— 两种情况都靠「光标是否仍在自身矩形内」重新判定。
+    void refreshHoverFromCursor();
 
     QLabel *m_icon = nullptr;
     QLabel *m_name = nullptr;
     QLabel *m_count = nullptr;
     QString m_glyph;
     bool m_selected = false;
+    bool m_hovered = false;
     bool m_dot = false;
     QColor m_dotColor;
 };
@@ -91,23 +101,33 @@ signals:
     void selected(qint64 taskId);
     void toggleRequested(qint64 taskId, bool completed);
     void selectionToggled(qint64 taskId, bool selected);
+    void menuRequested(qint64 taskId, const QPoint &globalPos);
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
+    void enterEvent(QEnterEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void applyRowStyle();
+    void setHovered(bool on);
+    // 勾选框 / ⋯ 按钮会截走 hover：鼠标移到它们上面时行收到 Leave，整行高亮闪掉。
+    // 所以 hover 不用 QSS 的 :hover 伪态，统一按「光标是否仍在行矩形内」判定。
+    void refreshHoverFromCursor();
 
     qint64 m_taskId;
     QCheckBox *m_chk = nullptr;      // 完成勾选框（非多选模式下可见）
     QCheckBox *m_selChk = nullptr;   // 多选选择框（多选模式下可见）
     QLabel *m_title = nullptr;       // 标题（可换行，heightForWidth 需要）
+    TodoFadeButton *m_more = nullptr; // 悬停浮现的 ⋯（几何常驻，避免标题宽度跳动）
     int m_rightW = 0;                // 右侧信息簇宽度（标题可用宽度 = 行宽 - 固定占位）
     bool m_hasMeta = false;          // 标题下方是否有标签/清单胶囊行
     bool m_highlighted = false;
     bool m_selected = false;
     bool m_multi = false;
-    bool m_rowStyled = false;   // 行底/hover 样式是否已应用（保证首次即应用 :hover）
+    bool m_rowStyled = false;   // 行底/hover 样式是否已应用（保证首次即应用）
+    bool m_hovered = false;     // 光标是否在行内（含压在子控件之上）
 };
 
 class TodoPage : public QWidget
@@ -126,6 +146,9 @@ public:
     // 退出前冲刷：把 debounce（250ms）中的标题/备注编辑立即落库。
     // 单实例让位 / 正常退出都必须在调 qApp->quit() 之前调用，否则会吃掉用户最后一次输入。
     void flushPendingEdits();
+
+    // 排序谓词（列表视图与平铺看板共用，保证两种视图同序）
+    static bool taskLessThan(const TodoTask &a, const TodoTask &b, SortMode mode);
 
 private slots:
     void onDataChanged();
@@ -170,6 +193,16 @@ private:
     void commitDetail();
     void setRowHighlight(qint64 id);
     QString viewTitle() const;
+
+    // ── 平铺（看板）视图 ──
+    void buildViewToggle();            // 列表头部「列表 / 平铺」分段开关
+    void buildBoardView();             // 创建板并接信号
+    void setBoardMode(bool on);        // 切换视图（含两侧控件显隐 + 持久化）
+    void rebuildBoard();               // 用当前数据刷新板
+    void updateDetailVisibility();     // 详情栏可见性（平铺下默认收起、点卡片临时展开）
+    void onBoardTaskMenu(qint64 id, const QPoint &globalPos);
+    void onBoardListMenu(qint64 listId, const QPoint &globalPos);
+    void onTaskRowMenu(qint64 id, const QPoint &globalPos);   // 列表行 ⋯ 菜单（与看板共用）
     // 多选辅助
     void setMultiSelect(bool on);
     QList<qint64> selectedTaskIds() const;
@@ -179,7 +212,6 @@ private:
     void pruneSelection();                   // 丢弃已被删除任务的选择残留
 
     QList<TodoTask> visibleTasks() const;
-    static bool taskLessThan(const TodoTask &a, const TodoTask &b, SortMode mode);
     QWidget *makeRow(const TodoTask &task);
     QWidget *makeSubtaskRow(const TodoSubtask &s);
     TodoNavItem *makeNavItem(const QString &name);
@@ -220,6 +252,17 @@ private:
     QListWidget *m_list;
     QPushButton *m_completedBtn;
     QLabel *m_progress;
+
+    // 平铺（看板）视图：列表列位置用显隐切换（列表控件与板互斥显示）
+    TodoBoardView *m_board = nullptr;
+    QWidget *m_viewSeg = nullptr;        // 「列表 / 平铺」分段开关
+    QToolButton *m_segList = nullptr;
+    QToolButton *m_segBoard = nullptr;
+    bool m_boardMode = false;
+    bool m_detailWanted = true;          // 平铺视图下详情栏是否临时展开
+    qint64 m_settleTask = 0;             // 刚落位的任务：重建看板时播 accent 环淡出
+    bool m_dragRefreshPending = false;   // 拖拽期间被跳过的刷新，正在轮询补做
+    int m_dragRefreshTries = 0;
 
     // 多选：列表头部入口按钮 + 列表下方批量操作条
     QToolButton *m_multiBtn = nullptr;
