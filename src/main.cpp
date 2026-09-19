@@ -143,6 +143,8 @@ int main(int argc, char *argv[])
     QApplication::setApplicationName(QStringLiteral("aw-qtui"));
     QApplication::setApplicationVersion(kAppVersion);
     QApplication::setOrganizationName(QStringLiteral("aw-qtui"));
+    // 常驻托盘的应用：主窗口隐藏到托盘后，关掉最后一个浮窗（如快速记录窗）不应退出进程
+    QApplication::setQuitOnLastWindowClosed(false);
 
     // 单实例仲裁移到 parser 之后：截图 / 提权辅助模式不参与仲裁（见下方 acquire 调用）。
     // 语义与规则见 src/singleinstance.h —— 旧版让位给新版，同版本唤起已有窗口。

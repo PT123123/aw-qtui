@@ -518,7 +518,7 @@ NoteEditorDialog::NoteEditorDialog(const QString &initial, const QStringList &ex
     : QDialog(parent), m_existingTags(existingTags)
 {
     setWindowTitle(title);
-    setModal(true);
+    // 模态由调用方决定：exec() 自带应用模态，快速记录走 show()（非模态独立窗口）
     resize(560, 320);
 
     auto *lay = new QVBoxLayout(this);

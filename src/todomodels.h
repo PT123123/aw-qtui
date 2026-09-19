@@ -63,6 +63,11 @@ struct TodoTask {
     QString createdAt;
     QString updatedAt;
     int sortOrder = 0;
+    // 同步元信息（服务端 todos 表，与 Note 的 device_id/version/synced_at/conflict 同一口径）
+    qint64 version = 0;
+    QString deviceId;       // 最后写入这条记录的设备 id（判断任务从哪端传来）
+    QString syncedAt;       // 最后一次同步落库时间；空 = 尚未同步
+    bool conflict = false;  // 服务端检测到多端并发修改
     QList<TodoSubtask> subtasks;
 
     QJsonObject toJson() const
@@ -81,6 +86,10 @@ struct TodoTask {
         o.insert(QLatin1String("created_at"), createdAt);
         o.insert(QLatin1String("updated_at"), updatedAt);
         o.insert(QLatin1String("sort_order"), sortOrder);
+        o.insert(QLatin1String("version"), version);
+        o.insert(QLatin1String("device_id"), deviceId);
+        o.insert(QLatin1String("synced_at"), syncedAt);
+        o.insert(QLatin1String("conflict"), conflict);
         QJsonArray subs;
         for (const auto &s : subtasks)
             subs.append(s.toJson());
@@ -106,6 +115,10 @@ struct TodoTask {
         t.createdAt = o.value(QLatin1String("created_at")).toString();
         t.updatedAt = o.value(QLatin1String("updated_at")).toString();
         t.sortOrder = o.value(QLatin1String("sort_order")).toInt();
+        t.version = o.value(QLatin1String("version")).toVariant().toLongLong();
+        t.deviceId = o.value(QLatin1String("device_id")).toString();
+        t.syncedAt = o.value(QLatin1String("synced_at")).toString();
+        t.conflict = o.value(QLatin1String("conflict")).toBool();
         const auto ss = o.value(QLatin1String("subtasks")).toArray();
         for (const auto &v : ss)
             t.subtasks.append(TodoSubtask::fromJson(v.toObject()));

@@ -523,6 +523,11 @@ TodoTask TodoApiStore::todoToTask(const QJsonObject &o)
     t.completedAt = o.value(QLatin1String("completed_at")).toString();
     t.createdAt = o.value(QLatin1String("created_at")).toString();
     t.updatedAt = o.value(QLatin1String("updated_at")).toString();
+    // 同步元信息：服务端按 X-Device-ID 记录最后写入端，详情页据此显示「来源设备」
+    t.version = o.value(QLatin1String("version")).toVariant().toLongLong();
+    t.deviceId = o.value(QLatin1String("device_id")).toString();
+    t.syncedAt = o.value(QLatin1String("synced_at")).toString();
+    t.conflict = o.value(QLatin1String("conflict")).toBool();
 
     const QString due = o.value(QLatin1String("due_date")).toString();
     if (!due.isEmpty()) {

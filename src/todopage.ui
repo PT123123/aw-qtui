@@ -470,7 +470,7 @@
              <number>10</number>
             </property>
             <item>
-             <layout class="QHBoxLayout" name="detailHead" stretch="0,1,0">
+             <layout class="QHBoxLayout" name="detailHead" stretch="0,1,0,0">
               <item>
                <widget class="QLabel" name="detailHeadTitle">
                 <property name="text">
@@ -490,6 +490,19 @@
                  </size>
                 </property>
                </spacer>
+              </item>
+              <item>
+               <widget class="QPushButton" name="detailInfo">
+                <property name="text">
+                 <string>信息</string>
+                </property>
+                <property name="toolTip">
+                 <string>查看详细信息（来源设备、同步状态、版本）</string>
+                </property>
+                <property name="cursor">
+                 <cursorShape>PointingHandCursor</cursorShape>
+                </property>
+               </widget>
               </item>
               <item>
                <widget class="QPushButton" name="detailClose">

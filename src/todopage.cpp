@@ -4,6 +4,8 @@
 #include "ui_todopage.h"
 
 #include "appsettings.h"
+#include "apiclient.h"
+#include "config.h"
 #include "theme.h"
 #include "mockdata.h"
 #include "todoboard.h"
@@ -11,7 +13,9 @@
 #include "widgets.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QColor>
 #include <QComboBox>
 #include <QContextMenuEvent>
@@ -131,6 +135,27 @@ QLabel *makePill(const QString &text, const QColor &c)
                  withAlpha(c.name().toUtf8().constData(), 0.30),
                  sp(8), sp(6), sp(11)));
     return l;
+}
+
+// 优先级中文名（详细信息用；行内用符号，见 priorityGlyph）
+QString priorityName(int p)
+{
+    switch (p) {
+    case TodoPriorityHigh: return QStringLiteral("高");
+    case TodoPriorityMedium: return QStringLiteral("中");
+    case TodoPriorityLow: return QStringLiteral("低");
+    default: return QStringLiteral("无");
+    }
+}
+
+// 设备端类型 → 中文（对齐服务端 DeviceKind 的 as_str：windows/linux/macos/android/unknown）
+QString deviceKindLabel(const QString &kind)
+{
+    if (kind == QLatin1String("windows")) return QStringLiteral("Windows 电脑");
+    if (kind == QLatin1String("linux")) return QStringLiteral("Linux 电脑");
+    if (kind == QLatin1String("macos")) return QStringLiteral("macOS 电脑");
+    if (kind == QLatin1String("android")) return QStringLiteral("安卓手机");
+    return QString();
 }
 
 } // namespace
@@ -785,6 +810,180 @@ void TodoTaskRow::paintStrike(QPainter &p)
 }
 
 // ══════════════════════════════════════════════════════════
+// TaskDetailsDialog —— 任务详细信息（口径对齐笔记详情）
+// ══════════════════════════════════════════════════════════
+TaskDetailsDialog::TaskDetailsDialog(const TodoTask &task, const QString &listName,
+                                     bool showRecurrence, QWidget *parent)
+    : QDialog(parent), m_deviceId(task.deviceId)
+{
+    setWindowTitle(QStringLiteral("任务详情 · #%1").arg(task.id));
+    // 非模态：打开详情时仍能在任务列表里翻别的任务
+    resize(600, 620);
+
+    auto *lay = new QVBoxLayout(this);
+    lay->setSpacing(si(8));
+
+    auto *infoBox = new QFrame;
+    infoBox->setObjectName(QStringLiteral("TaskDetailsBox"));
+    infoBox->setStyleSheet(scaleQss(QStringLiteral(
+        "QFrame#TaskDetailsBox { background: %1; border: 1px solid %2; border-radius: 8px; }")
+        .arg(kColorBgElev, kColorBorder)));
+    auto *grid = new QGridLayout(infoBox);
+    grid->setContentsMargins(si(12), si(10), si(12), si(10));
+    grid->setHorizontalSpacing(si(14));
+    grid->setVerticalSpacing(si(6));
+    grid->setColumnStretch(1, 1);
+
+    int row = 0;
+    auto addRow = [&grid, &row](const QString &label, const QString &value, const char *color) {
+        auto *l = new QLabel(label);
+        l->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 12px; background: transparent; border: none;")
+            .arg(kColorFgMuted)));
+        auto *v = new QLabel(value);
+        v->setWordWrap(true);
+        v->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        v->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 12px; background: transparent; border: none;")
+            .arg(color)));
+        grid->addWidget(l, row, 0, Qt::AlignTop);
+        grid->addWidget(v, row, 1);
+        ++row;
+        return v;
+    };
+
+    static const QString kTimeFmt = QStringLiteral("yyyy-MM-dd HH:mm:ss");
+
+    addRow(QStringLiteral("任务 ID"), QStringLiteral("#%1").arg(task.id), kColorFg);
+    addRow(QStringLiteral("标题"), task.title.isEmpty() ? QStringLiteral("（空）") : task.title,
+           kColorFg);
+
+    const char *statusColor = task.completed ? kColorOk : kColorFgMuted;
+    QString status = task.completed ? QStringLiteral("已完成") : QStringLiteral("进行中");
+    if (task.conflict) {
+        status = QStringLiteral("存在同步冲突");
+        statusColor = kColorDanger;
+    }
+    addRow(QStringLiteral("状态"), status, statusColor);
+
+    addRow(QStringLiteral("所属清单"),
+           listName.isEmpty() ? QStringLiteral("收集箱") : listName, kColorFg);
+    addRow(QStringLiteral("优先级"), priorityName(task.priority),
+           task.priority == TodoPriorityHigh   ? kColorDanger
+           : task.priority == TodoPriorityMedium ? kColorAccent
+           : task.priority == TodoPriorityLow  ? kColorOk
+                                               : kColorFgMuted);
+    if (task.hasDue()) {
+        const QString rel = dueLabel(task);
+        addRow(QStringLiteral("截止日期"),
+               rel.isEmpty() ? task.dueDate : QStringLiteral("%1（%2）").arg(task.dueDate, rel),
+               kColorFg);
+    } else {
+        addRow(QStringLiteral("截止日期"), QStringLiteral("无"), kColorFgMuted);
+    }
+    if (showRecurrence)
+        addRow(QStringLiteral("重复"), recurrenceLabel(task.recurrence), kColorFg);
+    addRow(QStringLiteral("标签"),
+           task.tags.isEmpty() ? QStringLiteral("无") : task.tags.join(QStringLiteral("、")),
+           kColorFg);
+    if (task.subtasks.isEmpty()) {
+        addRow(QStringLiteral("子任务"), QStringLiteral("无"), kColorFgMuted);
+    } else {
+        const int done = task.subtasks.size() - task.openSubtaskCount();
+        QString subText = QStringLiteral("共 %1 项，已完成 %2 项").arg(task.subtasks.size()).arg(done);
+        auto *subs = addRow(QStringLiteral("子任务"), subText, kColorFg);
+        QStringList lines;
+        for (const auto &s : task.subtasks)
+            lines << QStringLiteral("%1 %2").arg(s.completed ? QStringLiteral("✓") : QStringLiteral("○"), s.title);
+        subs->setToolTip(lines.join(QLatin1Char('\n')));
+    }
+
+    addRow(QStringLiteral("添加时间"), formatLocal(task.createdAt, kTimeFmt), kColorFg);
+    addRow(QStringLiteral("更新时间"), formatLocal(task.updatedAt, kTimeFmt), kColorFg);
+    if (task.completed) {
+        addRow(QStringLiteral("完成时间"),
+               task.completedAt.isEmpty() ? QStringLiteral("未知")
+                                          : formatLocal(task.completedAt, kTimeFmt),
+               kColorFg);
+    }
+    if (task.syncedAt.isEmpty())
+        addRow(QStringLiteral("最后同步"), QStringLiteral("未同步"), kColorWarn);
+    else
+        addRow(QStringLiteral("最后同步"), formatLocal(task.syncedAt, kTimeFmt), kColorFg);
+
+    // 来源设备：本机显示「本机」，其余先显示原始 device_id（异步解析后回填设备名）
+    m_deviceValue = new QLabel;
+    if (m_deviceId.isEmpty())
+        m_deviceValue->setText(QStringLiteral("未知"));
+    else if (m_deviceId == deviceId())
+        m_deviceValue->setText(QStringLiteral("本机"));
+    else
+        m_deviceValue->setText(m_deviceId);
+    if (!m_deviceId.isEmpty())
+        m_deviceValue->setToolTip(QStringLiteral("device_id: %1").arg(m_deviceId));
+    m_deviceValue->setWordWrap(true);
+    m_deviceValue->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_deviceValue->setStyleSheet(scaleQss(QStringLiteral(
+        "color: %1; font-size: 12px; background: transparent; border: none;")
+        .arg(kColorFg)));
+    {
+        auto *l = new QLabel(QStringLiteral("来源设备"));
+        l->setStyleSheet(scaleQss(QStringLiteral(
+            "color: %1; font-size: 12px; background: transparent; border: none;")
+            .arg(kColorFgMuted)));
+        grid->addWidget(l, row, 0, Qt::AlignTop);
+        grid->addWidget(m_deviceValue, row, 1);
+        ++row;
+    }
+
+    addRow(QStringLiteral("当前版本"), QStringLiteral("v%1").arg(task.version), kColorFg);
+    addRow(QStringLiteral("备注长度"),
+           task.notes.isEmpty() ? QStringLiteral("无备注")
+                                : QStringLiteral("%1 字符").arg(task.notes.length()),
+           kColorFg);
+
+    lay->addWidget(infoBox);
+
+    // ---- 备注原文 ----
+    auto *notesLabel = new QLabel(QStringLiteral("备注"));
+    notesLabel->setStyleSheet(scaleQss(QStringLiteral(
+        "color: %1; font-size: 13px; font-weight: 600; background: transparent; border: none;")
+        .arg(kColorFg)));
+    lay->addWidget(notesLabel);
+
+    auto *notes = new QPlainTextEdit;
+    notes->setReadOnly(true);
+    notes->setPlaceholderText(QStringLiteral("（无备注）"));
+    notes->setPlainText(task.notes);
+    notes->setStyleSheet(scaleQss(QStringLiteral(
+        "QPlainTextEdit { background: %1; border: 1px solid %2; border-radius: 6px; }")
+                              .arg(kColorBgElev, kColorBorder)));
+    lay->addWidget(notes, 1);
+
+    auto *btnRow = new QHBoxLayout;
+    auto *btnCopy = new QPushButton(QStringLiteral("复制标题与备注"));
+    connect(btnCopy, &QPushButton::clicked, this, [this, task] {
+        const QString text = task.notes.isEmpty()
+                                 ? task.title
+                                 : QStringLiteral("%1\n\n%2").arg(task.title, task.notes);
+        QApplication::clipboard()->setText(text);
+    });
+    btnRow->addWidget(btnCopy);
+    btnRow->addStretch(1);
+    auto *btnClose = new QPushButton(QStringLiteral("关闭"));
+    connect(btnClose, &QPushButton::clicked, this, &QDialog::reject);
+    btnRow->addWidget(btnClose);
+    lay->addLayout(btnRow);
+}
+
+void TaskDetailsDialog::setDeviceName(const QString &name)
+{
+    if (!m_deviceValue || name.isEmpty())
+        return;
+    m_deviceValue->setText(name);
+}
+
+// ══════════════════════════════════════════════════════════
 // TodoPage
 // ══════════════════════════════════════════════════════════
 TodoPage::TodoPage(TodoSource *source, QWidget *parent)
@@ -1033,6 +1232,13 @@ void TodoPage::buildUi()
                 clearDetail();
         });
 
+    // 详情页顶部的「信息」：弹任务详细信息（同步元信息、来源设备）
+    if (auto *infoBtn = ui->detailInfo)
+        connect(infoBtn, &QPushButton::clicked, this, [this] {
+            if (m_selectedTask)
+                showTaskDetails(m_selectedTask);
+        });
+
     applyPageStyles();
     rebuildNavLists();
     updateNavCounts();
@@ -1180,6 +1386,12 @@ void TodoPage::applyPageStyles()
                            "QPushButton#detailClose:hover{background:%4;color:%5;}")
                 .arg(kColorFgMuted, sp(14), sp(24),
                      withAlpha(kColorFg, 0.08), kColorFg));
+    if (auto *infoBtn = ui->detailInfo)
+        infoBtn->setStyleSheet(
+            QStringLiteral("QPushButton#detailInfo{border:none;border-radius:8px;color:%1;"
+                           "background:transparent;font-size:%2;padding:2px 8px;}"
+                           "QPushButton#detailInfo:hover{background:%3;color:%4;}")
+                .arg(kColorFgMuted, sp(12), withAlpha(kColorFg, 0.08), kColorFg));
     if (m_dTitle)
         m_dTitle->setStyleSheet(
             QStringLiteral("QPlainTextEdit#TodoTitleEdit{font-size:%1;font-weight:600;border:1px solid transparent;"
@@ -1530,6 +1742,7 @@ void TodoPage::onTaskRowMenu(qint64 id, const QPoint &globalPos)
         loadDetail(id);
         setRowHighlight(id);
     });
+    menu.addAction(QStringLiteral("详细信息"), this, [this, id] { showTaskDetails(id); });
     menu.addAction(QStringLiteral("删除任务"), this, [this, id] {
         QMessageBox box(this);
         box.setWindowTitle(QStringLiteral("删除任务"));
@@ -1539,6 +1752,62 @@ void TodoPage::onTaskRowMenu(qint64 id, const QPoint &globalPos)
             m_source->deleteTask(id);
     });
     menu.exec(globalPos);
+}
+
+void TodoPage::showTaskDetails(qint64 id)
+{
+    const TodoTask *found = nullptr;
+    for (const auto &t : m_tasks) {
+        if (t.id == id) {
+            found = &t;
+            break;
+        }
+    }
+    if (!found)
+        return;
+
+    QString listName;
+    for (const auto &l : m_lists) {
+        if (l.id == found->listId) {
+            listName = l.name;
+            break;
+        }
+    }
+
+    auto *dlg = new TaskDetailsDialog(*found, listName, m_source->supportsRecurrence(), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+
+    // 来源设备名解析（best-effort）：device_id → 已配对设备名 + 端类型；失败则保留原始 id
+    if (!m_api || found->deviceId.isEmpty())
+        return;
+    const QString wanted = found->deviceId;
+    QPointer<TaskDetailsDialog> guard(dlg);
+    QNetworkReply *r = m_api->getSyncDevices();
+    connect(r, &QNetworkReply::finished, this, [r, guard, wanted] {
+        r->deleteLater();
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err) || !guard)
+            return;
+        const auto arr = doc.isArray() ? doc.array() : QJsonArray();
+        for (const auto &v : arr) {
+            if (!v.isObject())
+                continue;
+            const SyncDevice d = SyncDevice::fromJson(v.toObject());
+            if (d.id != wanted)
+                continue;
+            QString name = d.alias.isEmpty() ? d.name : d.alias;
+            const QString kind = deviceKindLabel(d.deviceKind);
+            if (!kind.isEmpty())
+                name = name.isEmpty() ? kind : QStringLiteral("%1 · %2").arg(name, kind);
+            if (d.isSelf)
+                name += QStringLiteral("（本机）");
+            if (!name.isEmpty())
+                guard->setDeviceName(name);
+            break;
+        }
+    });
 }
 
 // ══════════════════════════════════════════════════════════

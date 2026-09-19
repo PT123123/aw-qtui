@@ -232,7 +232,7 @@ void MainWindow::setupTray()
         return;
     m_tray = new QSystemTrayIcon(this);
     m_tray->setIcon(makeAppIcon());
-    m_tray->setToolTip(QStringLiteral("aw-qtui · %1").arg(QString::fromUtf8(gTheme->name)));
+    m_tray->setToolTip(QStringLiteral("aw-qtui v%1 · %2").arg(kAppVersion, QString::fromUtf8(gTheme->name)));
 
     auto *menu = new QMenu(this);
     auto *toggleAct = menu->addAction(QStringLiteral("显示 / 隐藏主窗口"));
@@ -421,6 +421,8 @@ void MainWindow::buildUi()
     // 同步容器的后台引擎（SyncService）已在构造函数创建并常驻，不因页控件回收而停摆。
     m_inbox = new InboxPage(m_api);
     m_todo = new TodoPage(m_todoStore);
+    // 任务详细信息里的「来源设备」需要查 /devices 把 device_id 换成设备名
+    m_todo->setApiClient(m_api);
 
     styleSubTabs(m_syncTabs);
     // 同步容器内切换子标签时，把该页按当前缩放补齐
@@ -518,7 +520,7 @@ void MainWindow::buildUi()
             .arg(kColorBorder));
     m_zoomBadge->hide();
 
-    setWindowTitle(QStringLiteral("aw-qtui — ActivityWatch 客户端"));
+    setWindowTitle(QStringLiteral("aw-qtui v%1 — ActivityWatch 客户端").arg(kAppVersion));
     resize(1280, 820);
     applyWindowMinimumSize(this);
 }
@@ -1205,7 +1207,7 @@ void MainWindow::applyTheme(const QString &themeId)
     // 托盘图标随主题刷新（makeAppIcon 固定设计，与主题无关）
     if (m_tray) {
         m_tray->setIcon(makeAppIcon());
-        m_tray->setToolTip(QStringLiteral("aw-qtui · %1").arg(QString::fromUtf8(gTheme->name)));
+        m_tray->setToolTip(QStringLiteral("aw-qtui v%1 · %2").arg(kAppVersion, QString::fromUtf8(gTheme->name)));
     }
     qDebug() << "[MainWindow] theme applied:" << t->id;
 }
