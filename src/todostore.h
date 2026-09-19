@@ -157,8 +157,11 @@ public:
 
 private:
     static TodoTask todoToTask(const QJsonObject &o);
-    void fetchTodos();
-    void fetchLists();
+    // gen = 本轮拉取的代际号：回包落地前先比对，过期轮次的结果整体丢弃（看门狗放行后迟到的回包）
+    void fetchTodos(int gen);
+    void fetchLists(int gen);
+    // 一轮的两个回包都到齐后收尾：悬空清单归位 + 只广播一次 dataChanged
+    void finishFetch();
     // 子任务整组读改写（对齐 Android mutateSubtasks）
     void mutateSubtasks(qint64 taskId, const std::function<void(QList<TodoSubtask> &)> &fn);
     // 全局唯一子任务 id：所有任务已有子任务 id 的最大值 + 1（对齐 Android nextSubtaskId）
@@ -172,6 +175,11 @@ private:
     QList<TodoList> m_lists;
     QList<TodoTask> m_tasks;
     bool m_loaded = false;
+    // 拉取轮次状态：在途不叠加请求（15s 远端轮询 × 写后重拉会叠加），收尾后按需补做一轮
+    int m_fetchGen = 0;
+    int m_fetchInflight = 0;
+    bool m_fetchQueued = false;
+    bool m_listsFresh = false;   // 本轮清单是否成功回来，决定要不要做悬空 list_id 归位
 };
 
 } // namespace awqtui
