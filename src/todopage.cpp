@@ -802,7 +802,11 @@ TodoPage::~TodoPage()
 
 void TodoPage::refresh()
 {
-    onDataChanged();
+    // 真重拉：这里以前只是 onDataChanged() 重绘内存快照，一个请求都不发 ——
+    // 手机端的任务即便已同步进本机 todo.db，界面也要等用户在本机写一次才更新。
+    // 重绘交给 store 回包后的 dataChanged；renderSignature 会让无变化的轮次不重建列表。
+    flushPendingEdits();  // debounce 里的标题/备注先落库，别被一轮重拉盖掉
+    m_source->load();
 }
 
 // 退出前冲刷：标题/备注是 250ms debounce 提交（见 buildUi 里 m_commitTimer 的接线），

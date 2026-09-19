@@ -138,7 +138,8 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     m_tagStore = new TagStore;
     m_tagStore->load();
     m_todoStore = new TodoApiStore(m_api, this);
-    m_todoStore->load();
+    // 首次拉取交给下面 TodoPage 构造（常驻页，一定会建）；这里不再 load，
+    // 否则启动即两轮全量拉取。
     // 专注数据：本地优先（focus_local.json）；后续接 Rust /focus 端点时换 FocusApiStore
     m_focusStore = new FocusStore(this);
     m_focusStore->load();

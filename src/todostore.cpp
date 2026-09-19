@@ -553,12 +553,15 @@ qint64 TodoApiStore::nextSubtaskId() const
     return maxId + 1;
 }
 
-void TodoApiStore::fetchTodos()
+void TodoApiStore::fetchTodos(int gen)
 {
     if (!m_api)
         return;
     QNetworkReply *reply = m_api->getTodos(true); // include completed（服务端始终过滤 deleted）
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, gen]() {
+        reply->deleteLater();
+        if (gen != m_fetchGen)   // 过期轮次（看门狗已放行下一轮）：丢弃，别把新数据覆盖成旧的
+            return;
         QJsonDocument doc;
         QString err;
         if (ApiClient::parseReply(reply, &doc, &err)) {
@@ -569,18 +572,20 @@ void TodoApiStore::fetchTodos()
         } else {
             qWarning() << "[TodoApiStore] load todos failed:" << err;
         }
-        reply->deleteLater();
-        m_loaded = true;
-        emit dataChanged();
+        if (--m_fetchInflight == 0)
+            finishFetch();
     });
 }
 
-void TodoApiStore::fetchLists()
+void TodoApiStore::fetchLists(int gen)
 {
     if (!m_api)
         return;
     QNetworkReply *reply = m_api->getTodoLists();
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, gen]() {
+        reply->deleteLater();
+        if (gen != m_fetchGen)
+            return;
         QJsonDocument doc;
         QString err;
         if (ApiClient::parseReply(reply, &doc, &err)) {
@@ -593,25 +598,59 @@ void TodoApiStore::fetchLists()
             const auto arr = doc.array();
             for (const auto &v : arr)
                 m_lists.append(TodoList::fromJson(v.toObject()));
-            // 清单可能已在别处删除：悬空 list_id 的任务按收集箱展示（不丢任务）
-            QSet<qint64> known;
-            for (const auto &l : m_lists)
-                known.insert(l.id);
-            for (auto &t : m_tasks)
-                if (t.listId != 0 && !known.contains(t.listId))
-                    t.listId = 0;
+            m_listsFresh = true;
         } else {
             qWarning() << "[TodoApiStore] load lists failed:" << err;
         }
-        reply->deleteLater();
-        emit dataChanged();
+        if (--m_fetchInflight == 0)
+            finishFetch();
     });
+}
+
+// 悬空 list_id 归到收集箱必须在两个回包都落地之后做：清单回包若早于任务回包，
+// 用的还是上一批 tasks，新一批里被删清单的任务就会一直挂着失效 id 显示。
+void TodoApiStore::finishFetch()
+{
+    if (m_listsFresh) {
+        QSet<qint64> known;
+        for (const auto &l : m_lists)
+            known.insert(l.id);
+        for (auto &t : m_tasks)
+            if (t.listId != 0 && !known.contains(t.listId))
+                t.listId = 0;
+    }
+    m_listsFresh = false;
+    m_loaded = true;
+    emit dataChanged();
+    if (m_fetchQueued) {
+        m_fetchQueued = false;
+        load();
+    }
 }
 
 void TodoApiStore::load()
 {
-    fetchTodos();
-    fetchLists();
+    if (!m_api)
+        return;
+    if (m_fetchInflight > 0) { // 在途：不叠加请求，本轮收尾后补做，保证期间发生的写入也看得见
+        m_fetchQueued = true;
+        return;
+    }
+    m_fetchQueued = false;
+    m_listsFresh = false;
+    ++m_fetchGen;
+    const int gen = m_fetchGen;
+    m_fetchInflight = 2;
+    // 看门狗：回包迟迟不到也要放行本轮，否则在途标志永久卡住、之后每次刷新都空转
+    QTimer::singleShot(8000, this, [this, gen] {
+        if (gen != m_fetchGen || m_fetchInflight == 0)
+            return;
+        qWarning() << "[TodoApiStore] fetch timed out, refresh round forced done";
+        m_fetchInflight = 0;
+        finishFetch();
+    });
+    fetchTodos(gen);
+    fetchLists(gen);
 }
 
 void TodoApiStore::reload()

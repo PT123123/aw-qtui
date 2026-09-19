@@ -152,6 +152,8 @@ public:
 
     explicit TodoPage(TodoSource *source, QWidget *parent = nullptr);
     ~TodoPage() override;
+    // 向服务端重拉一轮（任务/清单全量）。切页、F5、远端修订号轮询都走这里；
+    // 界面重绘由 store 的 dataChanged 驱动，内容未变时 renderSignature 会跳过重建。
     void refresh();
     void applyUiScale();
     // 统一几何：页面栅格 / 卡片内边距 / 三栏内边距 / 详情栏固定宽度（buildUi 与 applyUiScale 共用）
