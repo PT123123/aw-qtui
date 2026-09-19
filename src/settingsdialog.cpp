@@ -511,6 +511,30 @@ SettingsWidget::SettingsWidget(const ShortcutConfig &cfg, const QString &themeId
     aboutLayout->setContentsMargins(8, 12, 8, 10);
     aboutLayout->setSpacing(10);
 
+    auto *appTitle = new QLabel(QStringLiteral("应用信息"));
+    appTitle->setStyleSheet(sectionTitleStyle);
+    aboutLayout->addWidget(appTitle);
+
+    auto *appForm = new QFormLayout;
+    appForm->setContentsMargins(0, 8, 0, 0);
+    appForm->setHorizontalSpacing(16);
+    appForm->setVerticalSpacing(10);
+
+    auto *appNameVal = new QLabel(kAppName);
+    appNameVal->setStyleSheet(valStyle);
+    auto *appNameKey = new QLabel(QStringLiteral("应用名称"));
+    appNameKey->setStyleSheet(keyStyle);
+    appForm->addRow(appNameKey, appNameVal);
+
+    auto *verVal = new QLabel(QStringLiteral("v%1").arg(kAppVersion));
+    verVal->setStyleSheet(valStyle);
+    verVal->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto *verKey = new QLabel(QStringLiteral("版本号"));
+    verKey->setStyleSheet(keyStyle);
+    appForm->addRow(verKey, verVal);
+
+    aboutLayout->addLayout(appForm);
+
     auto *deviceTitle = new QLabel(QStringLiteral("设备信息"));
     deviceTitle->setStyleSheet(sectionTitleStyle);
     aboutLayout->addWidget(deviceTitle);

@@ -7,6 +7,7 @@
 // 由 MainWindow 的主堆栈统一管理。TodoPage 不再内嵌专注模块页面。
 #pragma once
 
+#include <QDialog>
 #include <QHash>
 #include <QList>
 #include <QSet>
@@ -36,6 +37,7 @@ namespace Ui { class TodoPage; }
 
 namespace awqtui {
 
+class ApiClient;
 class FocusSource;
 class TodoSource;
 class TodoBoardView;
@@ -143,6 +145,23 @@ private:
     bool m_completing = false;  // 完成动画进行中：屏蔽重复点击 / 重复提交
 };
 
+// ------------------------------------------------------------------ //
+// 任务详细信息对话框：与笔记详情同口径的元信息表（来源设备 / 同步状态 / 版本 / 时间线）
+// + 备注原文。服务端 todos 表带 device_id / version / synced_at，故「从哪端传来」可考。
+class TaskDetailsDialog : public QDialog
+{
+    Q_OBJECT
+public:
+    explicit TaskDetailsDialog(const TodoTask &task, const QString &listName, bool showRecurrence,
+                               QWidget *parent = nullptr);
+    // 回填「来源设备」：device_id → 已配对设备的别名/名称 + 端类型（异步解析后调用）
+    void setDeviceName(const QString &name);
+
+private:
+    QLabel *m_deviceValue = nullptr;
+    QString m_deviceId;
+};
+
 class TodoPage : public QWidget
 {
     Q_OBJECT
@@ -161,6 +180,10 @@ public:
     // 退出前冲刷：把 debounce（250ms）中的标题/备注编辑立即落库。
     // 单实例让位 / 正常退出都必须在调 qApp->quit() 之前调用，否则会吃掉用户最后一次输入。
     void flushPendingEdits();
+
+    // 详细信息里的「来源设备」要把 device_id 解析成设备名，需要走 /devices；
+    // 本地数据源不注入（此时详情只显示原始 id）。
+    void setApiClient(ApiClient *api) { m_api = api; }
 
     // 排序谓词（列表视图与平铺看板共用，保证两种视图同序）
     static bool taskLessThan(const TodoTask &a, const TodoTask &b, SortMode mode);
@@ -220,6 +243,7 @@ private:
     void onBoardTaskMenu(qint64 id, const QPoint &globalPos);
     void onBoardListMenu(qint64 listId, const QPoint &globalPos);
     void onTaskRowMenu(qint64 id, const QPoint &globalPos);   // 列表行 ⋯ 菜单（与看板共用）
+    void showTaskDetails(qint64 id);   // 详细信息对话框（元信息 + 来源设备解析）
     // 多选辅助
     void setMultiSelect(bool on);
     QList<qint64> selectedTaskIds() const;
@@ -234,6 +258,7 @@ private:
     TodoNavItem *makeNavItem(const QString &name);
 
     TodoSource *m_source;
+    ApiClient *m_api = nullptr;   // 仅用于详细信息里的设备名解析（可为空）
     QList<TodoList> m_lists;
     QList<TodoTask> m_tasks;
     QHash<qint64, QString> m_listColors;

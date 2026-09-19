@@ -1134,63 +1134,65 @@ void InboxPage::onNewNote()
     QStringList existing;
     for (const DetailedTag &t : m_tags)
         existing << t.name;
-    m_newNoteDialog = new NoteEditorDialog(QString(), existing, QStringLiteral("新建笔记"), this);
+
+    // 无父窗口 + 非模态：一旦以主窗口为父并模态，主窗口隐藏时会被对话框一起带到前台，
+    // 且写完之前点不到主界面。热键快速记录要的是一个能独立存在的窗。
+    auto *dlg = new NoteEditorDialog(QString(), existing, QStringLiteral("新建笔记"), nullptr);
+    m_newNoteDialog = dlg;
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dlg, &QObject::destroyed, this, [this] { m_newNoteDialog.clear(); });
 
     // 把对话框定位到鼠标所在的屏幕
     const QPoint cursorPos = QCursor::pos();
     if (QScreen *screen = QGuiApplication::screenAt(cursorPos)) {
         const QRect avail = screen->availableGeometry();
-        const QSize dlgSize = m_newNoteDialog->size();
+        const QSize dlgSize = dlg->size();
         const int x = avail.x() + (avail.width() - dlgSize.width()) / 2;
         const int y = avail.y() + (avail.height() - dlgSize.height()) / 2;
-        m_newNoteDialog->move(x, y);
+        dlg->move(x, y);
     }
 
-    // 全局热键触发时主窗口多半隐藏/失焦，Windows 前台锁会把 exec() 弹出的模态框
-    // 压到当前前台窗口后面且不给键盘焦点（表现为 Alt+N 要按两次才出来）。先 show，
-    // 借热键属于用户输入的窗口期 SetForegroundWindow 抢前台，再进模态事件循环。
-    m_newNoteDialog->show();
-    raiseWindowToFront(m_newNoteDialog);
+    // 全局热键触发时主窗口多半隐藏/失焦，Windows 前台锁会把新窗口压到当前前台窗口
+    // 后面且不给键盘焦点（表现为 Alt+N 要按两次才出来）。热键属于用户输入，此时
+    // SetForegroundWindow 不被阻止，所以先 show 再抢前台。
+    dlg->show();
+    raiseWindowToFront(dlg);
 
     // 对话框销毁前记下所在屏：发送结果气泡要弹回同一块屏
-    QScreen *dlgScreen = m_newNoteDialog->screen();
-    if (m_newNoteDialog->exec() != QDialog::Accepted) {
-        m_newNoteDialog->deleteLater();
-        m_newNoteDialog.clear();
-        return;
-    }
-    const QString text = m_newNoteDialog->text();
-    m_newNoteDialog->deleteLater();
-    m_newNoteDialog.clear();
-    if (text.isEmpty())
-        return;
-    const QStringList tags = extractTags(text);
+    QScreen *dlgScreen = dlg->screen();
 
-    if (isOffline()) {
-        // 服务端不可用：直接写入本地，标记待同步
-        createLocal(text, tags);
-        showToast(QStringLiteral("✓ 已保存 · 待同步"), dlgScreen);
-        return;
-    }
-    QNetworkReply *r = m_api->createNote(text, tags);
-    connect(r, &QNetworkReply::finished, this, [this, r, text, tags, dlgScreen] {
-        QJsonDocument doc;
-        QString err;
-        if (!ApiClient::parseReply(r, &doc, &err)) {
-            // 请求失败（服务端可能刚挂）：落本地并切离线
-            m_online = false;
-            startReconnect();
+    connect(dlg, &QDialog::accepted, this, [this, dlg, dlgScreen] {
+        const QString text = dlg->text();
+        if (text.isEmpty())
+            return;
+        const QStringList tags = extractTags(text);
+
+        if (isOffline()) {
+            // 服务端不可用：直接写入本地，标记待同步
             createLocal(text, tags);
             showToast(QStringLiteral("✓ 已保存 · 待同步"), dlgScreen);
             return;
         }
-        m_store.applyServerNotes({Note::fromJson(doc.object())});
-        m_store.save();
-        showToast(QStringLiteral("✓ 已发送"), dlgScreen);
-        // 新建完成：刷新后定位并高亮新笔记（Android refreshAndScrollToNote 语义；
-        // 若新笔记不属于当前筛选/搜索，refreshAll 重载后不在列表里则静默跳过）
-        m_pendingJumpId = Note::fromJson(doc.object()).id;
-        refreshAll();
+        QNetworkReply *r = m_api->createNote(text, tags);
+        connect(r, &QNetworkReply::finished, this, [this, r, text, tags, dlgScreen] {
+            QJsonDocument doc;
+            QString err;
+            if (!ApiClient::parseReply(r, &doc, &err)) {
+                // 请求失败（服务端可能刚挂）：落本地并切离线
+                m_online = false;
+                startReconnect();
+                createLocal(text, tags);
+                showToast(QStringLiteral("✓ 已保存 · 待同步"), dlgScreen);
+                return;
+            }
+            m_store.applyServerNotes({Note::fromJson(doc.object())});
+            m_store.save();
+            showToast(QStringLiteral("✓ 已发送"), dlgScreen);
+            // 新建完成：刷新后定位并高亮新笔记（Android refreshAndScrollToNote 语义；
+            // 若新笔记不属于当前筛选/搜索，refreshAll 重载后不在列表里则静默跳过）
+            m_pendingJumpId = Note::fromJson(doc.object()).id;
+            refreshAll();
+        });
     });
 }
 
