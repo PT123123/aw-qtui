@@ -37,6 +37,8 @@ Thumbs.db
 .zcode/
 # Trae 分享包临时目录（非项目源码）
 .trae-html-share-packages/
+# Trae 设计校验产物（内容含本机绝对路径，不入库）
+todo-redesign.design/validation-report.json
 # Python 字节码缓存
 __pycache__/
 *.pyc

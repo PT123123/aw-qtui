@@ -9,6 +9,7 @@ Changes:
 import sys
 from pathlib import Path
 
+# 仓库根目录下的 vendor/aw-inbox（相对本脚本推导，避免硬编码本机绝对路径）
 ROOT = Path(__file__).resolve().parents[1] / "vendor" / "aw-inbox"
 DB_RS = ROOT / "src" / "db.rs"
 LIB_RS = ROOT / "src" / "lib.rs"
