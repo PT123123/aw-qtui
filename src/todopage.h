@@ -20,7 +20,9 @@ class QComboBox;
 class QContextMenuEvent;
 class QDateEdit;
 class QGraphicsDropShadowEffect;
+class QHBoxLayout;
 class QLabel;
+class QLayout;
 class QLineEdit;
 class QListWidget;
 class QMenu;
@@ -130,12 +132,23 @@ private:
     // 点「完成」时先播划线动画，动画跑完再把完成状态写回数据层
     void playCompleteAnimation();
     void paintStrike(QPainter &p);
+    // 池复用时按指针重建「标签胶囊行」/「右侧信息簇」。
+    // ⚠ 不能用 parentWidget()->layout()->itemAt(n) 按下标取容器：行外层布局的顺序是
+    //   [m_selChk, m_chk, mid, right, m_more]，而下标写法假设 mid 在 1、right 在 2，
+    //   一错就把 mid（装着 m_title 的 QVBoxLayout）当成右侧簇清空 → delete 掉 m_title，
+    //   行还活着、m_title 已悬空 → 下次 heightForWidth/绘制取字体即崩（启动建列表必现）。
+    void rebuildPills(const TodoTask &task, const QString &dotColor, const QString &listName);
+    void rebuildRightCluster(const TodoTask &task, const QString &dotColor);
 
     qint64 m_taskId;
     QCheckBox *m_chk = nullptr;      // 完成勾选框（非多选模式下可见）
     QCheckBox *m_selChk = nullptr;   // 多选选择框（多选模式下可见）
     QLabel *m_title = nullptr;       // 标题（可换行，heightForWidth 需要）
     TodoFadeButton *m_more = nullptr; // 悬停浮现的 ⋯（几何常驻，避免标题宽度跳动）
+    QHBoxLayout *m_lay = nullptr;     // 行外层横向布局（插回右侧簇时用 m_more 定位）
+    QVBoxLayout *m_midLay = nullptr;  // 中间列：标题 + 胶囊行（m_title 恒为第 0 项）
+    QHBoxLayout *m_pillLay = nullptr; // 胶囊行（无标签时整个摘掉，不留空布局占 spacing）
+    QHBoxLayout *m_rightLay = nullptr; // 右侧信息簇（无内容时整个摘掉）
     int m_rightW = 0;                // 右侧信息簇宽度（标题可用宽度 = 行宽 - 固定占位）
     bool m_hasMeta = false;          // 标题下方是否有标签/清单胶囊行
     bool m_highlighted = false;

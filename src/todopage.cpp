@@ -354,6 +354,29 @@ void TodoNavItem::mousePressEvent(QMouseEvent *event)
     QWidget::mousePressEvent(event);
 }
 
+// 清空一个「平铺控件」布局：只删它直接持有的控件，不碰嵌套布局
+// （胶囊行 / 右侧信息簇都是这种浅布局，用它就够）。
+static void clearLayoutWidgets(QLayout *l)
+{
+    if (!l)
+        return;
+    while (QLayoutItem *it = l->takeAt(0)) {
+        delete it->widget();
+        delete it;
+    }
+}
+
+// 把子布局从父布局里摘掉（摘完它的控件已清空，不再参与布局）。
+// 用于「本行没有标签 / 右侧没有内容」时不留空布局 —— 空布局虽然尺寸是 0，
+// 但仍会被父 QBoxLayout 算一份 spacing，白顶高行高 / 把 ⋯ 按钮往左挤。
+static void dropSubLayout(QLayout *parent, QLayout *child)
+{
+    if (!parent || !child)
+        return;
+    if (QLayoutItem *it = parent->takeAt(parent->indexOf(child)))
+        delete it;
+}
+
 // ══════════════════════════════════════════════════════════
 // TodoTaskRow —— 单行任务（仿 TickTick：圆形勾选框 + 可换行标题 + 标签胶囊 + 右侧信息簇）
 // ══════════════════════════════════════════════════════════
@@ -369,6 +392,7 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
     setAttribute(Qt::WA_StyledBackground, true);
 
     auto *lay = new QHBoxLayout(this);
+    m_lay = lay;
     lay->setContentsMargins(si(12), si(8), si(12), si(8));
     lay->setSpacing(si(10));
 
@@ -419,6 +443,7 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
 
     // 中间列：可换行标题 + 标题下标签胶囊行
     auto *mid = new QVBoxLayout;
+    m_midLay = mid;
     mid->setSpacing(si(3));
 
     m_title = new QLabel(task.title);
@@ -433,23 +458,8 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
                                 : QStringLiteral("color:%1;").arg(kColorFg)));
     mid->addWidget(m_title);
 
-    QStringList metaPills;
-    if (!listName.isEmpty())
-        metaPills << listName;
-    for (const auto &tag : task.tags)
-        metaPills << tag;
-    if (!metaPills.isEmpty()) {
-        auto *pillRow = new QHBoxLayout;
-        pillRow->setSpacing(si(4));
-        for (const QString &text : metaPills) {
-            const QColor c = (text == listName && !dotColor.isEmpty())
-                                 ? QColor(dotColor) : QColor(kColorAccent);
-            pillRow->addWidget(makePill(text, c));
-        }
-        pillRow->addStretch(1);
-        mid->addLayout(pillRow);
-        m_hasMeta = true;
-    }
+    // 胶囊行：只在有标签/清单名时才建（无则整个摘掉，不留空布局白顶行高）
+    rebuildPills(task, dotColor, listName);
     lay->addLayout(mid, 1);
 
     // 右侧信息簇：优先级字形 + 截止徽章 + 清单圆点（宽度 m_rightW 供 heightForWidth 折算标题空间）
@@ -507,7 +517,10 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
     }
     if (rw > 0) {
         lay->addLayout(right);
+        m_rightLay = right;      // 池复用（setTask）直接操作这个指针，不再按布局下标找
         m_rightW = rw - si(6);   // 末尾多余的一层间隔不计入簇宽
+    } else {
+        delete right;            // 没有内容就不入布局（空布局仍会白占一份 spacing）
     }
 
     // 悬停浮现的「⋯」任务菜单：常驻占位、只切透明度。
@@ -549,90 +562,129 @@ void TodoTaskRow::setTask(const TodoTask &task, const QString &dotColor, const Q
                                 : QStringLiteral("color:%1;").arg(kColorFg)));
     m_chk->setChecked(task.completed);
     m_chk->setToolTip(task.completed ? QStringLiteral("标记为未完成") : QStringLiteral("标记为已完成"));
-    // 重绑标签/清单胶囊行
-    QLayoutItem *child = m_title->parentWidget()->layout()->itemAt(1);
-    if (child && child->layout()) {
-        QLayout *l = child->layout();
-        while (l->count() > 0) {
-            QLayoutItem *ci = l->takeAt(0);
-            delete ci->widget();
-            delete ci;
+    // 重绑标签/清单胶囊行与右侧信息簇（按成员指针重建，不按布局下标取容器）
+    rebuildPills(task, dotColor, listName);
+    rebuildRightCluster(task, dotColor);
+}
+
+// ── 胶囊行 / 右侧信息簇：构造函数与池复用共用同一份实现，避免两处逻辑漂移 ──
+void TodoTaskRow::rebuildPills(const TodoTask &task, const QString &dotColor, const QString &listName)
+{
+    QStringList metaPills;
+    if (!listName.isEmpty())
+        metaPills << listName;
+    for (const auto &tag : task.tags)
+        metaPills << tag;
+
+    if (metaPills.isEmpty()) {
+        if (m_pillLay) {
+            clearLayoutWidgets(m_pillLay);
+            dropSubLayout(m_midLay, m_pillLay);
+            m_pillLay = nullptr;
         }
-        QStringList metaPills;
-        if (!listName.isEmpty())
-            metaPills << listName;
-        for (const QString &tag : task.tags)
-            metaPills << tag;
-        if (!metaPills.isEmpty()) {
-            for (const QString &text : metaPills) {
-                const QColor c = (text == listName && !dotColor.isEmpty())
-                                     ? QColor(dotColor) : QColor(kColorAccent);
-                l->addWidget(makePill(text, c));
-            }
-        }
-        m_hasMeta = !metaPills.isEmpty();
+        m_hasMeta = false;
+        return;
     }
-    // 重绑右侧信息簇（优先级/截止/清单圆点），通过重新计算 m_rightW
-    QLayoutItem *rightItem = m_title->parentWidget()->layout()->itemAt(2);
-    if (rightItem && rightItem->layout()) {
-        QLayout *rl = rightItem->layout();
-        while (rl->count() > 0) {
-            QLayoutItem *ci = rl->takeAt(0);
-            delete ci->widget();
-            delete ci;
+
+    if (!m_pillLay) {
+        m_pillLay = new QHBoxLayout;
+        m_pillLay->setSpacing(si(4));
+        // 追加在标题之后：m_title 永远是 mid 的第 0 项，这里只动胶囊行自己
+        m_midLay->addLayout(m_pillLay);
+    } else {
+        clearLayoutWidgets(m_pillLay);
+    }
+    for (const QString &text : metaPills) {
+        const QColor c = (text == listName && !dotColor.isEmpty())
+                             ? QColor(dotColor) : QColor(kColorAccent);
+        m_pillLay->addWidget(makePill(text, c));
+    }
+    m_pillLay->addStretch(1);
+    m_hasMeta = true;
+}
+
+void TodoTaskRow::rebuildRightCluster(const TodoTask &task, const QString &dotColor)
+{
+    if (!m_lay)
+        return;
+    if (m_rightLay)
+        clearLayoutWidgets(m_rightLay);
+
+    // 只有确实有内容时才把簇插回布局，位置取 ⋯ 按钮之前（与构造函数里的顺序一致）
+    const auto cluster = [this]() -> QHBoxLayout * {
+        if (!m_rightLay) {
+            m_rightLay = new QHBoxLayout;
+            m_rightLay->setSpacing(si(6));
+            const int at = m_more ? m_lay->indexOf(m_more) : -1;
+            if (at >= 0)
+                m_lay->insertLayout(at, m_rightLay);
+            else
+                m_lay->addLayout(m_rightLay);
         }
-        int rw = 0;
-        if (task.priority > TodoPriorityNone) {
-            auto *p = new QLabel(priorityGlyph(task.priority));
-            p->setToolTip(task.priority == TodoPriorityHigh ? QStringLiteral("高优先级")
-                                   : task.priority == TodoPriorityMedium ? QStringLiteral("中优先级")
-                                                                         : QStringLiteral("低优先级"));
-            p->setStyleSheet(QStringLiteral("color:%1;font-size:%2;font-weight:700;background:transparent;")
-                                 .arg(priorityColor(task.priority).name(), sp(12)));
-            p->setFixedWidth(si(16));
-            rl->addWidget(p);
-            rw += si(16) + si(6);
+        return m_rightLay;
+    };
+
+    int rw = 0;
+    if (task.priority > TodoPriorityNone) {
+        auto *p = new QLabel(priorityGlyph(task.priority));
+        p->setToolTip(task.priority == TodoPriorityHigh ? QStringLiteral("高优先级")
+                               : task.priority == TodoPriorityMedium ? QStringLiteral("中优先级")
+                                                                     : QStringLiteral("低优先级"));
+        p->setStyleSheet(QStringLiteral("color:%1;font-size:%2;font-weight:700;background:transparent;")
+                             .arg(priorityColor(task.priority).name(), sp(12)));
+        p->setFixedWidth(si(16));
+        cluster()->addWidget(p);
+        rw += si(16) + si(6);
+    }
+    if (task.hasDue()) {
+        const QDate d = QDate::fromString(task.dueDate, Qt::ISODate);
+        const bool overdue = d.isValid() && !task.completed && d < QDate::currentDate();
+        const bool isToday = d.isValid() && !task.completed && d == QDate::currentDate();
+        QString col, bg, border;
+        if (overdue) {
+            col = QString::fromLatin1(kColorDanger);
+            bg = withAlpha(kColorDanger, 0.10);
+            border = withAlpha(kColorDanger, 0.40);
+        } else if (isToday) {
+            col = QString::fromLatin1(kColorAccent);
+            bg = withAlpha(kColorAccent, 0.10);
+            border = withAlpha(kColorAccent, 0.40);
+        } else {
+            col = QString::fromLatin1(kColorFgMuted);
+            bg = QStringLiteral("transparent");
+            border = QString::fromLatin1(kColorBorder);
         }
-        if (task.hasDue()) {
-            const QDate d = QDate::fromString(task.dueDate, Qt::ISODate);
-            const bool overdue = d.isValid() && !task.completed && d < QDate::currentDate();
-            const bool isToday = d.isValid() && !task.completed && d == QDate::currentDate();
-            QString col, bg, border;
-            if (overdue) {
-                col = QString::fromLatin1(kColorDanger);
-                bg = withAlpha(kColorDanger, 0.10);
-                border = withAlpha(kColorDanger, 0.40);
-            } else if (isToday) {
-                col = QString::fromLatin1(kColorAccent);
-                bg = withAlpha(kColorAccent, 0.10);
-                border = withAlpha(kColorAccent, 0.40);
-            } else {
-                col = QString::fromLatin1(kColorFgMuted);
-                bg = QStringLiteral("transparent");
-                border = QString::fromLatin1(kColorBorder);
-            }
-            auto *due = new QLabel(dueLabel(task));
-            due->setStyleSheet(
-                QStringLiteral("color:%1;font-size:%2;padding:1px %3;background:%4;"
-                               "border:1px solid %5;border-radius:%6;font-weight:500;")
-                    .arg(col, sp(11), sp(6), bg, border, sp(6)));
-            rl->addWidget(due);
-            QFont f = font();
-            f.setPixelSize(si(11));
-            rw += QFontMetrics(f).horizontalAdvance(dueLabel(task)) + si(12) + si(2) + si(6);
+        auto *due = new QLabel(dueLabel(task));
+        due->setStyleSheet(
+            QStringLiteral("color:%1;font-size:%2;padding:1px %3;background:%4;"
+                           "border:1px solid %5;border-radius:%6;font-weight:500;")
+                .arg(col, sp(11), sp(6), bg, border, sp(6)));
+        cluster()->addWidget(due);
+        QFont f = font();
+        f.setPixelSize(si(11));
+        rw += QFontMetrics(f).horizontalAdvance(dueLabel(task)) + si(12) + si(2) + si(6);
+    }
+    if (!dotColor.isEmpty()) {
+        QPixmap pm(si(10), si(10));
+        pm.fill(QColor(dotColor));
+        auto *dot = new QLabel;
+        dot->setPixmap(pm);
+        dot->setFixedSize(si(10), si(10));
+        cluster()->addWidget(dot);
+        rw += si(10) + si(6);
+    }
+
+    // m_rightW 与构造函数同口径：扣掉末尾多计的一层 spacing，再加上
+    // 「行内间距 + ⋯ 按钮宽度」（⋯ 常驻，始终占掉标题可用宽度）。
+    // 旧实现只在 rw > 0 时赋值：池复用到「无右侧内容」的任务时会留着上一轮的大值，标题被过度压缩。
+    if (rw > 0) {
+        m_rightW = (rw - si(6)) + si(10) + si(22);
+    } else {
+        if (m_rightLay) {
+            dropSubLayout(m_lay, m_rightLay);
+            m_rightLay = nullptr;
         }
-        if (!dotColor.isEmpty()) {
-            QPixmap pm(si(10), si(10));
-            pm.fill(QColor(dotColor));
-            auto *dot = new QLabel;
-            dot->setPixmap(pm);
-            dot->setFixedSize(si(10), si(10));
-            rl->addWidget(dot);
-            rw += si(10) + si(6);
-        }
-        if (rw > 0) {
-            m_rightW = rw - si(6);
-        }
+        m_rightW = si(10) + si(22);
     }
 }
 
@@ -2169,9 +2221,13 @@ TodoTaskRow *TodoPage::TodoPool::acquire(const TodoTask &task, const QString &do
                                          const QString &listName, bool multi, bool selected)
 {
     TodoTaskRow *row;
+    bool reused = true;
     if (!m_pool.isEmpty()) {
         row = m_pool.takeLast();
     } else {
+        // 新建的行：构造函数已按 task/dotColor/listName 填好内容（与 setTask 共用
+        // rebuildPills / rebuildRightCluster），不必再 setTask 一遍。
+        reused = false;
         row = new TodoTaskRow(task, dotColor, listName);
         // 信号连接只在新创建时挂载；池化回收时连接已存在，直接复用
         // 注意：lambda 捕获列表里不能直接写成员 m_page（必须是被捕获函数作用域内的变量），
@@ -2185,7 +2241,8 @@ TodoTaskRow *TodoPage::TodoPool::acquire(const TodoTask &task, const QString &do
         QObject::connect(row, &TodoTaskRow::selectionToggled, m_page, &TodoPage::onSelectionToggled);
         QObject::connect(row, &TodoTaskRow::menuRequested, m_page, &TodoPage::onTaskRowMenu);
     }
-    row->setTask(task, dotColor, listName);
+    if (reused)
+        row->setTask(task, dotColor, listName);   // 池里的行还带着上一任任务的内容
     row->setMultiSelectMode(multi);
     row->setSelected(selected);
     return row;
