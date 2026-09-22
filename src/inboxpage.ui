@@ -92,7 +92,7 @@
       </property>
       <item>
        <widget class="QWidget" name="main" native="true">
-        <layout class="QVBoxLayout" name="mainLay" stretch="0,0,1">
+        <layout class="QVBoxLayout" name="mainLay" stretch="0,0,0,1">
          <property name="leftMargin">
           <number>0</number>
          </property>
@@ -185,6 +185,22 @@
             </widget>
            </item>
            <item>
+            <widget class="QPushButton" name="btnSelect">
+             <property name="text">
+              <string>选择</string>
+             </property>
+             <property name="toolTip">
+              <string>多选笔记：进入后逐条勾选，或 Shift 范围选 / Ctrl 加选，Esc 退出</string>
+             </property>
+             <property name="checkable">
+              <bool>true</bool>
+             </property>
+             <property name="cursor">
+              <cursorShape>PointingHandCursor</cursorShape>
+             </property>
+            </widget>
+           </item>
+           <item>
             <widget class="QPushButton" name="btnCopy">
              <property name="text">
               <string>复制全部</string>
@@ -251,6 +267,119 @@
              <widget class="QPushButton" name="btnFilterClear">
               <property name="text">
                <string>✕ 清除</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="NotesBulkBar" native="true">
+           <layout class="QHBoxLayout" name="notesBulkLay">
+            <property name="leftMargin">
+             <number>20</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>16</number>
+            </property>
+            <property name="bottomMargin">
+             <number>6</number>
+            </property>
+            <property name="spacing">
+             <number>6</number>
+            </property>
+            <item>
+             <widget class="QLabel" name="bulkCount">
+              <property name="text">
+               <string>已选 0 项</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QToolButton" name="bulkSelectAll">
+              <property name="text">
+               <string>全选</string>
+              </property>
+              <property name="cursor">
+               <cursorShape>PointingHandCursor</cursorShape>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="notesBulkStretch">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>16</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QToolButton" name="bulkPin">
+              <property name="text">
+               <string>置顶</string>
+              </property>
+              <property name="toolTip">
+               <string>把选中的笔记置顶</string>
+              </property>
+              <property name="cursor">
+               <cursorShape>PointingHandCursor</cursorShape>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QToolButton" name="bulkUnpin">
+              <property name="text">
+               <string>取消置顶</string>
+              </property>
+              <property name="toolTip">
+               <string>取消选中笔记的置顶</string>
+              </property>
+              <property name="cursor">
+               <cursorShape>PointingHandCursor</cursorShape>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QToolButton" name="bulkTag">
+              <property name="text">
+               <string>标签…</string>
+              </property>
+              <property name="toolTip">
+               <string>给选中笔记批量添加 / 移除标签</string>
+              </property>
+              <property name="cursor">
+               <cursorShape>PointingHandCursor</cursorShape>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QToolButton" name="bulkDelete">
+              <property name="text">
+               <string>删除</string>
+              </property>
+              <property name="toolTip">
+               <string>删除选中的笔记（可直接撤销）</string>
+              </property>
+              <property name="cursor">
+               <cursorShape>PointingHandCursor</cursorShape>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QToolButton" name="bulkCancel">
+              <property name="text">
+               <string>退出多选</string>
+              </property>
+              <property name="cursor">
+               <cursorShape>PointingHandCursor</cursorShape>
               </property>
              </widget>
             </item>

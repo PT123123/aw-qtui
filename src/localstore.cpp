@@ -302,6 +302,16 @@ void LocalStore::updateLocal(qint64 id, const QString &content, const QStringLis
     // create 未推送时保持 create，推送时自然带上最新内容
 }
 
+void LocalStore::setTagsLocal(qint64 id, const QStringList &tags)
+{
+    Note *n = mutableFind(id);
+    if (!n)
+        return;
+    n->tags = tags;
+    n->updatedAt = nowIso();
+    // 刻意不动 pendingOp：调用方已在线提交成功，本地镜像跟随服务端即可
+}
+
 void LocalStore::markDeleted(qint64 id)
 {
     for (int i = 0; i < m_notes.size(); ++i) {

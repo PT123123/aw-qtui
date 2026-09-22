@@ -13,6 +13,7 @@
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QLineEdit>
 #include <QListWidgetItem>
 #include <QMenu>
 #include <QMouseEvent>
@@ -123,7 +124,8 @@ void showToast(const QString &text, QScreen *anchorScreen)
 static QPointer<QWidget> g_actionToast;
 
 void showActionToast(const QString &text, const QString &actionText,
-                     std::function<void()> onAction, int ms, QScreen *anchorScreen)
+                     std::function<void()> onAction, int ms, QScreen *anchorScreen,
+                     std::function<void()> onExpire)
 {
     // 新气泡顶掉旧的：撤销是针对「刚才那一下」的，堆一屏气泡既乱又没必要
     if (g_actionToast)
@@ -182,10 +184,13 @@ void showActionToast(const QString &text, const QString &actionText,
     toast->show();
     toast->raise();
 
-    auto fadeOut = [toast] {
+    auto fadeOut = [toast, onExpire] {
         if (toast->property("fading").toBool())
             return;
         toast->setProperty("fading", true);
+        // 倒计时真正走完：交给调用方「到期提交」（悬停冻结期间不会走到这里）
+        if (onExpire)
+            onExpire();
         auto *anim = new QVariantAnimation(toast);
         anim->setDuration(200);
         anim->setStartValue(1.0);
@@ -286,6 +291,102 @@ void StatusBadge::setState(State s, const QString &text)
 }
 
 // ------------------------------------------------------------------ //
+// 虚拟化池实现
+CardPool::~CardPool()
+{
+    // 池内卡片的 parent 已被置空（刻意脱离 wrap 管辖，才能跨 clear() 复用），
+    // 它们不在任何 QObject 父子链上，不会自动回收 —— 必须在这里显式销毁。
+    for (NoteCard *card : m_pool)
+        delete card;
+    m_pool.clear();
+}
+
+NoteCard *CardPool::acquire(const Note &note, bool pinned)
+{
+    NoteCard *card;
+    if (!m_pool.isEmpty()) {
+        card = m_pool.takeLast(); // 弹出最近入池的
+    } else {
+        // 池空时创建新卡（parent=null 表示由外部负责生命周期）
+        card = new NoteCard(note, pinned, nullptr);
+    }
+    card->setNote(note, pinned); // 重绑定内容
+    return card;
+}
+
+void CardPool::release(NoteCard *card)
+{
+    if (!card)
+        return;
+    // 重置 parent 以便外部 deleteLater 或重新设置 parent
+    card->setParent(nullptr);
+    if (m_pool.size() >= m_maxSize) {
+        // 池满：销毁最老的
+        NoteCard *oldest = m_pool.takeFirst();
+        oldest->deleteLater();
+    }
+    m_pool.append(card);
+}
+
+void CardPool::releaseAll(const QMap<int, NoteCard *> &active)
+{
+    for (NoteCard *card : active) {
+        if (!card)
+            continue;
+        card->setParent(nullptr);
+        if (m_pool.size() >= m_maxSize) {
+            NoteCard *oldest = m_pool.takeFirst();
+            oldest->deleteLater();
+        }
+        m_pool.append(card);
+    }
+}
+
+void CardPool::discardAll()
+{
+    m_pool.clear();
+}
+
+void CardPool::clear()
+{
+    for (NoteCard *card : m_pool)
+        card->deleteLater();
+    m_pool.clear();
+}
+
+// ------------------------------------------------------------------ //
+// CardDelegate：虚拟化列表代理，把模型数据映射为池化的 NoteCard
+CardDelegate::CardDelegate(CardPool *pool, QObject *parent)
+    : QAbstractItemDelegate(parent), m_pool(pool)
+{}
+
+void CardDelegate::setBufferSize(int rows)
+{
+    m_bufferRows = rows;
+}
+
+void CardDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
+                         const QModelIndex &index) const
+{
+    // 绘制完全由 setNote() 绑定的 NoteCard widget 自己负责（WA_PaintOnScreen 背景透明）
+    // QAbstractItemDelegate::paint 是空操作，所有内容都通过 updateEditorData -> 卡片自己重绘
+    // 注意：本 paint() 实现为占位符，真实卡片绘制由 NoteCard 构造函数/makeCard 生成，
+    //       代理主要负责 sizeHint 布局计算。True virtualization 通过 widget 池 + setItemWidget 实现。
+    Q_UNUSED(painter);
+    Q_UNUSED(option);
+    Q_UNUSED(index);
+}
+
+QSize CardDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const
+{
+    // 卡片高度由 wrap 布局决定，宽度跟列表一致
+    // 这里返回一个估计值；实际高度由 updateEditorGeometry 校准
+    Q_UNUSED(option);
+    Q_UNUSED(index);
+    return QSize(option.rect.width(), si(90));
+}
+
+// ------------------------------------------------------------------ //
 // NoteCard —— MoeMemos 风格卡片：头部（相对时间 + 置顶/状态图标 + ⋯ 菜单）+ Markdown 内容
 NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
     : QFrame(parent), m_note(note), m_pinned(pinned)
@@ -302,51 +403,65 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
         "QFrame#NoteCard:hover { background: %3; border-color: %4; }")
         .arg(cardBg, cardBorder, cardHover, kColorAccent));
     setStyleSheet(m_baseStyle);
-    // 卡片投影（受全局阴影强度控制）
-    makeDropShadow(this);
+    // 阴影改为 hover-only（event() 中按需创建/销毁），节省 GPU 资源
 
-    auto *lay = new QVBoxLayout(this);
+    // 根布局：勾选框列（仅多选模式显示）| 内容列。勾选框设了 WA_TransparentForMouseEvents，
+    // 点它和点卡片空白处走同一条 mousePressEvent，判定逻辑只有一处。
+    auto *lay = new QHBoxLayout(this);
     lay->setContentsMargins(si(14), si(10), si(10), si(12));
-    lay->setSpacing(si(6));
+    lay->setSpacing(si(10));
+
+    m_check = new QLabel(this);
+    m_check->setObjectName(QStringLiteral("NoteCheck"));
+    m_check->setFixedSize(si(18), si(18));
+    m_check->setAlignment(Qt::AlignCenter);
+    m_check->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_check->hide();
+    lay->addWidget(m_check, 0, Qt::AlignTop);
+
+    m_col = new QVBoxLayout;
+    m_col->setContentsMargins(0, 0, 0, 0);
+    m_col->setSpacing(si(6));
+    lay->addLayout(m_col, 1);
 
     // ---- 头部行：时间（左）+ 状态图标 + ⋯ 菜单（右） ----
     auto *header = new QHBoxLayout;
     header->setSpacing(si(6));
 
-    auto *time = new QLabel(formatRelative(note.updatedAt.isEmpty() ? note.createdAt : note.updatedAt));
-    time->setToolTip(QStringLiteral("创建 %1\n更新 %2")
-                         .arg(formatLocal(note.createdAt), formatLocal(note.updatedAt)));
-    time->setStyleSheet(scaleQss(QStringLiteral(
+    m_timeLabel = new QLabel(formatRelative(note.updatedAt.isEmpty() ? note.createdAt : note.updatedAt));
+    m_timeLabel->setToolTip(QStringLiteral("创建 %1\n更新 %2")
+                                .arg(formatLocal(note.createdAt), formatLocal(note.updatedAt)));
+    m_timeLabel->setStyleSheet(scaleQss(QStringLiteral(
         "color: %1; font-size: 11px; background: transparent; border: none;")
         .arg(kColorFgMuted)));
     // 窄卡（主导航展开等）时允许时间标签被压缩，避免把右上角 ⋯ 按钮挤出可视范围
-    time->setMinimumWidth(0);
-    header->addWidget(time);
+    m_timeLabel->setMinimumWidth(0);
+    header->addWidget(m_timeLabel);
 
     if (m_pinned) {
-        auto *pin = new QLabel(QStringLiteral("⚑"));
-        pin->setToolTip(QStringLiteral("已置顶"));
-        pin->setStyleSheet(scaleQss(QStringLiteral(
+        m_pinLabel = new QLabel(QStringLiteral("⚑"));
+        m_pinLabel->setToolTip(QStringLiteral("已置顶"));
+        m_pinLabel->setStyleSheet(scaleQss(QStringLiteral(
             "color: %1; font-size: 13px; background: transparent; border: none;")
             .arg(kColorWarn)));
-        header->addWidget(pin);
+        header->addWidget(m_pinLabel);
     }
     if (note.conflict) {
-        auto *warn = new QLabel(QStringLiteral("⚠"));
-        warn->setToolTip(QStringLiteral("存在同步冲突"));
-        warn->setStyleSheet(scaleQss(QStringLiteral(
+        m_conflictLabel = new QLabel(QStringLiteral("⚠"));
+        m_conflictLabel->setToolTip(QStringLiteral("存在同步冲突"));
+        m_conflictLabel->setStyleSheet(scaleQss(QStringLiteral(
             "color: %1; font-size: 12px; background: transparent; border: none;")
             .arg(kColorWarn)));
-        header->addWidget(warn);
+        header->addWidget(m_conflictLabel);
     }
     if (!note.pendingOp.isEmpty()) {
         const bool del = note.pendingOp == QLatin1String("delete");
-        auto *pend = new QLabel(del ? QStringLiteral("🗑") : QStringLiteral("⏳"));
-        pend->setToolTip(del ? QStringLiteral("待同步删除") : QStringLiteral("待同步"));
-        pend->setStyleSheet(scaleQss(QStringLiteral(
+        m_pendingLabel = new QLabel(del ? QStringLiteral("🗑") : QStringLiteral("⏳"));
+        m_pendingLabel->setToolTip(del ? QStringLiteral("待同步删除") : QStringLiteral("待同步"));
+        m_pendingLabel->setStyleSheet(scaleQss(QStringLiteral(
             "color: %1; font-size: 12px; background: transparent; border: none;")
             .arg(kColorWarn)));
-        header->addWidget(pend);
+        header->addWidget(m_pendingLabel);
     }
 
     header->addStretch(1);
@@ -389,8 +504,9 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
             emit deleteRequested(m_note.id);
     });
     header->addWidget(menuBtn);
+    m_menuBtn = menuBtn;
 
-    lay->addLayout(header);
+    m_col->addLayout(header);
 
     // ---- 内容：完整 Markdown + #标签 高亮 + 可点击任务清单 ----
     const MarkdownRenderResult md = renderMarkdown(note.content);
@@ -403,7 +519,132 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
         "color: %1; background: transparent; border: none; font-size: 14px;")
         .arg(kColorFg)));
     connect(content, &QLabel::linkActivated, this, &NoteCard::onLinkActivated);
-    lay->addWidget(content);
+    m_col->addWidget(content);
+    m_content = content;
+}
+
+// 虚拟化池回收时重新绑定：保留完整 widget tree，只替换内容字段
+void NoteCard::setNote(const Note &note, bool pinned)
+{
+    m_note = note;
+    m_pinned = pinned;
+
+    // 更新时间标签
+    if (m_timeLabel) {
+        m_timeLabel->setText(formatRelative(note.updatedAt.isEmpty() ? note.createdAt : note.updatedAt));
+        m_timeLabel->setToolTip(QStringLiteral("创建 %1\n更新 %2")
+                                    .arg(formatLocal(note.createdAt), formatLocal(note.updatedAt)));
+    }
+
+    // 置顶图标
+    if (m_pinLabel) {
+        m_pinLabel->setVisible(pinned);
+        if (pinned)
+            m_pinLabel->setToolTip(QStringLiteral("已置顶"));
+    }
+
+    // 冲突标记
+    if (m_conflictLabel)
+        m_conflictLabel->setVisible(note.conflict);
+
+    // pending 操作标记
+    if (m_pendingLabel) {
+        if (!note.pendingOp.isEmpty()) {
+            const bool del = note.pendingOp == QLatin1String("delete");
+            m_pendingLabel->setText(del ? QStringLiteral("🗑") : QStringLiteral("⏳"));
+            m_pendingLabel->setToolTip(del ? QStringLiteral("待同步删除") : QStringLiteral("待同步"));
+            m_pendingLabel->setVisible(true);
+        } else {
+            m_pendingLabel->setVisible(false);
+        }
+    }
+
+    // 正文 Markdown（最贵的一步）
+    if (m_content) {
+        const MarkdownRenderResult md = renderMarkdown(note.content);
+        m_content->setText(md.html);
+    }
+
+    // 引用预览重置（setParentReference 会自行处理 m_parentRef 替换）
+    if (m_parentRef) {
+        m_parentRef->deleteLater();
+        m_parentRef = nullptr;
+        m_parentId = 0;
+    }
+
+    // 多选状态保持，只刷新勾选框样式（不会改变勾选状态）
+    if (m_check)
+        refreshCheckStyle();
+}
+
+// 多选模式：勾选框出现在左侧，⋯ 菜单让位，正文退出文本交互
+// （TextBrowserInteraction 会把鼠标事件吃在 QLabel 里，点击就到不了卡片的 mousePressEvent）。
+void NoteCard::setSelectionMode(bool on)
+{
+    if (m_selectMode == on)
+        return;
+    m_selectMode = on;
+    if (m_check)
+        m_check->setVisible(on);
+    if (m_menuBtn)
+        m_menuBtn->setVisible(!on);
+    if (m_content) {
+        m_content->setTextInteractionFlags(on ? Qt::NoTextInteraction
+                                              : Qt::TextBrowserInteraction);
+        m_content->setCursor(on ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    }
+    if (!on)
+        setChecked(false);
+    else
+        refreshCheckStyle();
+}
+
+void NoteCard::setChecked(bool on)
+{
+    if (m_checked == on)
+        return;
+    m_checked = on;
+    refreshCheckStyle();
+}
+
+void NoteCard::refreshCheckStyle()
+{
+    if (!m_check)
+        return;
+    if (m_checked) {
+        m_check->setText(QStringLiteral("✓"));
+        m_check->setStyleSheet(scaleQss(QStringLiteral(
+            "QLabel { background: %1; border: 2px solid %1; border-radius: 9px;"
+            " color: #ffffff; font-size: 11px; font-weight: 700; }")
+            .arg(kColorAccent)));
+    } else {
+        m_check->setText(QString());
+        m_check->setStyleSheet(scaleQss(QStringLiteral(
+            "QLabel { background: transparent; border: 2px solid %1; border-radius: 9px; }")
+            .arg(withAlpha(kColorFgMuted, 0.55))));
+    }
+    // 选中整卡描边强调（QSS 不认 :checked，直接覆盖基础样式；取消时还原）。
+    // 这里不能按 m_selectMode 判断「要不要还原」：退出多选时 setSelectionMode 已经把
+    // m_selectMode 置 false 了，再调 setChecked(false) 就会跳过还原、卡片留着选中描边。
+    if (!m_baseStyle.isEmpty()) {
+        if (m_checked)
+            setStyleSheet(scaleQss(QStringLiteral(
+                "QFrame#NoteCard { background: %1; border: 1px solid %2; border-radius: 12px; }")
+                .arg(glassBg(kColorBgElev), kColorAccent)));
+        else
+            setStyleSheet(m_baseStyle);
+    }
+}
+
+void NoteCard::mousePressEvent(QMouseEvent *event)
+{
+    // 多选模式下点整卡 = 切换勾选（Ctrl/Shift 的语义交给宿主：加选 / 范围选）
+    if (m_selectMode && event->button() == Qt::LeftButton) {
+        emit selectionClicked(m_note.id, event->modifiers());
+        event->accept();
+        return;
+    }
+    QFrame::mousePressEvent(event);
 }
 
 void NoteCard::onLinkActivated(const QString &link)
@@ -461,19 +702,46 @@ void NoteCard::setParentReference(qint64 parentId, const QString &preview)
         "QLabel#ParentRef:hover { color: %3; }")
         .arg(kColorFgMuted, kColorBgElev2, kColorAccent)));
     m_parentRef->installEventFilter(this);
-    // 卡片主布局为 QVBoxLayout：预览追加在内容之后
-    static_cast<QVBoxLayout *>(layout())->addWidget(m_parentRef);
+    // 预览追加在内容列之后
+    if (m_col)
+        m_col->addWidget(m_parentRef);
 }
 
 bool NoteCard::eventFilter(QObject *obj, QEvent *event)
 {
     if (obj == m_parentRef && event->type() == QEvent::MouseButtonRelease) {
         auto *me = static_cast<QMouseEvent *>(event);
-        if (me->button() == Qt::LeftButton && m_parentId > 0)
-            emit parentReferenceClicked(m_parentId);
+        if (me->button() == Qt::LeftButton) {
+            // 多选模式：引用预览同样是「卡片的一部分」，点它切换勾选而不是跳转
+            if (m_selectMode)
+                emit selectionClicked(m_note.id, me->modifiers());
+            else if (m_parentId > 0)
+                emit parentReferenceClicked(m_parentId);
+        }
         return true; // 吞掉事件，避免冒泡
     }
     return QFrame::eventFilter(obj, event);
+}
+
+bool NoteCard::event(QEvent *event)
+{
+    switch (event->type()) {
+    case QEvent::Enter:
+        // 悬浮时按需创建投影阴影（关闭全局阴影时 makeDropShadow 返回 nullptr）
+        if (!m_shadow)
+            m_shadow = makeDropShadow(this);
+        break;
+    case QEvent::Leave:
+        // 离开时销毁阴影（setGraphicsEffect(nullptr) 会删除旧 effect）
+        if (m_shadow) {
+            delete m_shadow;
+            m_shadow = nullptr;
+        }
+        break;
+    default:
+        break;
+    }
+    return QFrame::event(event);
 }
 
 // 跳转定位时的视觉反馈：边框高亮闪烁，随后恢复基础样式
@@ -738,6 +1006,148 @@ void CommentsDialog::setComments(const QList<Comment> &comments)
 QString CommentsDialog::commentText() const
 {
     return m_input->toPlainText().trimmed();
+}
+
+// ------------------------------------------------------------------ //
+// TagPickerDialog —— 批量加/去标签（笔记页多选后调用）
+TagPickerDialog::TagPickerDialog(const QStringList &known, const QStringList &noteTags,
+                                 int noteCount, QWidget *parent)
+    : QDialog(parent), m_known(known), m_noteTags(noteTags), m_noteCount(noteCount)
+{
+    setWindowTitle(QStringLiteral("批量标签"));
+    setModal(true);
+    resize(420, 480);
+
+    auto *lay = new QVBoxLayout(this);
+    lay->setSpacing(si(8));
+
+    m_title = new QLabel(this);
+    m_title->setStyleSheet(scaleQss(QStringLiteral("QLabel { color: %1; font-size: 13px; }")
+                                        .arg(kColorFgMuted)));
+    lay->addWidget(m_title);
+
+    // 模式切换：添加 / 移除
+    auto *tabs = new QHBoxLayout;
+    tabs->setSpacing(si(6));
+    const QString tabQss = scaleQss(QStringLiteral(
+        "QPushButton { background: transparent; border: 1px solid %1; border-radius: 8px;"
+        " color: %2; padding: 5px 14px; font-size: 12px; }"
+        "QPushButton:checked { background: %3; border-color: %3; color: #ffffff; font-weight: 600; }")
+        .arg(kColorBorder, kColorFgMuted, kColorAccent));
+    m_tabAdd = new QPushButton(QStringLiteral("添加标签"), this);
+    m_tabRemove = new QPushButton(QStringLiteral("移除标签"), this);
+    for (auto *b : { m_tabAdd, m_tabRemove }) {
+        b->setCheckable(true);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setStyleSheet(tabQss);
+        tabs->addWidget(b);
+    }
+    tabs->addStretch(1);
+    lay->addLayout(tabs);
+
+    m_newTag = new QLineEdit(this);
+    m_newTag->setPlaceholderText(QStringLiteral("新标签名（可留空，从下方选择）…"));
+    lay->addWidget(m_newTag);
+
+    m_search = new QLineEdit(this);
+    m_search->setPlaceholderText(QStringLiteral("搜索标签…"));
+    lay->addWidget(m_search);
+
+    m_list = new QListWidget(this);
+    m_list->setStyleSheet(scaleQss(QStringLiteral(
+        "QListWidget { background: %1; border: 1px solid %2; border-radius: 8px; outline: none; }"
+        "QListWidget::item { padding: 6px 10px; color: %3; }"
+        "QListWidget::item:selected { background: %4; color: %5; }")
+        .arg(kColorBgElev, kColorBorder, kColorFg,
+             withAlpha(kColorAccent, 0.18), kColorAccent)));
+    lay->addWidget(m_list, 1);
+
+    auto *btns = new QHBoxLayout;
+    btns->addStretch(1);
+    auto *cancel = new QPushButton(QStringLiteral("取消"), this);
+    cancel->setStyleSheet(scaleQss(QStringLiteral(
+        "QPushButton { background: transparent; border: 1px solid %1; border-radius: 8px;"
+        " color: %2; padding: 6px 16px; font-size: 12px; }"
+        "QPushButton:hover { border-color: %3; color: %3; }")
+        .arg(kColorBorder, kColorFgMuted, kColorAccent)));
+    auto *ok = new QPushButton(QStringLiteral("确定"), this);
+    ok->setStyleSheet(scaleQss(QStringLiteral(
+        "QPushButton { background: %1; color: #ffffff; border: none; border-radius: 8px;"
+        " padding: 6px 18px; font-size: 12px; font-weight: 600; }")
+        .arg(kColorAccent)));
+    connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
+    connect(ok, &QPushButton::clicked, this, &TagPickerDialog::acceptCurrent);
+    btns->addWidget(cancel);
+    btns->addWidget(ok);
+    lay->addLayout(btns);
+
+    connect(m_tabAdd, &QPushButton::clicked, this, [this] { setMode(Mode::Add); });
+    connect(m_tabRemove, &QPushButton::clicked, this, [this] { setMode(Mode::Remove); });
+    connect(m_search, &QLineEdit::textChanged, this, [this](const QString &) { refreshList(); });
+    connect(m_list, &QListWidget::itemDoubleClicked, this,
+            [this](QListWidgetItem *) { acceptCurrent(); });
+    connect(m_newTag, &QLineEdit::returnPressed, this, &TagPickerDialog::acceptCurrent);
+
+    setMode(Mode::Add);
+}
+
+void TagPickerDialog::setMode(Mode m)
+{
+    m_mode = m;
+    const bool add = (m == Mode::Add);
+    m_tabAdd->setChecked(add);
+    m_tabRemove->setChecked(!add);
+    m_newTag->setVisible(add);
+    m_title->setText(add ? QStringLiteral("给选中的 %1 条笔记添加同一个标签").arg(m_noteCount)
+                         : QStringLiteral("从选中的 %1 条笔记移除某个标签").arg(m_noteCount));
+    refreshList();
+    (add ? static_cast<QWidget *>(m_newTag) : static_cast<QWidget *>(m_search))->setFocus();
+}
+
+void TagPickerDialog::refreshList()
+{
+    if (!m_list)
+        return;
+    const bool add = (m_mode == Mode::Add);
+    const QStringList &src = add ? m_known : m_noteTags;
+    const QString filter = m_search->text().trimmed();
+    m_list->clear();
+    for (const QString &t : src) {
+        if (!filter.isEmpty() && !t.contains(filter, Qt::CaseInsensitive))
+            continue;
+        m_list->addItem(t);
+    }
+    if (m_list->count() == 0) {
+        // 占位项不可选（NoItemFlags），只作提示，tag() 不会把它当成标签
+        auto *ph = new QListWidgetItem(add
+                                           ? QStringLiteral("（没有匹配的标签，可直接在上方输入新标签）")
+                                           : QStringLiteral("（选中的笔记没有匹配的标签）"));
+        ph->setFlags(Qt::NoItemFlags);
+        m_list->addItem(ph);
+    }
+}
+
+void TagPickerDialog::acceptCurrent()
+{
+    // 空标签直接忽略（不关窗），避免误点确定后弹出「无操作」的空结果
+    if (tag().isEmpty())
+        return;
+    accept();
+}
+
+QString TagPickerDialog::tag() const
+{
+    QString t;
+    if (m_mode == Mode::Add)
+        t = m_newTag->text().trimmed();
+    if (t.isEmpty()) {
+        QListWidgetItem *item = m_list->currentItem();
+        if (item && (item->flags() & Qt::ItemIsEnabled))
+            t = item->text().trimmed();
+    }
+    if (t.startsWith(QLatin1Char('#')))
+        t = t.mid(1).trimmed();
+    return t;
 }
 
 // ------------------------------------------------------------------ //

@@ -3,12 +3,19 @@
 
 #include "theme.h"
 
+#include <QCache>
 #include <QRegularExpression>
 #include <QStringList>
 
 namespace awqtui {
 
 namespace {
+
+// Markdown 渲染结果缓存（key = 原始 markdown 全文，value = 渲染结果）
+// 600 字符截断在渲染函数内部进行，相同原始内容 → 相同截断结果，可复用。
+// 注意：QCache<Key,T> 内部持有的其实就是 T*，insert 接管所有权（淘汰/析构时自动 delete），
+// 因此插入要 new，查询用 object()（未命中返回 nullptr；operator[] 会顺手写入空条目污染缓存）。
+static QCache<QString, MarkdownRenderResult> gMdCache(500);
 
 QString escapeHtml(QStringView s)
 {
@@ -151,6 +158,11 @@ QString inlineToHtml(const QString &text, int &taskNo)
 
 MarkdownRenderResult renderMarkdown(const QString &markdown)
 {
+    // 缓存查找（以原始 markdown 为 key，相同内容直接返回缓存结果）
+    if (const MarkdownRenderResult *cached = gMdCache.object(markdown)) {
+        return *cached;
+    }
+
     MarkdownRenderResult res;
     if (markdown.trimmed().isEmpty()) {
         res.html = QStringLiteral("<i style='color:%1;'>（空笔记）</i>").arg(kColorFgMuted);
@@ -355,6 +367,8 @@ MarkdownRenderResult renderMarkdown(const QString &markdown)
     closeList();
 
     res.html = out;
+    // 缓存渲染结果（按原始 markdown，截断在渲染内部完成）；QCache 接管这个指针
+    gMdCache.insert(markdown, new MarkdownRenderResult(res));
     return res;
 }
 

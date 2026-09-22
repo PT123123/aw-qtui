@@ -36,6 +36,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
+#include <QVector>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
@@ -537,6 +538,104 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
     setHighlighted(false);
 }
 
+void TodoTaskRow::setTask(const TodoTask &task, const QString &dotColor, const QString &listName)
+{
+    m_taskId = task.id;
+    m_title->setText(task.title);
+    m_title->setStyleSheet(
+        QStringLiteral("font-size:%1;font-weight:600;background:transparent;%2")
+            .arg(sp(14),
+                 task.completed ? QStringLiteral("color:%1;text-decoration:line-through;").arg(kColorMuted2)
+                                : QStringLiteral("color:%1;").arg(kColorFg)));
+    m_chk->setChecked(task.completed);
+    m_chk->setToolTip(task.completed ? QStringLiteral("标记为未完成") : QStringLiteral("标记为已完成"));
+    // 重绑标签/清单胶囊行
+    QLayoutItem *child = m_title->parentWidget()->layout()->itemAt(1);
+    if (child && child->layout()) {
+        QLayout *l = child->layout();
+        while (l->count() > 0) {
+            QLayoutItem *ci = l->takeAt(0);
+            delete ci->widget();
+            delete ci;
+        }
+        QStringList metaPills;
+        if (!listName.isEmpty())
+            metaPills << listName;
+        for (const QString &tag : task.tags)
+            metaPills << tag;
+        if (!metaPills.isEmpty()) {
+            for (const QString &text : metaPills) {
+                const QColor c = (text == listName && !dotColor.isEmpty())
+                                     ? QColor(dotColor) : QColor(kColorAccent);
+                l->addWidget(makePill(text, c));
+            }
+        }
+        m_hasMeta = !metaPills.isEmpty();
+    }
+    // 重绑右侧信息簇（优先级/截止/清单圆点），通过重新计算 m_rightW
+    QLayoutItem *rightItem = m_title->parentWidget()->layout()->itemAt(2);
+    if (rightItem && rightItem->layout()) {
+        QLayout *rl = rightItem->layout();
+        while (rl->count() > 0) {
+            QLayoutItem *ci = rl->takeAt(0);
+            delete ci->widget();
+            delete ci;
+        }
+        int rw = 0;
+        if (task.priority > TodoPriorityNone) {
+            auto *p = new QLabel(priorityGlyph(task.priority));
+            p->setToolTip(task.priority == TodoPriorityHigh ? QStringLiteral("高优先级")
+                                   : task.priority == TodoPriorityMedium ? QStringLiteral("中优先级")
+                                                                         : QStringLiteral("低优先级"));
+            p->setStyleSheet(QStringLiteral("color:%1;font-size:%2;font-weight:700;background:transparent;")
+                                 .arg(priorityColor(task.priority).name(), sp(12)));
+            p->setFixedWidth(si(16));
+            rl->addWidget(p);
+            rw += si(16) + si(6);
+        }
+        if (task.hasDue()) {
+            const QDate d = QDate::fromString(task.dueDate, Qt::ISODate);
+            const bool overdue = d.isValid() && !task.completed && d < QDate::currentDate();
+            const bool isToday = d.isValid() && !task.completed && d == QDate::currentDate();
+            QString col, bg, border;
+            if (overdue) {
+                col = QString::fromLatin1(kColorDanger);
+                bg = withAlpha(kColorDanger, 0.10);
+                border = withAlpha(kColorDanger, 0.40);
+            } else if (isToday) {
+                col = QString::fromLatin1(kColorAccent);
+                bg = withAlpha(kColorAccent, 0.10);
+                border = withAlpha(kColorAccent, 0.40);
+            } else {
+                col = QString::fromLatin1(kColorFgMuted);
+                bg = QStringLiteral("transparent");
+                border = QString::fromLatin1(kColorBorder);
+            }
+            auto *due = new QLabel(dueLabel(task));
+            due->setStyleSheet(
+                QStringLiteral("color:%1;font-size:%2;padding:1px %3;background:%4;"
+                               "border:1px solid %5;border-radius:%6;font-weight:500;")
+                    .arg(col, sp(11), sp(6), bg, border, sp(6)));
+            rl->addWidget(due);
+            QFont f = font();
+            f.setPixelSize(si(11));
+            rw += QFontMetrics(f).horizontalAdvance(dueLabel(task)) + si(12) + si(2) + si(6);
+        }
+        if (!dotColor.isEmpty()) {
+            QPixmap pm(si(10), si(10));
+            pm.fill(QColor(dotColor));
+            auto *dot = new QLabel;
+            dot->setPixmap(pm);
+            dot->setFixedSize(si(10), si(10));
+            rl->addWidget(dot);
+            rw += si(10) + si(6);
+        }
+        if (rw > 0) {
+            m_rightW = rw - si(6);
+        }
+    }
+}
+
 // 长标题换行：按可用宽度（行宽 - 勾选框 - 边距 - 右侧簇）折算换行后的标题高度
 int TodoTaskRow::heightForWidth(int w) const
 {
@@ -989,6 +1088,7 @@ void TaskDetailsDialog::setDeviceName(const QString &name)
 TodoPage::TodoPage(TodoSource *source, QWidget *parent)
     : QWidget(parent), m_source(source)
 {
+    m_cardPool = new TodoPool(this, 3);
     buildUi();
     connect(m_source, &TodoSource::dataChanged, this, &TodoPage::onDataChanged);
     m_source->load();
@@ -996,6 +1096,7 @@ TodoPage::TodoPage(TodoSource *source, QWidget *parent)
 
 TodoPage::~TodoPage()
 {
+    delete m_cardPool;
     delete ui;
 }
 
@@ -2063,9 +2164,92 @@ QList<TodoTask> TodoPage::visibleTasks() const
     return open + done;
 }
 
+// ── widget 池实现 ─────────────────────────────────────────────────────────────
+TodoTaskRow *TodoPage::TodoPool::acquire(const TodoTask &task, const QString &dotColor,
+                                         const QString &listName, bool multi, bool selected)
+{
+    TodoTaskRow *row;
+    if (!m_pool.isEmpty()) {
+        row = m_pool.takeLast();
+    } else {
+        row = new TodoTaskRow(task, dotColor, listName);
+        // 信号连接只在新创建时挂载；池化回收时连接已存在，直接复用
+        // 注意：lambda 捕获列表里不能直接写成员 m_page（必须是被捕获函数作用域内的变量），
+        //       用初始化捕获拷一份指针；行的寿命可能长于 TodoPool，故不抓 this。
+        QObject::connect(row, &TodoTaskRow::selected, m_page, [page = m_page](qint64 id) {
+            page->m_selectedTask = id;
+            page->loadDetail(id);
+            page->setRowHighlight(id);
+        });
+        QObject::connect(row, &TodoTaskRow::toggleRequested, m_page, &TodoPage::onToggleRequested);
+        QObject::connect(row, &TodoTaskRow::selectionToggled, m_page, &TodoPage::onSelectionToggled);
+        QObject::connect(row, &TodoTaskRow::menuRequested, m_page, &TodoPage::onTaskRowMenu);
+    }
+    row->setTask(task, dotColor, listName);
+    row->setMultiSelectMode(multi);
+    row->setSelected(selected);
+    return row;
+}
+
+// 入池前的必备动作：这些行是从 QListWidget::clear() 里出来的，而任务页的行**本身就是
+// item widget**，clear() 会对它挂一个 deleteLater（Qt 走的是异步销毁，clear() 返回时行还活着）。
+// 若不撤掉，行被重新 setItemWidget 挂回列表后，事件循环一转就被 DeferredDelete 删掉，
+// 列表里会留下悬空的 item widget（离屏探针实测：复用后 alive 3 → 0）。
+// 收件箱那侧不需要这一步，因为卡片是 wrap 的子控件、clear() 之后才摘 parent，被 deleteLater
+// 的是 wrap 而不是卡片。这里必须显式撤；撤完再决定是入池还是自己 deleteLater 淘汰。
+static void unArmPendingDelete(QWidget *w)
+{
+    QCoreApplication::removePostedEvents(w, QEvent::DeferredDelete);
+}
+
+void TodoPage::TodoPool::release(TodoTaskRow *row)
+{
+    if (!row)
+        return;
+    unArmPendingDelete(row);
+    if (m_pool.size() >= m_maxSize) {
+        row->deleteLater();
+    } else {
+        m_pool.append(row);
+    }
+}
+
+void TodoPage::TodoPool::releaseAll(const QMap<int, TodoTaskRow *> &active)
+{
+    for (auto *row : active) {
+        if (!row)
+            continue;
+        unArmPendingDelete(row);
+        if (m_pool.size() >= m_maxSize)
+            row->deleteLater();
+        else
+            m_pool.append(row);
+    }
+}
+
+void TodoPage::TodoPool::discardAll()
+{
+    m_pool.clear();
+}
+
+void TodoPage::TodoPool::clear()
+{
+    qDeleteAll(m_pool);
+    m_pool.clear();
+}
+
 void TodoPage::rebuildList()
 {
+    // 收集当前列表中的行，复用到池中（避免 clear() 逐个 delete 造成 O(n²) 重建）
+    QMap<int, TodoTaskRow *> currentRows;
+    for (int i = 0; i < m_list->count(); ++i) {
+        if (auto *row = qobject_cast<TodoTaskRow *>(m_list->itemWidget(m_list->item(i))))
+            currentRows[i] = row;
+    }
     m_list->clear();
+    if (m_cardPool)
+        m_cardPool->releaseAll(currentRows);
+
     const auto all = visibleTasks();
     int openCount = 0;
     QList<TodoTask> done;
@@ -2087,7 +2271,22 @@ void TodoPage::rebuildList()
         auto *item = new QListWidgetItem(m_list);
         item->setSizeHint(QSize(0, si(62)));
         m_list->addItem(item);
-        QWidget *rw = makeRow(t);
+        QString dot;
+        QString listName;
+        if (t.listId != 0 && m_listColors.contains(t.listId)) {
+            dot = m_listColors.value(t.listId);
+            if (m_view == ViewAll || m_view == ViewNext7 || m_view == ViewDone) {
+                for (const auto &l : m_lists) {
+                    if (l.id == t.listId) {
+                        listName = l.name;
+                        break;
+                    }
+                }
+                dot.clear();
+            }
+        }
+        TodoTaskRow *rw = m_cardPool->acquire(t, dot, listName, m_multi,
+                                               m_multi && m_selectedIds.contains(t.id));
         m_list->setItemWidget(item, rw);
         if (m_animateNext)
             fadeInWidget(rw, 180);
@@ -2102,7 +2301,22 @@ void TodoPage::rebuildList()
                 auto *item = new QListWidgetItem(m_list);
                 item->setSizeHint(QSize(0, si(62)));
                 m_list->addItem(item);
-                QWidget *rw = makeRow(t);
+                QString dot;
+                QString listName;
+                if (t.listId != 0 && m_listColors.contains(t.listId)) {
+                    dot = m_listColors.value(t.listId);
+                    if (m_view == ViewAll || m_view == ViewNext7 || m_view == ViewDone) {
+                        for (const auto &l : m_lists) {
+                            if (l.id == t.listId) {
+                                listName = l.name;
+                                break;
+                            }
+                        }
+                        dot.clear();
+                    }
+                }
+                TodoTaskRow *rw = m_cardPool->acquire(t, dot, listName, m_multi,
+                                                       m_multi && m_selectedIds.contains(t.id));
                 m_list->setItemWidget(item, rw);
                 if (m_animateNext)
                     fadeInWidget(rw, 180);
@@ -2145,37 +2359,6 @@ void TodoPage::rebuildList()
     // 平铺视图：列表控件是隐藏的，同一份数据改走看板渲染
     if (m_boardMode)
         rebuildBoard();
-}
-
-QWidget *TodoPage::makeRow(const TodoTask &task)
-{
-    QString dot;
-    QString listName;
-    if (task.listId != 0 && m_listColors.contains(task.listId)) {
-        dot = m_listColors.value(task.listId);
-        // 聚合视图（全部/最近7天/已完成）：用清单名胶囊表达归属，右侧圆点省略
-        if (m_view == ViewAll || m_view == ViewNext7 || m_view == ViewDone) {
-            for (const auto &l : m_lists) {
-                if (l.id == task.listId) {
-                    listName = l.name;
-                    break;
-                }
-            }
-            dot.clear();
-        }
-    }
-    auto *row = new TodoTaskRow(task, dot, listName);
-    row->setMultiSelectMode(m_multi);
-    row->setSelected(m_multi && m_selectedIds.contains(task.id));
-    connect(row, &TodoTaskRow::selected, this, [this](qint64 id) {
-        m_selectedTask = id;
-        loadDetail(id);
-        setRowHighlight(id);
-    });
-    connect(row, &TodoTaskRow::toggleRequested, this, &TodoPage::onToggleRequested);
-    connect(row, &TodoTaskRow::selectionToggled, this, &TodoPage::onSelectionToggled);
-    connect(row, &TodoTaskRow::menuRequested, this, &TodoPage::onTaskRowMenu);
-    return row;
 }
 
 void TodoPage::setRowHighlight(qint64 id)

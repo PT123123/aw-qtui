@@ -91,6 +91,8 @@ public:
     // listName 非空时在元信息行显示清单名胶囊（多清单视图用，颜色取自清单色）
     explicit TodoTaskRow(const TodoTask &task, const QString &dotColor,
                          const QString &listName = QString(), QWidget *parent = nullptr);
+    // 虚拟化池回收时，重新绑定到另一任务（保留完整 widget tree，只替换内容）
+    void setTask(const TodoTask &task, const QString &dotColor, const QString &listName);
     qint64 taskId() const { return m_taskId; }
     void setHighlighted(bool on);
     // 多选模式：行首显示选择框、隐藏完成框，点击整行切换选中（不再打开详情）
@@ -253,7 +255,7 @@ private:
     void pruneSelection();                   // 丢弃已被删除任务的选择残留
 
     QList<TodoTask> visibleTasks() const;
-    QWidget *makeRow(const TodoTask &task);
+
     QWidget *makeSubtaskRow(const TodoSubtask &s);
     TodoNavItem *makeNavItem(const QString &name);
 
@@ -345,6 +347,31 @@ private:
     // 上次实际渲染的内容签名：同步轮询触发的 dataChanged 若内容没变，
     // 直接跳过整表重建，避免列表闪动与滚动位置跳回顶部
     QString m_renderSig;
+
+    // ── widget 池（O(1) 滚动复用）─────────────────────────────────────
+    class TodoPool
+    {
+    public:
+        explicit TodoPool(TodoPage *page, int maxSize = 3) : m_page(page), m_maxSize(maxSize) {}
+        // 从池中取一行（空或从池尾弹），绑定任务数据
+        TodoTaskRow *acquire(const TodoTask &task, const QString &dotColor,
+                             const QString &listName, bool multi, bool selected);
+        // 归还一行到池中（满了则删除）
+        void release(TodoTaskRow *row);
+        // 把所有当前在使用的行归还池中（不舍弃，用于整屏刷新前复用）
+        void releaseAll(const QMap<int, TodoTaskRow *> &active);
+        // 清空池中所有行（不舍弃已池化行）
+        void discardAll();
+        // 清空池中所有行并删除（彻底销毁）
+        void clear();
+        int count() const { return m_pool.size(); }
+
+    private:
+        TodoPage *m_page;
+        const int m_maxSize;
+        QVector<TodoTaskRow *> m_pool; // 后进先出（最近用过的放后面，优先回收旧的）
+    };
+    TodoPool *m_cardPool = nullptr;
 };
 
 } // namespace awqtui

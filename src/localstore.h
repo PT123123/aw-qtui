@@ -50,6 +50,9 @@ public:
     qint64 insertLocal(const QString &content, const QStringList &tags, const QString &deviceId);
     // 本地编辑：若原本是未同步新建则保持 create，否则置 op=update
     void updateLocal(qint64 id, const QString &content, const QStringList &tags);
+    // 仅改写标签、不置 pendingOp：批量加/去标签时调用方已在线提交成功，
+    // 这里只把服务端新状态同步进本地镜像（避免被当成脏数据重复补推）
+    void setTagsLocal(qint64 id, const QStringList &tags);
     // 本地删除：未同步的新建直接移除；服务端笔记标记 tombstone + op=delete
     void markDeleted(qint64 id);
     // 恢复已软删除的笔记（清掉 deleted + op，标记 update 以便重新同步为未删除）

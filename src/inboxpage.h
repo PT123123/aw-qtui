@@ -13,12 +13,14 @@
 
 class QComboBox;
 class QGraphicsDropShadowEffect;
+class QKeyEvent;
 class QLineEdit;
 class QLabel;
 class QListWidget;
 class QPushButton;
 class QStackedLayout;
 class QTimer;
+class QToolButton;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QVBoxLayout;
@@ -65,6 +67,10 @@ signals:
     // 用户点击工具栏 ⚙，请求打开设置界面（由 MainWindow 响应）
     void settingsRequested();
 
+protected:
+    // Esc 退出多选（与任务页一致）
+    void keyPressEvent(QKeyEvent *event) override;
+
 private slots:
     void onSearchChanged();
     void onSortChanged();
@@ -95,7 +101,49 @@ private:
     void applyClientFilter(bool force = false);
     void appendNotes(const QList<Note> &notes, bool reset);
     void setStatus(StatusBadge::State s, const QString &text = QString());
-    QWidget *makeCard(const Note &n);
+    // 可见笔记中按 id 找卡片（多选时同步勾选态用）
+    NoteCard *findCard(qint64 id) const;
+    // 内存笔记（含被乐观修改的字段），找不到返回 nullptr
+    Note *findNote(qint64 id);
+
+    // ---- 多选（工具栏「选择」按钮） ----
+    void setSelectMode(bool on);
+    void updateBulkBar();               // 已选计数 + 按钮可用态
+    void applySelectionToCards();       // 重建后把选择模式与勾选态套到新卡片
+    void pruneSelection();              // 丢弃已不存在笔记的选择残留
+    void selectAllToggle();
+    // 点卡片（多选模式）：mods 带 Shift = 范围选，其余为切换单条
+    void onCardSelectionClicked(qint64 id, Qt::KeyboardModifiers mods);
+    void bulkDelete();
+    void bulkSetPinned(bool pinned);
+    void bulkEditTags();
+    QList<qint64> selectedIds() const;  // 按当前可见顺序返回
+
+    // ---- 删除：免确认 + 3 秒撤销浮条（到期才真正提交） ----
+    void deleteNotes(const QList<qint64> &ids);
+    void commitPendingDelete();         // 撤销窗口到期：真正提交（在线 DELETE / 离线 tombstone）
+    void undoPendingDelete();           // 点「撤销」：原样恢复，顺序不变
+    void tombstoneLocal(qint64 id);     // 离线或提交失败时的本地删除（不触发列表重建）
+    void refreshTagTree();              // 侧栏标签树：在线用服务端口径，离线用本地统计
+
+    // ---- 转为待办：免确认 + 3 秒撤销浮条（到期才真正提交服务端两步转换） ----
+    // 与删除同构：撤销窗口内只把笔记从视图隐藏，m_notes / LocalStore 一律不动，
+    // 撤销即原样回来（id、评论、历史版本、顺序全不变）；窗口内关掉程序 = 没转。
+    void commitPendingConvert();        // 撤销窗口到期：createTodo → deleteNote
+    void undoPendingConvert();          // 点「撤销」：解除隐藏，笔记原位回来
+    // 转换未完成（第一步建待办失败 / 第二步删原笔记失败）：解除隐藏并如实提示
+    void abortPendingConvert(qint64 id, const QString &message);
+    // 取笔记原文（内存列表 → 本地镜像）供两步转换使用；找不到返回 false
+    bool lookupNote(qint64 id, Note *out) const;
+
+    // ---- 重建时保持滚动位置 ----
+    struct ScrollAnchor {
+        qint64 id = 0;              // 重建前视口顶部那条笔记
+        int delta = 0;              // 该卡片顶边相对视口顶端的像素偏移
+        QList<qint64> fallback;     // 锚点被删时的后备（锚点之后的若干条）
+    };
+    ScrollAnchor captureScrollAnchor() const;
+    void restoreScrollAnchor(const ScrollAnchor &a);
     // 把新内容应用到笔记（在线 PUT / 离线本地），供编辑与任务勾选共用
     void applyContent(qint64 id, const QString &text);
     // 生成被评论/被引用笔记的预览文本（100 字截断、去除常见 markdown 标记）
@@ -164,6 +212,7 @@ private:
     QPushButton *m_btnFilterUp = nullptr;
     QPushButton *m_btnFilterClear = nullptr;
     QListWidget *m_list;
+    CardPool *m_cardPool = nullptr; // 虚拟化 widget 池（可见行数 + 缓冲）
     QPushButton *m_fab;
     QStackedLayout *m_stack;
     // 悬浮 + 按钮的投影阴影（受全局阴影开关控制，运行时增删）
@@ -172,6 +221,32 @@ private:
     QPointer<NoteEditorDialog> m_newNoteDialog;
     // 是否给本次重建的卡片列表加入场淡入（仅刷新/初次加载时置真，过滤/翻页时不加）
     bool m_animateCards = false;
+
+    // ---- 多选 ----
+    bool m_selectMode = false;
+    QSet<qint64> m_selected;
+    qint64 m_selectAnchor = 0;        // Shift 范围选的锚点（上一次点过的笔记）
+    QPushButton *m_btnSelect = nullptr;
+    QWidget *m_bulkBar = nullptr;
+    QLabel *m_bulkCount = nullptr;
+    QToolButton *m_bulkSelectAll = nullptr;
+    QToolButton *m_bulkPin = nullptr;
+    QToolButton *m_bulkUnpin = nullptr;
+    QToolButton *m_bulkTag = nullptr;
+    QToolButton *m_bulkDelete = nullptr;
+    QToolButton *m_bulkCancel = nullptr;
+
+    // ---- 待提交删除（撤销窗口内）：已从视图隐藏、尚未落库，撤销可原样恢复 ----
+    QList<qint64> m_pendingDel;
+    int m_pendingDelCommits = 0;        // 在途的在线删除请求数，归零后刷新一次侧栏标签树
+    // ---- 待提交/在途的「转为待办」 ----
+    // m_pendingConv：撤销窗口内、尚未提交的（是 m_convHidden 的子集）
+    // m_convHidden：整个转换期间都要隐藏的（含请求在途），保证后台刷新不会把这条又拉回列表
+    QList<qint64> m_pendingConv;
+    QSet<qint64> m_convHidden;
+    // 恢复滚动位置期间屏蔽 onScroll 的分页加载（setValue/scrollToItem 会触发 valueChanged）
+    bool m_restoringScroll = false;
+    bool m_paginationAppend = false;   // true = 当前 appendNotes 为翻页追加，不走 applyClientFilter
 
     int m_offset = 0;
     int m_limit = 20;

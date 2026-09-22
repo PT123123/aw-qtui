@@ -17,6 +17,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -31,6 +32,7 @@
 #include <QSignalBlocker>
 #include <QStackedLayout>
 #include <QTimer>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -105,6 +107,10 @@ InboxPage::InboxPage(ApiClient *api, QWidget *parent) : QWidget(parent), m_api(a
 
 InboxPage::~InboxPage()
 {
+    // 池是裸指针、不是 QObject 子对象，且池中卡片刻意 parent=null 脱离了 wrap —— 
+    // 不显式释放的话，池里最多 m_maxSize 张卡片（连同整棵 widget 树）会随页面一起泄漏。
+    delete m_cardPool;
+    m_cardPool = nullptr;
     delete ui;
 }
 
@@ -159,11 +165,25 @@ void InboxPage::buildUi()
     m_btnFilterUp = ui->btnFilterUp;
     m_btnFilterClear = ui->btnFilterClear;
     m_list = ui->InboxList;
+    m_cardPool = new CardPool(60); // 可见行数约 20-30 + 上下缓冲，安全阈值 60
     m_stack = ui->stack;
     m_emptyIcon = ui->emptyIcon;
     m_emptyText = ui->emptyText;
     m_emptyHint = ui->emptyHint;
     m_fab = ui->Fab;
+
+    // ── 多选：入口按钮 + 批量操作条（默认隐藏，仅多选模式显示）──
+    m_btnSelect = ui->btnSelect;
+    m_btnSelect->setCheckable(true);
+    m_bulkBar = ui->NotesBulkBar;
+    m_bulkBar->hide();
+    m_bulkCount = ui->bulkCount;
+    m_bulkSelectAll = ui->bulkSelectAll;
+    m_bulkPin = ui->bulkPin;
+    m_bulkUnpin = ui->bulkUnpin;
+    m_bulkTag = ui->bulkTag;
+    m_bulkDelete = ui->bulkDelete;
+    m_bulkCancel = ui->bulkCancel;
 
     // ── 排序下拉 userData（对齐 API 字段：created / updated / content） ──
     m_sort->setItemData(0, QStringLiteral("created"));
@@ -190,6 +210,16 @@ void InboxPage::buildUi()
     });
     connect(m_btnFilterClear, &QPushButton::clicked, this, [this] { applyTagFilterPath(QString()); });
     connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this, &InboxPage::onScroll);
+
+    // ── 多选 ──
+    connect(m_btnSelect, &QPushButton::toggled, this, &InboxPage::setSelectMode);
+    connect(m_bulkCancel, &QToolButton::clicked, this, [this] { m_btnSelect->setChecked(false); });
+    connect(m_bulkSelectAll, &QToolButton::clicked, this, &InboxPage::selectAllToggle);
+    connect(m_bulkDelete, &QToolButton::clicked, this, &InboxPage::bulkDelete);
+    connect(m_bulkPin, &QToolButton::clicked, this, [this] { bulkSetPinned(true); });
+    connect(m_bulkUnpin, &QToolButton::clicked, this, [this] { bulkSetPinned(false); });
+    connect(m_bulkTag, &QToolButton::clicked, this, &InboxPage::bulkEditTags);
+    updateBulkBar();
 
     // 悬浮 + 投影（受全局阴影强度控制）
     m_fabShadow = makeDropShadow(m_fab);
@@ -303,6 +333,32 @@ void InboxPage::applyStyles()
         clearDropShadow(m_fab, m_fabShadow);
         m_fabShadow = makeDropShadow(m_fab);
     }
+
+    // 「选择」入口：胶囊描边按钮，进入多选后填充 accent（与任务页多选入口同语言）
+    if (m_btnSelect)
+        m_btnSelect->setStyleSheet(scaleQss(QStringLiteral(
+            "QPushButton { background: transparent; border: 1px solid %1; border-radius: 8px;"
+            " color: %2; padding: 4px 12px; font-size: 12px; }"
+            "QPushButton:hover { border-color: %3; color: %3; background: %4; }"
+            "QPushButton:checked { background: %3; border-color: %3; color: #ffffff;"
+            " font-weight: 600; }")
+            .arg(withAlpha(kColorBorder, 0.8), kColorFgMuted, kColorAccent,
+                 withAlpha(kColorAccent, 0.08))));
+
+    // 批量操作条：accent 淡底 + 顶部强调线 + 无边框按钮
+    if (m_bulkBar)
+        m_bulkBar->setStyleSheet(scaleQss(QStringLiteral(
+            "QWidget#NotesBulkBar { background: %1; border: 1px solid %2; border-radius: 10px;"
+            " border-top: 2px solid %3; }"
+            "QWidget#NotesBulkBar QToolButton { color: %4; background: transparent; border: none;"
+            " border-radius: 6px; padding: 5px 10px; font-size: 12px; }"
+            "QWidget#NotesBulkBar QToolButton:hover { background: %5; color: %6; }"
+            "QWidget#NotesBulkBar QToolButton:disabled { color: %7; }"
+            "QWidget#NotesBulkBar QLabel { background: transparent; color: %8;"
+            " font-size: 12px; font-weight: 600; }")
+            .arg(withAlpha(kColorAccent, 0.09), withAlpha(kColorAccent, 0.30), kColorAccent,
+                 kColorFgMuted, withAlpha(kColorAccent, 0.16), kColorFg,
+                 kColorMuted2, kColorFg)));
 }
 
 void InboxPage::applyUiScale()
@@ -923,6 +979,7 @@ void InboxPage::loadNotes(bool reset)
 }
 
 // reset=true：整批替换（首屏/刷新/筛选变更）；false：追加下一页。
+// 翻页追加不走 applyClientFilter（避免 O(n²) 全量重建），直接 addItem 追加新卡片。
 // 列表控件的清空与重建统一交给 applyClientFilter，避免请求期间出现空白帧。
 void InboxPage::appendNotes(const QList<Note> &notes, bool reset)
 {
@@ -935,6 +992,8 @@ void InboxPage::appendNotes(const QList<Note> &notes, bool reset)
         for (const Note &e : m_notes)
             seen.insert(e.id);
     }
+    QList<Note> newOnes;
+    newOnes.reserve(notes.size());
     for (Note n : notes) {
         if (seen.contains(n.id))
             continue;
@@ -945,9 +1004,42 @@ void InboxPage::appendNotes(const QList<Note> &notes, bool reset)
         if (const Note *local = m_store.find(n.id))
             n.commentParentId = local->commentParentId;
         m_notes << n;
+        newOnes << n;
     }
-    // 多标签客户端 OR 过滤后重新渲染
-    applyClientFilter();
+
+    if (reset) {
+        // 首屏/刷新：走完整重建路径
+        applyClientFilter();
+    } else if (!newOnes.isEmpty()) {
+        // 翻页追加：直接追加卡片，不重建全量列表（消灭 O(n²)）
+        // m_visibleIds 同步增长（m_notes 追加顺序即卡片顺序，置顶笔记已在首屏处理）
+        const bool animate = m_animateCards;
+        for (const Note &n : newOnes) {
+            m_visibleIds << n.id;
+            // 池化：acquire 复用已有卡片（O(1) setNote 绑定），省去 markdown 解析 + 阴影创建
+            NoteCard *card = m_cardPool->acquire(n, n.pinned);
+            // 评论笔记：在内容下方展示被评论笔记的引用预览
+            if (n.commentParentId != 0) {
+                const QString preview = parentPreview(n.commentParentId);
+                if (!preview.isEmpty())
+                    card->setParentReference(n.commentParentId, preview);
+            }
+            auto *item = new QListWidgetItem;
+            auto *wrap = new QWidget;
+            auto *wrapLay = new QVBoxLayout(wrap);
+            wrapLay->setContentsMargins(si(20), si(5), si(20), si(6));
+            wrapLay->setSpacing(0);
+            wrapLay->addWidget(card);
+            item->setSizeHint(QSize(0, wrap->sizeHint().height()));
+            m_list->addItem(item);
+            m_list->setItemWidget(item, wrap);
+            if (animate)
+                fadeInWidget(wrap, 180);
+        }
+        // 翻页追加后恢复滚动位置：追加不改变已有卡片位置，不应滚动
+        //（applyClientFilter 里的 restoreScrollAnchor 对追加场景是多余干扰）
+        m_stack->setCurrentIndex(m_list->count() > 0 ? 0 : 1);
+    }
 }
 
 void InboxPage::applyClientFilter(bool force)
@@ -958,7 +1050,15 @@ void InboxPage::applyClientFilter(bool force)
     if (m_rebuilding)
         return;
     // 标签/搜索过滤已在数据源头完成（在线 ?tag= 服务端过滤、离线 renderLocal 客户端过滤）
-    QList<Note> visible = m_notes;
+    // 另外屏蔽掉「撤销窗口」内尚未真正提交删除的笔记（服务端还没删，重拉会带回来），
+    // 以及转换中/在途的笔记（待办已建、原笔记还没删完，同样是重拉会带回来）
+    QList<Note> visible;
+    visible.reserve(m_notes.size());
+    for (const Note &n : m_notes) {
+        if (m_pendingDel.contains(n.id) || m_convHidden.contains(n.id))
+            continue;
+        visible << n;
+    }
     // 置顶优先（稳定分区：置顶笔记排在最前，其余保持原顺序）
     QList<Note> ordered;
     for (const Note &n : visible)
@@ -990,12 +1090,40 @@ void InboxPage::applyClientFilter(bool force)
     }
     m_renderSig = sig;
 
+    // 重建前记下「视口顶部那条笔记」：m_list->clear() 会把滚动条 value 归零，
+    // 不记锚点的话每删一条 / 每改一次标签，列表都会整体跳回顶部
+    const ScrollAnchor anchor = captureScrollAnchor();
+
     m_rebuilding = true;
+
+    // 重建前：把当前所有 NoteCard 归还池中（避免 clear() 触发 deleteLater，
+    // 下一轮 acquire() 直接复用，省去构造函数 + markdown 解析 + 阴影创建）
+    QMap<int, NoteCard *> oldCards;
+    for (int i = 0; i < m_list->count(); ++i) {
+        QListWidgetItem *item = m_list->item(i);
+        if (!item)
+            continue;
+        if (auto *wrap = m_list->itemWidget(item)) {
+            if (auto *card = wrap->findChild<NoteCard *>())
+                oldCards[i] = card;
+        }
+    }
+
     m_visibleIds.clear();
     m_list->clear();
+    // 归还旧卡片到池（setParent(nullptr) 使其脱离 wrap 的管辖范围）
+    m_cardPool->releaseAll(oldCards);
+
     for (const Note &n : visible) {
         m_visibleIds << n.id;
-        QWidget *card = makeCard(n);
+        // 池化 acquire：O(1) setNote 绑定，省去构造函数 + markdown 解析 + 阴影创建
+        NoteCard *card = m_cardPool->acquire(n, n.pinned);
+        // 评论笔记引用预览（setNote 已重置 m_parentRef，再按需重建）
+        if (n.commentParentId != 0) {
+            const QString preview = parentPreview(n.commentParentId);
+            if (!preview.isEmpty())
+                card->setParentReference(n.commentParentId, preview);
+        }
         // Inset 分组：卡片左右缩进、上下留缝，模拟 iOS InsetGroupedListStyle
         auto *item = new QListWidgetItem;
         auto *wrap = new QWidget;
@@ -1016,37 +1144,91 @@ void InboxPage::applyClientFilter(bool force)
     else
         m_stack->setCurrentIndex(0);
 
-    // 渲染完成后，若有待跳转目标（此前被搜索/标签过滤），滚动定位并高亮
+    // 新卡片继承多选模式与勾选态（卡片是新建的，状态得重新套一遍）
+    applySelectionToCards();
+    pruneSelection();
+
+    // 渲染完成后，若有待跳转目标（此前被搜索/标签过滤），滚动定位并高亮；
+    // 否则按锚点把滚动位置还原（跳转本身就会滚动，两者不叠加）
     if (m_pendingJumpId != 0) {
         const qint64 target = m_pendingJumpId;
         m_pendingJumpId = 0;
         jumpToNote(target);
+    } else {
+        restoreScrollAnchor(anchor);
     }
     m_rebuilding = false;
 }
 
-QWidget *InboxPage::makeCard(const Note &n)
+// ------------------------------------------------------------------ //
+// 滚动位置：列表重建（删除/改标签/过滤）不应把视口弹回顶部
+InboxPage::ScrollAnchor InboxPage::captureScrollAnchor() const
 {
-    auto *card = new NoteCard(n, n.pinned);
-    connect(card, &NoteCard::editRequested, this, &InboxPage::onEditNote);
-    connect(card, &NoteCard::deleteRequested, this, &InboxPage::onDeleteNote);
-    connect(card, &NoteCard::commentRequested, this, &InboxPage::onComment);
-    connect(card, &NoteCard::togglePinnedRequested, this, &InboxPage::onTogglePinned);
-    connect(card, &NoteCard::detailsRequested, this, &InboxPage::onNoteDetails);
-    connect(card, &NoteCard::convertToTodoRequested, this, &InboxPage::onConvertToTodo);
-    connect(card, &NoteCard::taskToggled, this, &InboxPage::onTaskToggled);
-    connect(card, &NoteCard::parentReferenceClicked, this, &InboxPage::onParentReferenceClicked);
-    // 点击正文里的 #标签（层级 tag 每段可点）→ 按路径筛选；再点同路径取消
-    connect(card, &NoteCard::tagClicked, this, [this](const QString &path) {
-        applyTagFilterPath(path == m_currentTag ? QString() : path);
-    });
-    // 评论笔记：在内容下方展示被评论笔记的引用预览
-    if (n.commentParentId != 0) {
-        const QString preview = parentPreview(n.commentParentId);
-        if (!preview.isEmpty())
-            card->setParentReference(n.commentParentId, preview);
+    ScrollAnchor a;
+    const int n = m_list->count();
+    if (n <= 0 || m_visibleIds.size() != n)
+        return a;
+    for (int i = 0; i < n; ++i) {
+        QListWidgetItem *item = m_list->item(i);
+        if (!item)
+            continue;
+        const QRect r = m_list->visualItemRect(item);
+        if (r.bottom() <= 0)
+            continue; // 整条都在视口上方
+        a.id = m_visibleIds.at(i);
+        a.delta = r.top(); // 该卡片顶边相对视口顶端的偏移（负数 = 被上边缘裁掉一截）
+        for (int j = i + 1; j < n && a.fallback.size() < 12; ++j)
+            a.fallback << m_visibleIds.at(j);
+        break;
     }
-    return card;
+    return a;
+}
+
+void InboxPage::restoreScrollAnchor(const ScrollAnchor &a)
+{
+    if (a.id == 0 || m_visibleIds.isEmpty())
+        return;
+    int idx = m_visibleIds.indexOf(a.id);
+    int delta = a.delta;
+    if (idx < 0) {
+        // 锚点本身被删掉了（删除场景的常态）：退到它后面第一条仍在列表里的笔记，顶对齐
+        for (qint64 id : a.fallback) {
+            const int k = m_visibleIds.indexOf(id);
+            if (k >= 0) {
+                idx = k;
+                delta = 0;
+                break;
+            }
+        }
+    }
+    if (idx < 0 || idx >= m_list->count())
+        return;
+    m_restoringScroll = true;
+    if (QListWidgetItem *item = m_list->item(idx)) {
+        m_list->scrollToItem(item, QAbstractItemView::PositionAtTop);
+        auto *bar = m_list->verticalScrollBar();
+        const int cur = m_list->visualItemRect(item).top();
+        bar->setValue(qBound(bar->minimum(), bar->value() + (cur - delta), bar->maximum()));
+    }
+    m_restoringScroll = false;
+}
+
+NoteCard *InboxPage::findCard(qint64 id) const
+{
+    const int idx = m_visibleIds.indexOf(id);
+    if (idx < 0 || idx >= m_list->count())
+        return nullptr;
+    QWidget *wrap = m_list->itemWidget(m_list->item(idx));
+    return wrap ? wrap->findChild<NoteCard *>() : nullptr;
+}
+
+Note *InboxPage::findNote(qint64 id)
+{
+    for (Note &n : m_notes) {
+        if (n.id == id)
+            return &n;
+    }
+    return nullptr;
 }
 
 QString InboxPage::parentPreview(qint64 parentId) const
@@ -1100,12 +1282,277 @@ void InboxPage::onParentReferenceClicked(qint64 parentId)
 
 void InboxPage::onScroll()
 {
+    // 重建/滚动还原期间会连续触发 valueChanged：m_list->clear() 把 value 打到 0，
+    // 按「触底」判定会白跑一次下一页请求，紧接着的锚点还原也会误触发。
+    if (m_rebuilding || m_restoringScroll)
+        return;
     auto *bar = m_list->verticalScrollBar();
     if (bar->value() >= bar->maximum() - 40)
         // 延迟到事件循环再加载：避免在 applyClientFilter 循环内（addItem 引发的
         // valueChanged 同步回调）同步重入 loadNotes → renderLocal → 重建列表，
         // 从而清除外层循环刚 addItem 的 item 造成 use-after-free。
-        QTimer::singleShot(0, this, [this] { loadNotes(false); });
+        QTimer::singleShot(0, this, [this] {
+            if (m_rebuilding || m_restoringScroll)
+                return;
+            loadNotes(false);
+        });
+}
+
+// ------------------------------------------------------------------ //
+// 多选
+void InboxPage::setSelectMode(bool on)
+{
+    if (m_selectMode == on)
+        return;
+    m_selectMode = on;
+    m_selected.clear();
+    m_selectAnchor = 0;
+    if (m_bulkBar)
+        m_bulkBar->setVisible(on);
+    if (m_btnSelect && m_btnSelect->isChecked() != on) {
+        QSignalBlocker blocker(m_btnSelect);
+        m_btnSelect->setChecked(on);
+    }
+    // 就地切换现有卡片：不重建列表，滚动位置自然不受影响
+    for (int i = 0; i < m_list->count(); ++i) {
+        QWidget *wrap = m_list->itemWidget(m_list->item(i));
+        if (!wrap)
+            continue;
+        if (auto *card = wrap->findChild<NoteCard *>())
+            card->setSelectionMode(on);
+    }
+    updateBulkBar();
+    if (on && m_list->count() > 0)
+        m_list->setFocus(); // 让 Esc 能落到本页（keyPressEvent）
+}
+
+void InboxPage::applySelectionToCards()
+{
+    for (int i = 0; i < m_list->count(); ++i) {
+        QWidget *wrap = m_list->itemWidget(m_list->item(i));
+        if (!wrap)
+            continue;
+        auto *card = wrap->findChild<NoteCard *>();
+        if (!card)
+            continue;
+        const qint64 id = m_visibleIds.value(i);
+        card->setSelectionMode(m_selectMode);
+        card->setChecked(m_selectMode && m_selected.contains(id));
+    }
+}
+
+void InboxPage::pruneSelection()
+{
+    if (m_selected.isEmpty())
+        return;
+    QSet<qint64> keep;
+    for (qint64 id : m_visibleIds) {
+        if (m_selected.contains(id))
+            keep.insert(id);
+    }
+    if (keep.size() != m_selected.size()) {
+        m_selected = keep;
+        updateBulkBar();
+    }
+}
+
+void InboxPage::updateBulkBar()
+{
+    const int n = m_selected.size();
+    if (m_bulkCount)
+        m_bulkCount->setText(n > 0
+                                 ? QStringLiteral("已选 %1 项").arg(n)
+                                 : QStringLiteral("点卡片勾选 · Shift 范围选 · Ctrl 加选"));
+    const bool has = n > 0;
+    for (QToolButton *b : { m_bulkPin, m_bulkUnpin, m_bulkTag, m_bulkDelete }) {
+        if (b)
+            b->setEnabled(has);
+    }
+    if (m_bulkSelectAll) {
+        bool all = !m_visibleIds.isEmpty();
+        for (qint64 id : m_visibleIds) {
+            if (!m_selected.contains(id)) {
+                all = false;
+                break;
+            }
+        }
+        m_bulkSelectAll->setText(all ? QStringLiteral("取消全选") : QStringLiteral("全选"));
+    }
+}
+
+void InboxPage::selectAllToggle()
+{
+    bool all = !m_visibleIds.isEmpty();
+    for (qint64 id : m_visibleIds) {
+        if (!m_selected.contains(id)) {
+            all = false;
+            break;
+        }
+    }
+    if (all)
+        m_selected.clear();
+    else
+        for (qint64 id : m_visibleIds)
+            m_selected.insert(id);
+    applySelectionToCards();
+    updateBulkBar();
+}
+
+// Shift 范围选：从上次点过的那条到当前这条整段选中；普通点击 / Ctrl 点击 = 切换单条
+void InboxPage::onCardSelectionClicked(qint64 id, Qt::KeyboardModifiers mods)
+{
+    if (!m_selectMode)
+        return;
+    if (mods & Qt::ShiftModifier) {
+        const int from = m_visibleIds.indexOf(m_selectAnchor);
+        const int to = m_visibleIds.indexOf(id);
+        if (from >= 0 && to >= 0) {
+            for (int i = qMin(from, to); i <= qMax(from, to); ++i)
+                m_selected.insert(m_visibleIds.at(i));
+            applySelectionToCards();
+            updateBulkBar();
+            return;
+        }
+    }
+    if (m_selected.contains(id))
+        m_selected.remove(id);
+    else
+        m_selected.insert(id);
+    m_selectAnchor = id;
+    if (NoteCard *card = findCard(id))
+        card->setChecked(m_selected.contains(id));
+    updateBulkBar();
+}
+
+QList<qint64> InboxPage::selectedIds() const
+{
+    QList<qint64> ids;
+    for (qint64 id : m_visibleIds) {
+        if (m_selected.contains(id))
+            ids << id;
+    }
+    return ids;
+}
+
+void InboxPage::bulkDelete()
+{
+    const QList<qint64> ids = selectedIds();
+    if (ids.isEmpty())
+        return;
+    m_selected.clear();
+    updateBulkBar();
+    deleteNotes(ids);
+}
+
+void InboxPage::bulkSetPinned(bool pinned)
+{
+    const QList<qint64> ids = selectedIds();
+    if (ids.isEmpty())
+        return;
+    for (qint64 id : ids) {
+        m_store.setPinned(id, pinned);
+        if (Note *n = findNote(id))
+            n->pinned = pinned;
+    }
+    m_store.save();
+    // 置顶只在本地生效（不同步服务端），重排一次即可；选择保留，方便接着加标签
+    applyClientFilter();
+}
+
+void InboxPage::bulkEditTags()
+{
+    const QList<qint64> ids = selectedIds();
+    if (ids.isEmpty())
+        return;
+
+    // 候选：添加模式用编辑器联想池（m_tags），移除模式用选中笔记标签的并集
+    QStringList known;
+    for (const DetailedTag &t : m_tags) {
+        if (!t.name.isEmpty() && !known.contains(t.name))
+            known << t.name;
+    }
+    QStringList noteTags;
+    for (qint64 id : ids) {
+        const Note *n = findNote(id);
+        if (!n)
+            continue;
+        for (const QString &t : n->tags) {
+            if (!noteTags.contains(t))
+                noteTags << t;
+        }
+    }
+    std::sort(known.begin(), known.end());
+    std::sort(noteTags.begin(), noteTags.end());
+
+    TagPickerDialog dlg(known, noteTags, ids.size(), this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const QString tag = dlg.tag();
+    if (tag.isEmpty())
+        return;
+    const bool remove = (dlg.mode() == TagPickerDialog::Mode::Remove);
+
+    int changed = 0;
+    for (qint64 id : ids) {
+        Note *n = findNote(id);
+        if (!n)
+            continue;
+        QStringList tags = n->tags;
+        const bool has = tags.contains(tag);
+        if (has == remove)
+            continue; // 要加的已经有了 / 要删的本来就没有
+        if (remove)
+            tags.removeAll(tag);
+        else
+            tags << tag;
+
+        const QString content = n->content;
+        n->tags = tags; // 乐观更新：界面立即生效，失败时本地仍保留（会被标脏补推）
+        ++changed;
+
+        if (id > 0 && !isOffline()) {
+            QNetworkReply *r = m_api->updateNote(id, content, tags);
+            connect(r, &QNetworkReply::finished, this, [this, r, id, tags] {
+                QJsonDocument doc;
+                QString err;
+                if (!ApiClient::parseReply(r, &doc, &err)) {
+                    if (isConnectionError(r)) {
+                        m_online = false;
+                        startReconnect();
+                        updateOfflineBadge();
+                    }
+                    // 提交失败：标成本地脏改动，重连后自动补推
+                    if (const Note *cur = m_store.find(id))
+                        m_store.updateLocal(id, cur->content, tags);
+                    m_store.save();
+                    return;
+                }
+                // 服务端已确认：只同步本地镜像，不置 pendingOp（否则会被再次补推）
+                m_store.setTagsLocal(id, tags);
+                m_store.save();
+            });
+        } else {
+            m_store.updateLocal(id, content, tags);
+            m_store.save();
+        }
+    }
+
+    if (changed > 0) {
+        applyClientFilter(); // 标签徽标立即刷新，滚动位置保持
+        loadTagTree();       // 侧栏标签计数（异步，不干扰列表）
+    }
+}
+
+// Esc 退出多选（与任务页一致）
+void InboxPage::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Escape && m_selectMode) {
+        if (m_btnSelect)
+            m_btnSelect->setChecked(false); // 触发 toggled → setSelectMode(false)
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
 }
 
 void InboxPage::onSearchChanged()
@@ -1324,73 +1771,132 @@ void InboxPage::onNoteDetails(qint64 id)
     }
 }
 
-void InboxPage::onConvertToTodo(qint64 id)
+bool InboxPage::lookupNote(qint64 id, Note *out) const
 {
-    // 找到笔记（内存列表 → 本地镜像）
-    Note note;
-    bool found = false;
     for (const Note &n : m_notes) {
         if (n.id == id) {
-            note = n;
-            found = true;
-            break;
+            *out = n;
+            return true;
         }
     }
-    if (!found) {
-        if (const Note *p = m_store.find(id)) {
-            note = *p;
-            found = true;
-        }
+    if (const Note *p = m_store.find(id)) {
+        *out = *p;
+        return true;
     }
-    if (!found)
+    return false;
+}
+
+// 转为待办同样不再弹确认框：点下去立刻从列表消失 + 3 秒撤销浮条，到期才提交服务端两步
+// 转换（先建 Todo 再删原笔记）。撤销窗口内什么请求都没发，撤销就是原样恢复；
+// 窗口内关掉程序也只是「没转成」，笔记还在，不会两头空。
+void InboxPage::onConvertToTodo(qint64 id)
+{
+    Note note;
+    if (!lookupNote(id, &note))
         return;
 
     // 转换走服务端两步调用（先建 Todo 再删笔记），离线/本地未同步无法执行
     if (isOffline() || id < 0) {
-        QMessageBox::information(this, QStringLiteral("转为待办"),
-                                 QStringLiteral("当前离线（或笔记尚未同步），暂不支持转为待办。"));
+        showToast(QStringLiteral("当前离线，转为待办需要连接服务端"));
         return;
     }
 
-    const auto ret = QMessageBox::question(
-        this, QStringLiteral("转为待办"),
-        QStringLiteral("把该笔记原样转为一条待办，并删除原笔记？"),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (ret != QMessageBox::Yes)
-        return;
+    // 气泡只有一个：新的顶掉旧的，所以旧批必须当场提交（否则它再也点不到撤销、也永不提交）
+    if (!m_pendingDel.isEmpty())
+        commitPendingDelete();
+    if (!m_pendingConv.isEmpty())
+        commitPendingConvert();
 
-    const QStringList tags = note.tags;
-    QNetworkReply *r = m_api->createTodo(extractTodoTitle(note.content), note.content, tags);
-    connect(r, &QNetworkReply::finished, this, [this, r, id] {
-        QJsonDocument doc;
-        QString err;
-        if (!ApiClient::parseReply(r, &doc, &err)) {
-            // 步骤 1 失败：不删笔记（防数据丢失），保留原文
-            if (isConnectionError(r)) {
-                m_online = false;
-                startReconnect();
-                updateOfflineBadge();
-            }
-            QMessageBox::warning(this, QStringLiteral("转为待办"),
-                                 QStringLiteral("转换失败：%1").arg(err));
-            return;
+    m_pendingConv << id;
+    m_convHidden.insert(id);
+    m_selected.clear();
+    updateBulkBar();
+    // 立即从视图隐藏（滚动位置由锚点保持）。注意这里不改 m_notes / LocalStore，
+    // 撤销时才能原样恢复、顺序不变。
+    applyClientFilter();
+
+    QPointer<InboxPage> self(this);
+    showActionToast(QStringLiteral("已转为待办"), QStringLiteral("撤销"),
+                    [self] {
+                        if (self)
+                            self->undoPendingConvert();
+                    },
+                    3000, nullptr,
+                    [self] {
+                        if (self)
+                            self->commitPendingConvert();
+                    });
+}
+
+void InboxPage::undoPendingConvert()
+{
+    if (m_pendingConv.isEmpty())
+        return;
+    for (qint64 id : m_pendingConv)
+        m_convHidden.remove(id);
+    m_pendingConv.clear();
+    applyClientFilter(); // 屏蔽解除，笔记按原顺序回到列表（滚动锚点照常保持）
+}
+
+void InboxPage::commitPendingConvert()
+{
+    if (m_pendingConv.isEmpty())
+        return;
+    const QList<qint64> ids = m_pendingConv;
+    m_pendingConv.clear();
+    for (qint64 id : ids) {
+        Note note;
+        if (!lookupNote(id, &note)) { // 撤销窗口内被别处删掉了：只解除隐藏
+            m_convHidden.remove(id);
+            applyClientFilter();
+            continue;
         }
-        // 步骤 2：Todo 已建，删除原笔记；删除失败则保留笔记并提示
-        QNetworkReply *rd = m_api->deleteNote(id);
-        connect(rd, &QNetworkReply::finished, this, [this, rd] {
-            QJsonDocument doc2;
-            QString err2;
-            if (!ApiClient::parseReply(rd, &doc2, &err2)) {
-                setStatus(StatusBadge::State::Connected);
-                QMessageBox::warning(this, QStringLiteral("转为待办"),
-                                     QStringLiteral("已转为待办，原笔记删除失败（%1）").arg(err2));
-            } else {
-                setStatus(StatusBadge::State::Connected);
+        const QStringList tags = note.tags;
+        QNetworkReply *r = m_api->createTodo(extractTodoTitle(note.content), note.content, tags);
+        connect(r, &QNetworkReply::finished, this, [this, r, id] {
+            QJsonDocument doc;
+            QString err;
+            if (!ApiClient::parseReply(r, &doc, &err)) {
+                // 第一步就没成：服务端上这条笔记一直都在，放回列表并说明，不静默吞掉
+                if (isConnectionError(r)) {
+                    m_online = false;
+                    startReconnect();
+                    updateOfflineBadge();
+                }
+                abortPendingConvert(id, QStringLiteral("转为待办失败，笔记已保留（%1）").arg(err));
+                return;
             }
-            // 保留当前筛选上下文整体刷新（loadNotes 自带 m_currentTag / 搜索）
-            refreshAll();
+            // 步骤 2：Todo 已建，删除原笔记；删除失败则笔记放回并如实提示（此时待办已存在）
+            QNetworkReply *rd = m_api->deleteNote(id);
+            connect(rd, &QNetworkReply::finished, this, [this, rd, id] {
+                QJsonDocument doc2;
+                QString err2;
+                setStatus(StatusBadge::State::Connected); // 与转换前一致：两步都回来了，状态归位
+                if (!ApiClient::parseReply(rd, &doc2, &err2)) {
+                    abortPendingConvert(id, QStringLiteral("已创建待办，但原笔记删除失败（%1）").arg(err2));
+                    return;
+                }
+                // 转换彻底完成：这时才真正从内存列表与本地镜像里摘掉（界面不重建，滚动不动）
+                m_convHidden.remove(id);
+                for (int i = 0; i < m_notes.size(); ++i) {
+                    if (m_notes.at(i).id == id)
+                        m_notes.removeAt(i--);
+                }
+                m_store.drop(id);
+                m_store.save();
+                applyClientFilter();
+                refreshTagTree(); // 标签计数变了
+            });
         });
-    });
+    }
+}
+
+void InboxPage::abortPendingConvert(qint64 id, const QString &message)
+{
+    m_convHidden.remove(id);
+    // 笔记本来就没从 m_notes 摘掉，解除隐藏即可原位出现
+    applyClientFilter();
+    showToast(message);
 }
 
 void InboxPage::onTaskToggled(qint64 id, const QString &content)
@@ -1423,32 +1929,118 @@ void InboxPage::applyContent(qint64 id, const QString &text)
     });
 }
 
+// 删除不再弹确认框：立即从列表消失 + 3 秒撤销浮条，到期才真正提交。
+// 这样既不用被「确定删除？」打断，也不会因为手滑而不可挽回。
 void InboxPage::onDeleteNote(qint64 id)
 {
-    const auto ret = QMessageBox::question(this, QStringLiteral("删除笔记"),
-                                           QStringLiteral("确定删除这条笔记？"));
-    if (ret != QMessageBox::Yes)
-        return;
+    deleteNotes({ id });
+}
 
-    if (isOffline() || id < 0) {
-        // 离线，或本地未同步的新建：本地删除（新建会直接消失，服务端笔记留 tombstone）
-        deleteLocal(id);
+void InboxPage::deleteNotes(const QList<qint64> &ids)
+{
+    if (ids.isEmpty())
         return;
+    // 上一批还在撤销窗口内：先按原样提交。撤销窗口只有「刚才那一下」这么大，
+    // 气泡被新操作顶掉后旧批就再也点不到撤销了，留着反而是隐患。
+    if (!m_pendingDel.isEmpty())
+        commitPendingDelete();
+    // 同上：气泡只有一个，新的顶掉旧的，旧的「转为待办」必须当场提交，否则那条会一直不出现
+    if (!m_pendingConv.isEmpty())
+        commitPendingConvert();
+    for (qint64 id : ids) {
+        if (!m_pendingDel.contains(id))
+            m_pendingDel << id;
     }
-    QNetworkReply *r = m_api->deleteNote(id);
-    connect(r, &QNetworkReply::finished, this, [this, r, id] {
-        QJsonDocument doc;
-        QString err;
-        if (!ApiClient::parseReply(r, &doc, &err)) {
-            m_online = false;
-            startReconnect();
-            deleteLocal(id);
-            return;
+    m_selected.clear();
+    updateBulkBar();
+    // 立即从视图隐藏（滚动位置由锚点保持）。注意这里不改 m_notes / LocalStore，
+    // 撤销时才能原样恢复、顺序不变。
+    applyClientFilter();
+
+    const int n = m_pendingDel.size();
+    const QString text = n > 1 ? QStringLiteral("已删除 %1 条笔记").arg(n)
+                               : QStringLiteral("已删除笔记");
+    QPointer<InboxPage> self(this);
+    showActionToast(text, QStringLiteral("撤销"),
+                    [self] {
+                        if (self)
+                            self->undoPendingDelete();
+                    },
+                    3000, nullptr,
+                    [self] {
+                        if (self)
+                            self->commitPendingDelete();
+                    });
+}
+
+void InboxPage::undoPendingDelete()
+{
+    if (m_pendingDel.isEmpty())
+        return;
+    m_pendingDel.clear();
+    applyClientFilter(); // 屏蔽解除，笔记按原顺序回到列表（滚动锚点照常保持）
+}
+
+void InboxPage::commitPendingDelete()
+{
+    if (m_pendingDel.isEmpty())
+        return;
+    const QList<qint64> ids = m_pendingDel;
+    m_pendingDel.clear();
+    int online = 0;
+    for (qint64 id : ids) {
+        // 先从内存列表摘掉：删除已生效，界面无需重建（refreshAll 会重载第一页并把滚动位置丢掉）
+        for (int i = 0; i < m_notes.size(); ++i) {
+            if (m_notes.at(i).id == id)
+                m_notes.removeAt(i--);
         }
-        m_store.drop(id);
-        m_store.save();
-        refreshAll();
-    });
+        if (id < 0 || isOffline()) {
+            // 离线，或本地未同步的新建：走本地删除（新建直接消失，服务端笔记留 tombstone 待补推）
+            tombstoneLocal(id);
+            continue;
+        }
+        ++online;
+        QNetworkReply *r = m_api->deleteNote(id);
+        connect(r, &QNetworkReply::finished, this, [this, r, id] {
+            QJsonDocument doc;
+            QString err;
+            if (!ApiClient::parseReply(r, &doc, &err)) {
+                if (isConnectionError(r)) {
+                    m_online = false;
+                    startReconnect();
+                    updateOfflineBadge();
+                }
+                // 提交失败不还原界面（用户已经看到它删掉了），留 tombstone 重连后补推
+                tombstoneLocal(id);
+            } else {
+                m_store.drop(id);
+                m_store.save();
+            }
+            if (--m_pendingDelCommits <= 0)
+                refreshTagTree();
+        });
+    }
+    // 侧栏标签计数等全部回包后再刷：立刻刷会读到「还没删」的服务端标签数
+    // （连接与计数赋值都在循环之后——回调要等事件循环才可能触发）
+    m_pendingDelCommits = online;
+    if (online == 0)
+        refreshTagTree();
+}
+
+// 侧栏标签树刷新：在线走服务端口径，离线退回本地统计（都不碰列表，滚动位置不受影响）
+void InboxPage::refreshTagTree()
+{
+    if (isOffline())
+        rebuildTagsFromLocal();
+    else
+        loadTagTree();
+}
+
+// 本地删除但不重建列表：调用时该条已经从视图里消失了，重建只会无谓地打乱滚动位置
+void InboxPage::tombstoneLocal(qint64 id)
+{
+    m_store.markDeleted(id);
+    m_store.save();
 }
 
 void InboxPage::onComment(qint64 id)
