@@ -309,6 +309,9 @@ NoteCard *CardPool::acquire(const Note &note, bool pinned)
     } else {
         // 池空时创建新卡（parent=null 表示由外部负责生命周期）
         card = new NoteCard(note, pinned, nullptr);
+        // 只给新建的卡挂一次信号：池里取出的旧卡连接还在，重挂会让一次点击触发多遍槽
+        if (m_wiring)
+            m_wiring(card);
     }
     card->setNote(note, pinned); // 重绑定内容
     return card;

@@ -268,6 +268,10 @@ private:
     void pruneSelection();                   // 丢弃已被删除任务的选择残留
 
     QList<TodoTask> visibleTasks() const;
+    // 搜索框当前词（已 trim + 转小写）；空 = 未启用搜索
+    QString searchNeedle() const;
+    // 标题 / 备注 / 标签 / 所属清单名 任一命中即保留（子串匹配、不区分大小写）
+    bool matchesSearch(const TodoTask &t, const QString &needle) const;
 
     QWidget *makeSubtaskRow(const TodoSubtask &s);
     TodoNavItem *makeNavItem(const QString &name);
@@ -305,6 +309,7 @@ private:
     QLabel *m_viewTitle;
     QLabel *m_viewCount;
     QComboBox *m_sortBox = nullptr;   // 排序模式（默认/最近添加/倒序/按优先级/按截止日期）
+    QLineEdit *m_search = nullptr;    // 当前视图内的任务搜索（纯内存过滤）
     QLineEdit *m_quickAdd;
     QListWidget *m_list;
     QPushButton *m_completedBtn;

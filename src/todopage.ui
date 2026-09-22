@@ -150,6 +150,19 @@
             </spacer>
            </item>
            <item>
+            <widget class="QLineEdit" name="TodoSearch">
+             <property name="placeholderText">
+              <string>搜索任务…</string>
+             </property>
+             <property name="clearButtonEnabled">
+              <bool>true</bool>
+             </property>
+             <property name="toolTip">
+              <string>按标题 / 备注 / 标签 / 清单名过滤（列表视图限当前视图，平铺视图限全部清单）</string>
+             </property>
+            </widget>
+           </item>
+           <item>
             <widget class="QComboBox" name="sortBox">
              <property name="toolTip">
               <string>排序方式</string>

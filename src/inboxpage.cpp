@@ -166,6 +166,23 @@ void InboxPage::buildUi()
     m_btnFilterClear = ui->btnFilterClear;
     m_list = ui->InboxList;
     m_cardPool = new CardPool(60); // 可见行数约 20-30 + 上下缓冲，安全阈值 60
+    // 卡片信号接线：池化后卡片跨重建复用，连接只能在「新建那张卡」时挂一次
+    // （挂晚了每次 acquire 重连会让一次点击触发多遍；不挂则 ⋯ 菜单/标签/勾选全都没人接收）
+    m_cardPool->setWiring([this](NoteCard *card) {
+        connect(card, &NoteCard::editRequested, this, &InboxPage::onEditNote);
+        connect(card, &NoteCard::deleteRequested, this, &InboxPage::onDeleteNote);
+        connect(card, &NoteCard::commentRequested, this, &InboxPage::onComment);
+        connect(card, &NoteCard::togglePinnedRequested, this, &InboxPage::onTogglePinned);
+        connect(card, &NoteCard::detailsRequested, this, &InboxPage::onNoteDetails);
+        connect(card, &NoteCard::convertToTodoRequested, this, &InboxPage::onConvertToTodo);
+        connect(card, &NoteCard::taskToggled, this, &InboxPage::onTaskToggled);
+        connect(card, &NoteCard::parentReferenceClicked, this, &InboxPage::onParentReferenceClicked);
+        connect(card, &NoteCard::selectionClicked, this, &InboxPage::onCardSelectionClicked);
+        // 点击正文里的 #标签（层级 tag 每段可点）→ 按路径筛选；再点同路径取消
+        connect(card, &NoteCard::tagClicked, this, [this](const QString &path) {
+            applyTagFilterPath(path == m_currentTag ? QString() : path);
+        });
+    });
     m_stack = ui->stack;
     m_emptyIcon = ui->emptyIcon;
     m_emptyText = ui->emptyText;

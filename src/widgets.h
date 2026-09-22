@@ -81,6 +81,10 @@ public:
     ~CardPool();
     // 从池中取一张卡（空或从池尾弹），绑定 note
     NoteCard *acquire(const Note &note, bool pinned);
+    // 注入「新建卡片时的一次性接线」（宿主提供，InboxPage 用它挂 NoteCard 的信号）
+    // 池化复用的卡片信号连接必须只挂一次：放在 acquire 的建卡分支，
+    // 而不是每次渲染都连 —— 后者会让一次点击触发 N 次槽。
+    void setWiring(std::function<void(NoteCard *)> wiring) { m_wiring = std::move(wiring); }
     // 归还一张卡到池中（满了则删除）
     void release(NoteCard *card);
     // 把所有当前在使用的卡归还池中（不舍弃，用于整屏刷新前复用）
@@ -94,6 +98,7 @@ public:
 private:
     const int m_maxSize;
     QVector<NoteCard *> m_pool; // 后进先出（最近用过的放后面，优先回收旧的）
+    std::function<void(NoteCard *)> m_wiring;
 };
 
 // ------------------------------------------------------------------ //

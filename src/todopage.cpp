@@ -1198,6 +1198,10 @@ void TodoPage::applyMetrics()
     ui->dNotes->setMinimumHeight(si(52));
     ui->subsBox->setMinimumHeight(si(128));
     ui->TodoQuickAdd->setFixedHeight(si(36));
+    if (m_search) {
+        m_search->setFixedWidth(si(200));
+        m_search->setFixedHeight(si(28));   // 与同行的 sortBox 等高
+    }
     if (m_bulkBar && ui->bulkLay) {
         ui->bulkLay->setContentsMargins(si(10), si(6), si(10), si(6));
         ui->bulkLay->setSpacing(si(4));
@@ -1236,6 +1240,7 @@ void TodoPage::buildUi()
     m_viewTitle = ui->TodoViewTitle;
     m_viewCount = ui->TodoViewCount;
     m_quickAdd = ui->TodoQuickAdd;
+    m_search = ui->TodoSearch;
     m_list = ui->TodoList;
     m_completedBtn = ui->completedBtn;
     m_completedBtn->setObjectName(QStringLiteral("TodoCompleted"));   // 与 applyPageStyles 的选择器对齐
@@ -1335,6 +1340,12 @@ void TodoPage::buildUi()
 
     // ── 信号连接 ──
     connect(m_quickAdd, &QLineEdit::returnPressed, this, &TodoPage::onQuickAdd);
+    // 搜索防抖 200ms（与笔记页同一手感）：任务全量已在内存，只需重建当前视图
+    if (m_search) {
+        connect(m_search, &QLineEdit::textChanged, this, [this] {
+            QTimer::singleShot(200, this, [this] { rebuildList(); });
+        });
+    }
     connect(m_completedBtn, &QPushButton::clicked, this, [this](bool on) {
         m_showCompleted = on;
         rebuildList();
@@ -1476,6 +1487,16 @@ void TodoPage::applyPageStyles()
                 .arg(sp(13), sp(12), kColorBorder, withAlpha(kColorBgElev2, 0.55), kColorFg,
                      withAlpha(kColorAccent, 0.6),
                      kColorAccent,
+                     withAlpha(kColorBgElev2, 0.75)));
+    if (m_search)
+        m_search->setStyleSheet(
+            QStringLiteral("QLineEdit#TodoSearch{font-size:%1;padding:0 %2;border:1px solid %3;"
+                           "border-radius:8px;background:%4;color:%5;}"
+                           "QLineEdit#TodoSearch:hover{border-color:%6;}"
+                           "QLineEdit#TodoSearch:focus{border-color:%7;background:%8;}")
+                .arg(sp(12), sp(10), withAlpha(kColorBorder, 0.7),
+                     withAlpha(kColorBgElev2, 0.55), kColorFg,
+                     withAlpha(kColorAccent, 0.6), kColorAccent,
                      withAlpha(kColorBgElev2, 0.75)));
     if (m_list)
         m_list->setStyleSheet(
@@ -1831,14 +1852,23 @@ void TodoPage::rebuildBoard()
     }
     m_board->setVisible(true);
 
-    m_board->setData(m_lists, m_tasks, m_listColors, m_settleTask,
+    // 看板列是按清单铺开全部任务的，不走 visibleTasks()，所以搜索词在这里单独过一遍
+    QList<TodoTask> tasks = m_tasks;
+    const QString needle = searchNeedle();
+    if (!needle.isEmpty()) {
+        for (int i = tasks.size() - 1; i >= 0; --i)
+            if (!matchesSearch(tasks.at(i), needle))
+                tasks.removeAt(i);
+    }
+
+    m_board->setData(m_lists, tasks, m_listColors, m_settleTask,
                      [this](const TodoTask &a, const TodoTask &b) {
                          return taskLessThan(a, b, m_sort);
                      });
     m_settleTask = 0;
 
     int open = 0;
-    for (const auto &t : m_tasks)
+    for (const auto &t : tasks)
         if (!t.completed)
             ++open;
     m_viewTitle->setText(QStringLiteral("全部清单"));
@@ -2181,6 +2211,7 @@ QList<TodoTask> TodoPage::visibleTasks() const
 {
     QList<TodoTask> open, done;
     const QDate today = QDate::currentDate();
+    const QString needle = searchNeedle();
     for (const auto &t : m_tasks) {
         bool inView = false;
         switch (m_view) {
@@ -2201,6 +2232,8 @@ QList<TodoTask> TodoPage::visibleTasks() const
         }
         if (!inView)
             continue;
+        if (!matchesSearch(t, needle))
+            continue;
         if (t.completed)
             done.append(t);
         else
@@ -2214,6 +2247,27 @@ QList<TodoTask> TodoPage::visibleTasks() const
         return a.completedAt > b.completedAt;
     });
     return open + done;
+}
+
+QString TodoPage::searchNeedle() const
+{
+    return m_search ? m_search->text().trimmed().toLower() : QString();
+}
+
+bool TodoPage::matchesSearch(const TodoTask &t, const QString &needle) const
+{
+    if (needle.isEmpty())
+        return true;
+    if (t.title.toLower().contains(needle) || t.notes.toLower().contains(needle))
+        return true;
+    for (const QString &tag : t.tags)
+        if (tag.toLower().contains(needle))
+            return true;
+    // 清单名也算命中：搜「工作」能把散在各任务上的归属拉出来
+    for (const auto &l : m_lists)
+        if (l.id == t.listId && l.name.toLower().contains(needle))
+            return true;
+    return false;
 }
 
 // ── widget 池实现 ─────────────────────────────────────────────────────────────
@@ -2392,7 +2446,10 @@ void TodoPage::rebuildList()
         auto *item = new QListWidgetItem(m_list);
         item->setSizeHint(QSize(0, si(110)));
         m_list->addItem(item);
-        auto *l = new QLabel(QStringLiteral("暂无任务\n在上方输入框回车即可添加"));
+        const bool searching = m_search && !m_search->text().trimmed().isEmpty();
+        auto *l = new QLabel(searching
+                                 ? QStringLiteral("没有匹配的任务\n换个词，或点输入框的 ✕ 清空搜索")
+                                 : QStringLiteral("暂无任务\n在上方输入框回车即可添加"));
         l->setAlignment(Qt::AlignCenter);
         l->setStyleSheet(QStringLiteral("color:%1;padding:24px;").arg(kColorFgMuted));
         m_list->setItemWidget(item, l);
