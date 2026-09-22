@@ -13,6 +13,7 @@
 #   just install        把已部署的 build/ 拷贝到安装目录（默认 %LOCALAPPDATA%/Programs/aw-qtui）
 #   just asan           AddressSanitizer 诊断构建
 #   just selftest       编译并运行 TodoStore 自测
+#   just mem-baseline   逐级量 base 内存（详见 README「内存与性能基线」）
 #   just run            运行 build/awqtui.exe
 #   just notify         发送 Windows Toast 通知
 #   just clean          清理 build / build-dbg / build-asan / server-src
@@ -65,6 +66,7 @@ help:
     Write-Host '  just install       copy deployed build/ into install dir'
     Write-Host '  just asan          AddressSanitizer build'
     Write-Host '  just selftest      compile & run TodoStore self-test'
+    Write-Host '  just mem-baseline  逐级量 base 内存（私有/工作集），核对 README 的内存基线'
     Write-Host '  just run           run build/awqtui.exe'
     Write-Host '  just notify        send Windows Toast notification'
     Write-Host '  just clean         clean build / build-dbg / build-asan / server-src'
@@ -280,6 +282,41 @@ selftest:
     )
     cl @clArgs
     Write-Host 'selftest built: tools/todostore_selftest.exe (run: tools/todostore_selftest.exe)'
+
+# ---------- 内存基线自测（tools/mem_baseline.cpp） ----------
+# 逐级构造真实控件，每级打印进程私有内存 / 工作集 —— README「内存与性能基线」里的
+# 数字就是它量的，改动后重跑即可核对地板有没有被抬高。
+# 链接的是 build-verify 的那份目标文件（与 build/ 同源同配置）：**改过 src/ 必须先**
+# `just build Release build-verify`，否则量到的是旧代码的地板（和探针复用旧 obj 一个坑）。
+# 参数：real（默认；真实平台但不弹窗，最接近实机）/ offscreen（离屏，快，绝对值偏低）
+mem-baseline mode="real":
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    $qtDir = '{{QT}}'
+    if (-not (Test-Path 'build-verify/CMakeFiles/awqtui.dir')) {
+        throw 'build-verify 不存在：先跑 `just build Release build-verify`'
+    }
+    . '{{VCENV}}'
+    $objs = @(Get-ChildItem -Recurse 'build-verify/CMakeFiles/awqtui.dir' -Filter '*.obj' |
+              Where-Object { $_.Name -ne 'main.cpp.obj' } | ForEach-Object { $_.FullName })
+    $ver = (Select-String -Path 'CMakeLists.txt' -Pattern 'project\(aw-qtui VERSION ([0-9]+\.[0-9]+\.[0-9]+)' |
+            Select-Object -First 1).Matches[0].Groups[1].Value
+    cl /nologo /std:c++17 /EHsc /MD /O2 /Zc:__cplusplus /permissive- /utf-8 `
+       /DWIN32 /D_WINDOWS /DUNICODE /D_UNICODE /DNOMINMAX /D_WIN32_WINNT=0x0A00 `
+       /DQT_CORE_LIB /DQT_GUI_LIB /DQT_WIDGETS_LIB /DQT_NETWORK_LIB /DQT_NO_DEBUG `
+       "/DAW_VERSION=`"$ver`"" `
+       /I'src' /I'build-verify/awqtui_autogen/include' `
+       "/I$qtDir/include" "/I$qtDir/include/QtCore" "/I$qtDir/include/QtGui" `
+       "/I$qtDir/include/QtWidgets" "/I$qtDir/include/QtNetwork" `
+       'tools/mem_baseline.cpp' '/Fo:build-verify/mem_baseline.obj' '/Fe:build-verify/mem_baseline.exe' `
+       $objs `
+       /link /LIBPATH:"$qtDir/lib" Qt6Widgets.lib Qt6Network.lib Qt6Gui.lib Qt6Core.lib `
+       Dnsapi.lib iphlpapi.lib shcore.lib d3d11.lib dxgi.lib dxguid.lib d3d12.lib mpr.lib userenv.lib `
+       shell32.lib ws2_32.lib kernel32.lib user32.lib gdi32.lib winspool.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib psapi.lib
+    $env:PATH = "$qtDir/bin;$env:PATH"
+    $env:QT_PLUGIN_PATH = "$qtDir/plugins"
+    if ('{{mode}}' -eq 'offscreen') { $env:QT_QPA_PLATFORM = 'offscreen' }
+    & 'build-verify/mem_baseline.exe' '{{mode}}'
 
 # ---------- 运行 ----------
 run port="":

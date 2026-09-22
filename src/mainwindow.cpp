@@ -34,6 +34,7 @@
 #include <QButtonGroup>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDateTime>
 #include <QEasingCurve>
 #include <QEvent>
 #include <QFileInfo>
@@ -82,6 +83,10 @@ namespace awqtui {
 // 左侧导航宽度（缩放前基准 px）：窄栏仅图标 / 展开显示图标+文字
 static const int kNavCollapsedPx = 56;
 static const int kNavExpandedPx = 148;
+
+// 快速切页判定窗口（ms）：两次切页间隔小于它就跳过整页淡入动画。
+// 淡入本身 150ms，间隔比它还短时肉眼看不到，却要为每一帧付整页离屏渲染的代价。
+static const qint64 kRapidSwitchMs = 220;
 
 // 最小窗口尺寸：保证收件箱工具栏（搜索框 240 + 排序 108 + 按钮组）与卡片
 // 头部「⋯」菜单按钮不被压出可视区；数值随 UI 缩放（si），并按当前屏幕钳制
@@ -807,8 +812,13 @@ void MainWindow::switchPage(int index)
     // 必须在设 m_currentPage 之前处理，避免子标签 currentChanged 的
     // m_currentPage==PAGE_X 守卫在本页仍显示时被误触发而重复刷新。
     if (index == PAGE_ACTIVITY || index == PAGE_FOCUS_STATS || index == PAGE_SYNC
-        || index == PAGE_SETTINGS)
+        || index == PAGE_SETTINGS) {
         enterEvictable(index);
+        // 这些页的子控件树离开即销毁、回来才懒建 —— 新建出来的控件还没按当前缩放上过样式，
+        // 故作废本页代次，让下面的 scaleCurrentView() 照旧补齐（只影响这几个廉价页；
+        // 常驻的收件箱/任务页不受影响，平切不再重建）
+        m_pageScaleEpoch.remove(index);
+    }
 
     m_stack->setCurrentIndex(stackIndex);
     m_currentPage = index;
@@ -872,8 +882,13 @@ void MainWindow::switchPage(int index)
     // 记录当前页为「上一页」，供下次切换判断是否离开同步页
     m_prevPage = index;
 
-    // 淡入动画
-    if (gFxAnimations) {
+    // 淡入动画：整页 opacity 动画期间每帧都要把整页离屏渲染一遍，几百张卡的页面代价极高。
+    // 快速连切（距上次切页 < kRapidSwitchMs）时跳过 —— 这个时长内淡入本来就看不出来，
+    // 却会把 CPU/内存一起顶上去（连切十来下即可复现）。
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const bool rapidSwitch = m_lastSwitchMs > 0 && (nowMs - m_lastSwitchMs) < kRapidSwitchMs;
+    m_lastSwitchMs = nowMs;
+    if (gFxAnimations && !rapidSwitch) {
         if (QWidget *page = m_stack->widget(stackIndex)) {
             auto *eff = new QGraphicsOpacityEffect(page);
             eff->setOpacity(0.0);
@@ -883,8 +898,10 @@ void MainWindow::switchPage(int index)
             anim->setStartValue(0.0);
             anim->setEndValue(1.0);
             anim->setEasingCurve(QEasingCurve::OutCubic);
-            connect(anim, &QPropertyAnimation::finished, page, [page] {
-                page->setGraphicsEffect(nullptr);
+            connect(anim, &QPropertyAnimation::finished, page, [page, eff] {
+                // 期间又切回本页、换了新 effect 时别摘掉新的（否则新动画会被瞬间掐断）
+                if (page->graphicsEffect() == eff)
+                    page->setGraphicsEffect(nullptr);
             });
             anim->start(QAbstractAnimation::DeleteWhenStopped);
         }
@@ -1511,6 +1528,13 @@ void MainWindow::queueZoomBy(qreal factor)
 // 只为当前可见页面应用缩放样式（延迟重建的其余页在 switchPage / 子标签切换时通过本函数补齐）
 void MainWindow::scaleCurrentView()
 {
+    // 代次门控：本页样式已按当前缩放代次应用过 → 平切（缩放/主题都没变）直接返回，不重建。
+    // 收件箱 applyUiScale() 结尾是 applyClientFilter(true)（末尾参数 force 让 renderSignature
+    // 去重失效），任务页是三连 rebuild —— 「重建」本来只在缩放/主题变化时才必要，
+    // 之前却挂在每一次切页上，快速来回切就是每秒数轮百级控件的构造/析构。
+    if (m_pageScaleEpoch.value(m_currentPage, -1) == m_scaleEpoch)
+        return;
+
     switch (m_currentPage) {
     case PAGE_INBOX:
         if (m_inbox) m_inbox->applyUiScale();
@@ -1549,11 +1573,19 @@ void MainWindow::scaleCurrentView()
     default:
         break;
     }
+    // 记下本页已按当前代次上过样式（下次平切进来即命中门控，直接返回）
+    m_pageScaleEpoch.insert(m_currentPage, m_scaleEpoch);
+    // 落痕：本页真的重建过（切页不再重建时，这条只在缩放/主题变化后首次进入各自页面时出现）
+    qDebug() << "[MainWindow] page scale applied, page=" << m_currentPage
+             << "epoch=" << m_scaleEpoch;
 }
 
 void MainWindow::applyUiScale()
 {
     gUiScale = m_zoom;
+
+    // 缩放/主题代次 +1：所有页面已记录的代次随即全部落后，各自在下次进入时补一次样式
+    ++m_scaleEpoch;
 
     // 重新生成全局 QSS
     qApp->setStyleSheet(scaleQss(gGlobalQss));

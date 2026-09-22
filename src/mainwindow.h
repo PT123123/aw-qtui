@@ -230,6 +230,13 @@ private:
     QHash<int, int> m_pageToStack;
     // 当前显示页的枚举值（用于 F5 按当前页分发刷新）
     int m_currentPage = PAGE_INBOX;
+    // 缩放/主题代次门控：applyUiScale() 每次自增 m_scaleEpoch，各页把「自己的样式已应用到哪个
+    // 代次」记在 m_pageScaleEpoch。切页时只有记录落后于当前代次才重应用 —— 收件箱（几百张卡）
+    // 与任务页（百余行）的整表重建以前挂在**每一次**切页上，是来回切页内存冲高 + 卡顿的主因。
+    int m_scaleEpoch = 0;
+    QHash<int, int> m_pageScaleEpoch; // page → 已应用到的代次（缺省 = 从未应用）
+    // 上次切页时刻（ms since epoch）：距上次不足 kRapidSwitchMs 视为「快速连切」，跳过整页淡入
+    qint64 m_lastSwitchMs = 0;
     // 页面缩放：当前缩放比（1.0 = 100%）与右下角百分比提示
     qreal m_zoom = 1.0;
     QLabel *m_zoomBadge = nullptr;
