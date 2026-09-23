@@ -102,13 +102,15 @@ static void applyWindowMinimumSize(QMainWindow *win)
 
 // 缩放吸附档位：仅 gFixSnapZoom 开启时使用，把缩放吸附到"干净"倍率，
 // 避免非整数缩放导致控件落在亚像素位置、1px 边框发虚。关闭时保留自由缩放（1.15 倍步进）。
+static const qreal kZoomSteps[] = {0.50, 0.75, 1.00, 1.25, 1.50, 1.75,
+                                   2.00, 2.25, 2.50, 2.75, 3.00};
+static const int kZoomStepCount = int(sizeof(kZoomSteps) / sizeof(kZoomSteps[0]));
+
 static qreal snapZoom(qreal z)
 {
-    static const qreal kSteps[] = {0.50, 0.75, 1.00, 1.25, 1.50, 1.75,
-                                   2.00, 2.25, 2.50, 2.75, 3.00};
     qreal best = z;
     qreal bestDist = 1e9;
-    for (const qreal s : kSteps) {
+    for (const qreal s : kZoomSteps) {
         const qreal d = qAbs(s - z);
         if (d < bestDist) {
             bestDist = d;
@@ -116,6 +118,26 @@ static qreal snapZoom(qreal z)
         }
     }
     return best;
+}
+
+// 吸附模式下键盘缩放按「档位整格」进退。
+// 不能沿用「先乘 1.15 再吸附」：档位间距 0.25 大于一步的 15%，0.75×1.15=0.8625
+// 距 0.75(0.1125) 比距 1.00(0.1375) 更近 → 被吸回原档，setZoom 里 qFuzzyCompare 直接早退，
+// 表现为 Ctrl±/Ctrl- 静默无反应（0.50 同理：0.575 距 0.50 更近）。
+static qreal stepZoom(qreal z, int dir)
+{
+    if (dir > 0) {
+        for (int i = 0; i < kZoomStepCount; ++i) {
+            if (kZoomSteps[i] > z + 1e-6)
+                return kZoomSteps[i];
+        }
+        return kZoomSteps[kZoomStepCount - 1];
+    }
+    for (int i = kZoomStepCount - 1; i >= 0; --i) {
+        if (kZoomSteps[i] < z - 1e-6)
+            return kZoomSteps[i];
+    }
+    return kZoomSteps[0];
 }
 
 MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(parent)
@@ -192,7 +214,12 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
         if (m_zoomPending >= 0.0) {
             const qreal target = m_zoomPending;
             m_zoomPending = -1.0;
+            const qreal before = m_zoom;
             setZoom(target, false); // 落位：吸附 + 持久化 + 重建当前可见页
+            // 已顶到档位边界（0.50 / 3.00）时 setZoom 会因等值早退：这里仍弹一次比例气泡，
+            // 让「按键收到了、只是到头了」有反馈，否则看起来就是按键失灵
+            if (qFuzzyCompare(before, m_zoom))
+                showZoomBadge();
         }
     });
 
@@ -1518,9 +1545,15 @@ void MainWindow::setZoom(qreal zoom, bool underMouse)
 // 长按/连按时只做加减算术（零窗口重建），真正重建合并到约 80ms 一次，兼顾流畅与反馈
 void MainWindow::queueZoomBy(qreal factor)
 {
-    if (m_zoomPending < 0.0)
-        m_zoomPending = m_zoom; // 以当前已生效的比例为基准开始累计
-    m_zoomPending = qBound(0.3, m_zoomPending * factor, 3.0);
+    const qreal base = (m_zoomPending < 0.0) ? m_zoom : m_zoomPending; // 以累计目标为基准
+    qreal next;
+    if (gFixSnapZoom) {
+        // 吸附模式：按档位整格进退（乘 1.15 再吸附会在 0.50 / 0.75 处被吸回原档）
+        next = stepZoom(base, factor > 1.0 ? 1 : -1);
+    } else {
+        next = base * factor;
+    }
+    m_zoomPending = qBound(0.3, next, 3.0);
     if (m_zoomInputTimer)
         m_zoomInputTimer->start();
 }
