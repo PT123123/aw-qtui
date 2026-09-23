@@ -47,3 +47,8 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+
+# 服务端源码改为仓库外的共享目录：vendor/aw-server-rust 是指向 ../aw-server-plus 的 junction
+/vendor/
+# just server 的 cargo 缓存（独立于共享源码里的 Android 交叉编译 target）
+/.cargo-target-server/

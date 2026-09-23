@@ -202,26 +202,49 @@ aw-qtui 对服务端是**运行期进程 + REST 契约依赖**，不是编译期
 `aw-server.db`（活动数据）、`inbox.db`（收件箱）、`todo.db`（任务）。
 完整决策与备选方案见[融合决策](#融合决策aw-inbox-与-aw-server-rust)。
 
-### 源码来源（git submodule）
+### 源码来源（仓库外共享目录 + junction）
 
-服务端源码以 **git submodule** 形式挂载在 `vendor/` 下（融合后仅一个）：
+服务端源码**不再以 submodule 形式放在本仓库内**，因为 `aw-android-native` 依赖同一个
+fork（`PT123123/aw-server-plus`），两份 checkout 各占一份源码、各自 pin 在不同提交上，
+改一次服务端要在两处同步。现在整个 workspace 只保留一份：
 
-| submodule | 远端 | 分支 / 提交 | 角色 |
+```
+<workspace>/                       # 两个客户端仓库与服务端源码同级
+├── aw-server-plus/          # 唯一服务端源码（独立 git 仓库，main）
+│   └── target/              # ← aw-android 的交叉编译缓存（rust-android-gradle 硬编码 <module>/target）
+├── aw-qtui/
+│   ├── vendor/aw-server-rust    → junction → ..\..\aw-server-plus
+│   └── .cargo-target-server/    # ← 本仓库的 cargo 缓存（justfile 注入 CARGO_TARGET_DIR）
+└── aw-android-native/
+    └── aw-server-rust           → junction → ..\aw-server-plus
+```
+
+| 引用 | 指向 | 远端 / 分支 | 角色 |
 | --- | --- | --- | --- |
-| `vendor/aw-server-rust` | `PT123123/aw-server-rust` | `feature/inbox` | **唯一构建源**：官方 aw-server workspace；`aw-inbox-rust` 已是普通成员（非子模块），含 todo.db 独立存储 |
+| `aw-server-plus/` | — | `PT123123/aw-server-plus` @ `main` | **唯一构建源**：官方 aw-server workspace，`aw-inbox-rust` 是普通成员（非子模块），含 todo.db 独立存储 |
+| `vendor/aw-server-rust` | junction → `..\..\aw-server-plus` | 同上 | 保持原有构建路径，`justfile`/脚本无需改路径 |
 
-> `aw-inbox-rust` 不再是子模块，而是 `aw-server-rust` workspace 的**提交源码成员**；
-> 构建仅需 `vendor/aw-server-rust`，无需 `--recursive`（该 workspace 已无嵌套 submodule）。
-> 已清理移除：`aw-webui`（空壳 submodule，Qt 原生 UI 用不到，构建走 webui-stub）、
-> `aw-query`（`/api/0/query` 端点客户端不打，查询在 Qt UI 自实现）、`aw-sync`（官方遗留死成员，无 crate 依赖）。
+> `aw-inbox-rust` 是 workspace 的**提交源码成员**而非子模块，`aw-webui` / `aw-query` / `aw-sync`
+> 三个历史 submodule 早已清理（Qt UI 用不到 webui，query 在客户端自实现，aw-sync 是上游死成员），
+> 该 workspace 无嵌套 submodule，无需 `--recursive`。
 
-**初始化 / 拉取 submodule：**
+> `just server` 走 `CARGO_TARGET_DIR=.cargo-target-server`，与 Android 侧的 `target/` 分开：
+> 两边 `RUSTFLAGS` / target triple 不同，共用一份缓存会互相把增量判定打回全量重编。
+
+**新机器初始化：**
 
 ```powershell
-git submodule update --init vendor/aw-server-rust
+# 1. 与两个客户端仓库同级 clone 服务端
+git clone git@github.com:PT123123/aw-server-plus.git <workspace>/aw-server-plus
+# 2. 建 junction（PowerShell）
+New-Item -ItemType Junction -Path '<workspace>/aw-qtui/vendor/aw-server-rust' `
+         -Target '<workspace>/aw-server-plus'
+```
 
-# 全新克隆时直接带上：
-git clone --recurse-submodules git@github.com:PT123123/aw-qtui.git
+更新服务端源码 = 在任一 junction 路径里 `git pull`（两边同时生效）：
+
+```powershell
+git -C vendor/aw-server-rust pull --ff-only origin main
 ```
 
 `just server` 直接从 `vendor\aw-server-rust` workspace 构建 `aw-server` 二进制
@@ -233,7 +256,7 @@ git clone --recurse-submodules git@github.com:PT123123/aw-qtui.git
 
 - `just build`：纯客户端构建，不接触服务端，永不失败；
 - `just server` / `just release`（带服务端）：找不到 `vendor\aw-server-rust`（子模块未 checkout）→
-  **明确报错**并提示先执行 `git submodule update --init vendor/aw-server-rust`；
+  **明确报错**并提示把 `aw-server-plus` clone 到 workspace 根、再把 `vendor/aw-server-rust` 建成指向它的 junction（见[源码来源](#源码来源仓库外共享目录--junction)）；
   cargo 构建失败 → 报错退出，不静默降级。
 
 **运行期**（本地服务端自动管理）
@@ -298,7 +321,7 @@ activitywatch/aw-server-rust (上游) ──fetch/merge──▶ PT123123/aw-ser
                                                         ├── aw-sync-rust（局域网同步）
                                                         └── 产物：aw-server.exe
 PT123123/aw-inbox (已归档只读，历史保留)
-PT123123/aw-qtui ── submodule ──▶ vendor/aw-server-rust（唯一服务端源码）
+PT123123/aw-qtui ── junction: vendor/aw-server-rust ──▶ ../aw-server-plus（与 aw-android-native 共享同一份）
 ```
 
 ### 本次落地变更
@@ -322,7 +345,7 @@ aw-qtui/
 ├── tools/
 │   ├── vcenv.ps1             # VC / Windows SDK 环境注入（被 justfile recipe dot-source，无需 Developer Prompt）
 │   └── make_zip.py           # 标准库打包脚本
-├── vendor/                    # git submodule：aw-server-rust（唯一服务端源码，融合工作区）
+├── vendor/                    # 仅一个 junction：aw-server-rust → ../aw-server-plus（服务端源码与 aw-android 共用一份）
 ├── src/
 │   ├── main.cpp               # 入口（--url / --screenshot 测试钩子；Win11 任务栏 AppUserModelID）
 │   ├── config.h/.cpp          # 服务端地址、设备身份（MAC 生成并持久化）

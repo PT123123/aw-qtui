@@ -128,10 +128,15 @@ server:
     #!pwsh -NoProfile
     $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
     . '{{VCENV}}'
+    # vendor/aw-server-rust 是指向仓库外共享源码目录 ../aw-server-plus 的 junction
     $ws = 'vendor/aw-server-rust'
     if (-not (Test-Path -LiteralPath "$ws/Cargo.toml")) {
-        throw "aw-server-rust workspace not found: run 'git submodule update --init vendor/aw-server-rust'"
+        throw "aw-server-rust workspace not found: clone PT123123/aw-server-plus to <workspace>/aw-server-plus, then create junction 'vendor/aw-server-rust' -> ../../aw-server-plus (see README)"
     }
+    # 服务端源码与 aw-android 共用一份，但 cargo 缓存必须各走各的：共享源码里的 target/
+    # 归 Android 交叉编译（rust-android-gradle 硬编码 <module>/target），且 aw-android 构建
+    # 注入的 RUSTFLAGS 会让本机增量缓存整体失效——所以这里显式指到本仓库私有目录。
+    $env:CARGO_TARGET_DIR = Join-Path (Get-Location).Path '.cargo-target-server'
     # 图标内嵌：aw-server 的 build.rs 用 rc.exe 编 windows/app.rc，ico 由这里从主仓库同步过去
     $icoDst = "$ws/aw-server/windows/app.ico"
     if (Test-Path -LiteralPath 'resources/app.ico') {
@@ -140,9 +145,9 @@ server:
     } else {
         Write-Host '[server] resources/app.ico 缺失，aw-server.exe 将没有内嵌图标 - 先 just icon' -ForegroundColor Yellow
     }
-    Write-Host "[server] workspace: $ws"
+    Write-Host "[server] workspace: $ws (target: $env:CARGO_TARGET_DIR)"
     cargo build --release -p aw-server --manifest-path "$ws/Cargo.toml"
-    $src = "$ws/target/release/aw-server.exe"
+    $src = "$env:CARGO_TARGET_DIR/release/aw-server.exe"
     if (-not (Test-Path -LiteralPath $src)) { throw "build artifact missing: $src" }
     $dst = '{{BUILD}}/server/aw-server.exe'
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
