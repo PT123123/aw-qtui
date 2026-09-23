@@ -135,7 +135,21 @@
        <item>
         <widget class="QCheckBox" name="autostart">
          <property name="text">
-          <string>开机自启（Task Scheduler ONLOGON）</string>
+          <string>随登录启动本地服务端（不需要打开本应用）</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="appAutostart">
+         <property name="text">
+          <string>开机自启本应用（登录后自动启动，驻留托盘）</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="appAutostartHidden">
+         <property name="text">
+          <string>自启时不弹出主窗口</string>
          </property>
         </widget>
        </item>

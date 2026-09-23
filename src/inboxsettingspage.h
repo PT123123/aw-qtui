@@ -28,6 +28,8 @@ private slots:
     void onDeviceNameChanged();
     void onAutoManageToggled(bool on);
     void onAutostartToggled(bool on);
+    void onAppAutostartToggled(bool on);
+    void onAppAutostartHiddenToggled(bool on);
 
 private:
     // Qt Designer 生成的布局对象（inboxsettingspage.ui -> ui_inboxsettingspage.h）
@@ -41,6 +43,8 @@ private:
     QLabel *m_platform = nullptr;
     QCheckBox *m_autoManage = nullptr;
     QCheckBox *m_autostart = nullptr;
+    QCheckBox *m_appAutostart = nullptr;
+    QCheckBox *m_appAutostartHidden = nullptr;
     QLabel *m_status = nullptr;
     TrashPage *m_trash = nullptr;
 };

@@ -3,6 +3,7 @@
 #include "ui_inboxsettingspage.h"
 
 #include "appsettings.h"
+#include "autostart.h"
 #include "config.h"
 #include "localstore.h"
 #include "theme.h"
@@ -12,6 +13,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QSignalBlocker>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
@@ -58,6 +60,20 @@ void InboxSettingsPage::buildUi(LocalStore *store)
     m_autostart = ui->autostart;
     m_autostart->setChecked(loadServerAutostart());
     m_autostart->setCursor(Qt::PointingHandCursor);
+
+    // 本应用自启：勾选状态就是 ini 里的「意图」。注册表只作为执行位 ——
+    // main.cpp 每次启动按这个意图幂等重写（发布目录每版一变，必须重写）。
+    // 这里刻意**不**顺手补写注册表：本页在启动流程里就会被构造，补写会让
+    // 截图 / 设置截图这类「零副作用」模式也去动注册表。
+    const bool appAuto = loadAppAutostart();
+    m_appAutostart = ui->appAutostart;
+    m_appAutostart->setChecked(appAuto);
+    m_appAutostart->setCursor(Qt::PointingHandCursor);
+    m_appAutostartHidden = ui->appAutostartHidden;
+    m_appAutostartHidden->setChecked(loadAppAutostartHidden());
+    m_appAutostartHidden->setCursor(Qt::PointingHandCursor);
+    m_appAutostartHidden->setEnabled(appAuto);
+
     m_status = ui->status;
 
     // 回收站子页构造需要 LocalStore*，无法由 uic 创建：.ui 中放容器，运行时装入
@@ -67,6 +83,9 @@ void InboxSettingsPage::buildUi(LocalStore *store)
     connect(m_deviceName, &QLineEdit::editingFinished, this, &InboxSettingsPage::onDeviceNameChanged);
     connect(m_autoManage, &QCheckBox::toggled, this, &InboxSettingsPage::onAutoManageToggled);
     connect(m_autostart, &QCheckBox::toggled, this, &InboxSettingsPage::onAutostartToggled);
+    connect(m_appAutostart, &QCheckBox::toggled, this, &InboxSettingsPage::onAppAutostartToggled);
+    connect(m_appAutostartHidden, &QCheckBox::toggled, this,
+            &InboxSettingsPage::onAppAutostartHiddenToggled);
 
     applyStyle();
 }
@@ -87,6 +106,9 @@ void InboxSettingsPage::applyStyle()
     ui->platformLabel->setStyleSheet(valueText);
     ui->status->setStyleSheet(QStringLiteral("color: %1; font-size: %2;")
                                   .arg(QString::fromLatin1(kColorOk), sp(11)));
+    // 子选项缩进：让「自启时不弹出主窗口」看得出从属于上面那条开机自启
+    ui->appAutostartHidden->setStyleSheet(
+        QStringLiteral("QCheckBox{padding-left: %1px;}").arg(si(18)));
     if (!m_tabs)
         return;
     m_tabs->setStyleSheet(QStringLiteral(
@@ -129,7 +151,35 @@ void InboxSettingsPage::onAutoManageToggled(bool on)
 void InboxSettingsPage::onAutostartToggled(bool on)
 {
     saveServerAutostart(on);
-    m_status->setText(on ? QStringLiteral("✓ 已启用开机自启") : QStringLiteral("✓ 已关闭开机自启"));
+    m_status->setText(on ? QStringLiteral("✓ 已启用服务端随登录启动")
+                         : QStringLiteral("✓ 已关闭服务端随登录启动"));
+}
+
+void InboxSettingsPage::onAppAutostartToggled(bool on)
+{
+    QString err;
+    if (!setAppAutostart(on, &err)) {
+        // 注册表没写成，就别显示「已开启」：回滚勾选状态，把原因写到状态行
+        m_status->setText(QStringLiteral("✗ 开机自启设置失败：%1").arg(err));
+        const QSignalBlocker block(m_appAutostart);
+        m_appAutostart->setChecked(!on);
+        m_appAutostartHidden->setEnabled(!on);
+        return;
+    }
+    saveAppAutostart(on);
+    m_appAutostartHidden->setEnabled(on);
+    m_status->setText(on ? QStringLiteral("✓ 已启用本应用开机自启（登录后启动，驻留托盘）")
+                         : QStringLiteral("✓ 已关闭本应用开机自启"));
+}
+
+void InboxSettingsPage::onAppAutostartHiddenToggled(bool on)
+{
+    saveAppAutostartHidden(on);
+    // 命令行里是否带 --hidden 变了：已经注册过就立刻按新偏好重写
+    if (appAutostartRegistered())
+        setAppAutostart(true);
+    m_status->setText(on ? QStringLiteral("✓ 自启时不弹出主窗口")
+                         : QStringLiteral("✓ 自启时显示主窗口"));
 }
 
 } // namespace awqtui

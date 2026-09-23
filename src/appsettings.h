@@ -107,9 +107,17 @@ void saveUiEffects(const UiEffects &e);
 // 本地服务端自动管理（探测->拉起->看护），默认开启
 bool loadServerAutoManage();
 void saveServerAutoManage(bool on);
-// 开机自启（Task Scheduler ONLOGON），默认开启
+// 服务端开机自启（HKCU Run，值名 aw-qtui-server），默认开启
 bool loadServerAutostart();
 void saveServerAutostart(bool on);
+
+// 应用本体开机自启（HKCU Run，值名 aw-qtui），默认开启：
+// 登录后自动启动 aw-qtui 并驻留托盘（是否弹主窗口见下面一项）
+bool loadAppAutostart();
+void saveAppAutostart(bool on);
+// 自启时隐藏到托盘（注册的命令行带 --hidden，不弹主窗口），默认开启
+bool loadAppAutostartHidden();
+void saveAppAutostartHidden(bool on);
 
 // ── 专注功能模块：Todo 侧边栏显示开关（对齐滴答清单「功能模块」） ──
 struct FocusModules {

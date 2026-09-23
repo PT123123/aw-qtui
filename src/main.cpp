@@ -1,6 +1,7 @@
 // main.cpp —— 入口：python 之外完全独立运行的 C++ Qt 客户端
 #include "apiclient.h"
 #include "appsettings.h"
+#include "autostart.h"
 #include "awserver.h"
 #include "config.h"
 #include "mainwindow.h"
@@ -178,6 +179,10 @@ int main(int argc, char *argv[])
         QStringLiteral("配合 --emit-icon 使用：指定图标变体 id（green/teal/blue），缺省读当前设置"),
         QStringLiteral("id"));
     parser.addOption(iconVariantOpt);
+    QCommandLineOption hiddenOpt(
+        QStringLiteral("hidden"),
+        QStringLiteral("启动后不显示主窗口，仅驻留系统托盘（开机自启用，见注册表 Run 项 aw-qtui）"));
+    parser.addOption(hiddenOpt);
     parser.process(app);
 
     // 图标导出：纯离屏渲染，不建窗口、不参与单实例仲裁
@@ -257,6 +262,13 @@ int main(int argc, char *argv[])
         });
         qInfo() << "[main] 本地服务端管理已启用（监听" << kServerListenHost << ":" << kServerPort << "）";
     }
+
+    // 应用本体自启（HKCU Run 的 aw-qtui 项）：把注册表同步到 ini 里的意图，并修正路径 ——
+    // 发布目录每版一个（c:/workshop/aw-qtui-<ver>），不重写就会永远停在被删掉的旧目录上。
+    // 截图 / 设置截图模式（arbitrate=false）不碰注册表，保持零副作用。
+    if (arbitrate)
+        syncAppAutostartOnStartup();
+
     MainWindow win(url);
     qDebug() << "MainWindow created";
 
@@ -266,7 +278,15 @@ int main(int argc, char *argv[])
     QObject::connect(&instanceGuard, &awqtui::SingleInstance::yieldRequested,
                      &win, &MainWindow::requestQuitForYield);
 
-    win.show();
+    // 开机自启带 --hidden：不显示主窗口，直接驻留托盘（托盘图标在 MainWindow 构造里已建好，
+    // 全局热键 / 服务端看护 / 局域网同步也都不依赖窗口可见）
+    if (parser.isSet(hiddenOpt)) {
+        qInfo() << "[main] --hidden：主窗口不显示，仅驻留托盘";
+    } else {
+        win.show();
+    }
+    // 自启路径的唯一可观测事实：--hidden 时这里必须是 false（窗口只是没显示，进程照常在跑）
+    qInfo() << "[main] 主窗口可见性 =" << win.isVisible() << "（--hidden 时应为 false）";
     qDebug() << "win.show() done, entering exec";
 
     const QString shotDir = parser.value(shotOpt);

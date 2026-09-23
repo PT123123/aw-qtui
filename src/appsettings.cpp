@@ -239,6 +239,34 @@ void saveServerAutostart(bool on)
     s.sync();
 }
 
+// 应用本体自启的「意图」存在 ini（默认开）；注册表只是执行位，
+// 由 main.cpp 每次启动按这里读到的意图幂等重写（发布目录每版一变，必须重写）。
+bool loadAppAutostart()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    return s.value(QStringLiteral("app/autostart"), true).toBool();
+}
+
+void saveAppAutostart(bool on)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("app/autostart"), on);
+    s.sync();
+}
+
+bool loadAppAutostartHidden()
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    return s.value(QStringLiteral("app/autostartHidden"), true).toBool();
+}
+
+void saveAppAutostartHidden(bool on)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("app/autostartHidden"), on);
+    s.sync();
+}
+
 FocusModules loadFocusModules()
 {
     FocusModules m;
