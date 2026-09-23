@@ -441,6 +441,9 @@ curl.exe -X DELETE -H "X-Device-ID: $DEV" "$BASE/inbox/todos/12"
   **未完成且逾期 → 文字与边框变红**
 - 清单色点：10px 圆点（`listId != 0` 时显示）
 - 整行点击 → 选中：右侧加载详情 + 行高亮 `rgba(76,139,245,0.14)`
+- 完成划线：勾选 → 260ms 自绘删除线扫过 → 动画收尾才写回数据层（`toggleRequested`）；
+  这份动画状态（`m_completing` / `m_strike` / 勾选框 enabled）在池复用重绑 `setTask` 时必须复位，
+  见《内存占用分析与优化方案》§五「池化复用的隐性契约」
 - 入场动画：视图切换/首次构建时每行 180ms 淡入（`m_animateNext`），数据刷新重建时**不触发**
 
 ### 5.4 已完成折叠 / 计数 / 空态

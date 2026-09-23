@@ -10,6 +10,7 @@
 #include <QDialog>
 #include <QHash>
 #include <QList>
+#include <QPointer>
 #include <QSet>
 #include <QWidget>
 
@@ -33,6 +34,7 @@ class QPushButton;
 class QTimer;
 class QToolButton;
 class QVBoxLayout;
+class QVariantAnimation;
 
 // Qt Designer 布局（todopage.ui），全局命名空间
 namespace Ui { class TodoPage; }
@@ -158,6 +160,9 @@ private:
     bool m_hovered = false;     // 光标是否在行内（含压在子控件之上）
     qreal m_strike = 0.0;       // 完成划线进度 0..1（paintEvent 用）
     bool m_completing = false;  // 完成动画进行中：屏蔽重复点击 / 重复提交
+    // 划线动画本身。池复用（setTask）时要停掉：动画是按 m_taskId 提交完成状态的，
+    // 行被绑到别的任务后继续跑就会把「完成」写到新 id 上。
+    QPointer<QVariantAnimation> m_completeAnim;
 };
 
 // ------------------------------------------------------------------ //

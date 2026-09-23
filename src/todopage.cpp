@@ -554,17 +554,29 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
 void TodoTaskRow::setTask(const TodoTask &task, const QString &dotColor, const QString &listName)
 {
     m_taskId = task.id;
+    // 清掉上一任任务留下的完成动画状态。这三样都是 playCompleteAnimation 弄脏的，
+    // 不重置的话回收行会变成「死行」：m_completing 挡住后续点击、勾选框仍是 disabled
+    // （QSS 没写 :disabled 档，看起来和好的一样，只是点不动）、标题上还挂着自绘删除线。
+    // 池是 LIFO，被回收的正是下一次 rebuild 最先取用的那一行 → 表现为列表第一项完成不了。
+    if (m_completeAnim)
+        m_completeAnim->stop();   // DeleteWhenStopped，QPointer 随后自动置空
+    m_completing = false;
+    m_strike = 0.0;
+    if (m_chk) {
+        m_chk->setEnabled(true);
+        m_chk->setToolTip(task.completed ? QStringLiteral("标记为未完成") : QStringLiteral("标记为已完成"));
+        m_chk->setChecked(task.completed);
+    }
     m_title->setText(task.title);
     m_title->setStyleSheet(
         QStringLiteral("font-size:%1;font-weight:600;background:transparent;%2")
             .arg(sp(14),
                  task.completed ? QStringLiteral("color:%1;text-decoration:line-through;").arg(kColorMuted2)
                                 : QStringLiteral("color:%1;").arg(kColorFg)));
-    m_chk->setChecked(task.completed);
-    m_chk->setToolTip(task.completed ? QStringLiteral("标记为未完成") : QStringLiteral("标记为已完成"));
     // 重绑标签/清单胶囊行与右侧信息簇（按成员指针重建，不按布局下标取容器）
     rebuildPills(task, dotColor, listName);
     rebuildRightCluster(task, dotColor);
+    update();
 }
 
 // ── 胶囊行 / 右侧信息簇：构造函数与池复用共用同一份实现，避免两处逻辑漂移 ──
@@ -891,6 +903,7 @@ void TodoTaskRow::playCompleteAnimation()
         // 直接在动画自己的 finished 回调里走这条路，会踩到正在收尾的动画对象。
         QTimer::singleShot(0, this, [this] { emit toggleRequested(m_taskId, true); });
     });
+    m_completeAnim = anim;
     anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
