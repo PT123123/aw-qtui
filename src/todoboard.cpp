@@ -1001,6 +1001,21 @@ TodoBoardView::TodoBoardView(QWidget *parent)
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     viewport()->setAutoFillBackground(false);
+
+    m_canvas = new QWidget;
+    m_canvas->setObjectName(QStringLiteral("TodoBoardCanvas"));
+    m_canvas->setAutoFillBackground(false);
+    m_lay = new QHBoxLayout(m_canvas);
+    m_lay->setContentsMargins(0, 0, 0, 0);
+    setWidget(m_canvas);
+
+    applyMetrics();
+}
+
+// 滚动条尺寸（sp()）与列间距（si()）都按当次的 gUiScale 定死，缩放变化要重算
+void TodoBoardView::applyMetrics()
+{
+    m_lay->setSpacing(si(12));
     setStyleSheet(QStringLiteral(
                       "QScrollArea{background:transparent;border:none;}"
                       "QScrollBar:horizontal{background:transparent;height:%1;margin:0;}"
@@ -1010,14 +1025,6 @@ TodoBoardView::TodoBoardView(QWidget *parent)
                       "QScrollBar::add-page:horizontal,QScrollBar::sub-page:horizontal{background:transparent;}")
                       .arg(sp(8), withAlpha(kColorBorder, 0.90), sp(4), sp(24),
                            withAlpha(kColorFg, 0.28)));
-
-    m_canvas = new QWidget;
-    m_canvas->setObjectName(QStringLiteral("TodoBoardCanvas"));
-    m_canvas->setAutoFillBackground(false);
-    m_lay = new QHBoxLayout(m_canvas);
-    m_lay->setContentsMargins(0, 0, 0, 0);
-    m_lay->setSpacing(si(12));
-    setWidget(m_canvas);
 }
 
 void TodoBoardView::rebuildColumns(const QList<TodoList> &lists,
@@ -1038,8 +1045,15 @@ void TodoBoardView::rebuildColumns(const QList<TodoList> &lists,
             }
         }
     }
-    if (same)
+    // 列（TodoBoardColumn）的几何与字号都在其构造函数里按当时的 gUiScale 定死（si()/sp()），
+    // 所以比例一变就必须整板重建 —— 只判「清单集合没变」会让看板留在旧比例
+    // （用户现场：页面各处都放大了，板里的清单/卡片却还是小的）
+    const bool scaleChanged = (m_builtScale < 0.0) || !qFuzzyCompare(m_builtScale, gUiScale);
+    if (same && !scaleChanged)
         return;
+    if (scaleChanged)
+        applyMetrics();
+    m_builtScale = gUiScale;
 
     // 列集合变了：整板重建（清单增删不频繁，且拖拽期间已被 boardDragActive 挡住）
     for (auto *c : m_cols) {

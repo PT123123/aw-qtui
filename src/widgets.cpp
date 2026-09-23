@@ -303,6 +303,7 @@ CardPool::~CardPool()
 
 NoteCard *CardPool::acquire(const Note &note, bool pinned)
 {
+    syncScale();
     NoteCard *card;
     if (!m_pool.isEmpty()) {
         card = m_pool.takeLast(); // 弹出最近入池的
@@ -317,12 +318,33 @@ NoteCard *CardPool::acquire(const Note &note, bool pinned)
     return card;
 }
 
+// 池里的卡是按某个 gUiScale 构造的（几何 / scaleQss 内联样式都在构造函数里定死），
+// 比例一变，池内容整体作废 —— 否则缩放后复用旧卡，卡片会一直停在旧比例（实测 bug）。
+void CardPool::syncScale()
+{
+    if (m_pool.isEmpty() && m_scaleKey < 0.0) {
+        m_scaleKey = gUiScale;
+        return;
+    }
+    if (m_scaleKey >= 0.0 && qFuzzyCompare(m_scaleKey, gUiScale))
+        return;
+    clear();
+    m_scaleKey = gUiScale;
+}
+
 void CardPool::release(NoteCard *card)
 {
     if (!card)
         return;
     // 重置 parent 以便外部 deleteLater 或重新设置 parent
     card->setParent(nullptr);
+    syncScale();
+    // 跨比例的卡不复用：几何/样式已经定死在旧比例上，重新挂回列表只会得到一个
+    // 「内容更新了但尺寸还是老样子」的卡片
+    if (!qFuzzyCompare(card->builtScale(), gUiScale)) {
+        card->deleteLater();
+        return;
+    }
     if (m_pool.size() >= m_maxSize) {
         // 池满：销毁最老的
         NoteCard *oldest = m_pool.takeFirst();
@@ -333,16 +355,9 @@ void CardPool::release(NoteCard *card)
 
 void CardPool::releaseAll(const QMap<int, NoteCard *> &active)
 {
-    for (NoteCard *card : active) {
-        if (!card)
-            continue;
-        card->setParent(nullptr);
-        if (m_pool.size() >= m_maxSize) {
-            NoteCard *oldest = m_pool.takeFirst();
-            oldest->deleteLater();
-        }
-        m_pool.append(card);
-    }
+    // 统一走 release()：此前这里是复制粘贴的第二份实现，改漏一处就会让池里混进旧比例的卡
+    for (NoteCard *card : active)
+        release(card);
 }
 
 void CardPool::discardAll()
@@ -395,6 +410,9 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
     : QFrame(parent), m_note(note), m_pinned(pinned)
 {
     setObjectName(QStringLiteral("NoteCard"));
+    // 记下构造时的缩放比：本类所有尺寸/内联样式都在构造函数里按 gUiScale 算死
+    // （si() / scaleQss），setNote() 复用时不重算，故池子必须跨比例丢弃（见 CardPool::syncScale）
+    m_builtScale = gUiScale;
     // 玻璃卡片背景（半透明 + 顶部高光）+ 玻璃亮边；悬浮时背景向强调色靠拢
     const QString cardBg = glassBg(kColorBgElev);
     const QString cardBorder = glassBorder();

@@ -205,6 +205,23 @@ TodoNavItem::TodoNavItem(QWidget *parent)
     applyStyle();
 }
 
+// 缩放变化时重算几何并重刷样式。构造函数里的 si()/sp() 只在建时生效，
+// 智能清单项（收集箱/今天/最近 7 天/全部/已完成）又只在 buildNav() 里建一次 ——
+// 少了这一步，缩放后它们的行高与字号会一直停在旧比例（表现为「清单里的字明显偏小」）。
+void TodoNavItem::applyMetrics()
+{
+    setMinimumHeight(si(34));
+    if (auto *lay = qobject_cast<QHBoxLayout *>(layout())) {
+        // 左 6 + border-left 3 + border-right 1 = 内容左起 10；右 7 + 1 = 8（与构造函数一致）
+        lay->setContentsMargins(si(6), si(3), si(7), si(3));
+        lay->setSpacing(si(8));
+    }
+    if (m_icon)
+        m_icon->setFixedSize(si(16), si(16));
+    applyStyle();
+    renderIcon();
+}
+
 void TodoNavItem::setText(const QString &name)
 {
     m_name->setText(name);
@@ -387,6 +404,9 @@ TodoTaskRow::TodoTaskRow(const TodoTask &task, const QString &dotColor,
     setAttribute(Qt::WA_Hover);
     setCursor(Qt::PointingHandCursor);
     setObjectName(QStringLiteral("TodoRow"));
+    // 记下构造时的缩放比：本行所有几何/内联样式都在构造函数里按 gUiScale 算死，
+    // setTask()（池复用）只替换内容。池子必须据此跨比例丢弃，否则行会停在旧比例
+    m_builtScale = gUiScale;
     setMinimumHeight(si(40));
     // 行底 / 描边 / 左侧色条全部由 QSS 画
     setAttribute(Qt::WA_StyledBackground, true);
@@ -1220,21 +1240,103 @@ void TodoPage::applyMetrics()
         ui->bulkLay->setSpacing(si(4));
     }
     if (m_detailPanel) {
-        // 详情栏常驻：固定宽度（不再滑入 / 收起）
+        // 详情栏常驻：固定宽度（不再滑入 / 收起）。这里是「理想宽度」，
+        // 真正落地的宽度由 applyResponsiveWidths() 按窗口实际宽度再收一层
         m_detailW = si(340);
         m_detailPanel->setFixedWidth(m_detailW);
     }
+
+    // 左导航列宽度在 .ui 里是硬编码的 150/230，不跟着缩放走的话，里边的清单名
+    // （字号按 gUiScale 放大）会被这个上限裁掉 —— 用户现场 zoom=2.75 时就是
+    // 「清单名大到看不见字」（字被裁得只剩图标和计数）
+    if (ui->listNav) {
+        ui->listNav->setMinimumWidth(si(150));
+        ui->listNav->setMaximumWidth(si(230));
+    }
+    // 详情栏底部行：.ui 里高度 42 写死，缩放后里边的按钮会被裁
+    if (ui->footRow) {
+        ui->footRow->setMinimumHeight(si(42));
+        ui->footRow->setMaximumHeight(si(42));
+    }
+
+    applyDetailTitleHeight();
+    applyResponsiveWidths();
+}
+
+// 标题框高度：文档高随内容变、si() 随缩放变 —— 只在 contentsChanged 里算，缩放后就停旧值
+void TodoPage::applyDetailTitleHeight()
+{
+    if (!m_dTitle)
+        return;
+    const int docH = int(m_dTitle->document()->documentLayout()->documentSize().height());
+    m_dTitle->setFixedHeight(qMax(si(32), docH + si(14)));
+    m_dTitle->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_dTitle->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+}
+
+// 两个固定侧栏（左导航 / 右详情）的宽度都是 si() 放大的，但页面宽度不会跟着放大：
+// 用户现场 zoom=2.75 时详情栏 si(340)→935px、导航列 si(230)→632px，而默认窗口只有
+// 1280px —— 两侧栏加起来就把整个页面吃光（表现为「侧边栏不断放大、内容区没了」）。
+// 这里按页面实际宽度给两侧栏再套一层上限，缩放再大也留得住内容区。
+void TodoPage::applyResponsiveWidths()
+{
+    const int w = width();
+    // 尚未完成布局（构造期 width() 还是默认值）时不收：否则会按假宽度把详情栏改小
+    if (!isVisible() || w <= 0)
+        return;
+
+    if (ui->listNav) {
+        const int minW = qMin(si(150), qRound(w * 0.20));
+        const int maxW = qMax(minW, qMin(si(230), qRound(w * 0.32)));
+        if (ui->listNav->minimumWidth() != minW)
+            ui->listNav->setMinimumWidth(minW);
+        if (ui->listNav->maximumWidth() != maxW)
+            ui->listNav->setMaximumWidth(maxW);
+    }
+    if (m_detailPanel) {
+        // 也留个下限：窄窗下详情栏不至于被压得没法看
+        const int dw = qMax(si(240), qMin(m_detailW, qRound(w * 0.42)));
+        if (m_detailPanel->maximumWidth() != dw)
+            m_detailPanel->setFixedWidth(dw);
+    }
+}
+
+// 窗口尺寸变化：侧栏上限要按新的页面宽度重算（只有值真的变了才动控件，
+// 避免在 resize 过程中反复触发布局）
+void TodoPage::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    applyResponsiveWidths();
 }
 
 void TodoPage::applyUiScale()
 {
     applyMetrics();
 
+    // 这两处的控件只在 buildUi 里建一次（自定义清单项由 rebuildNavLists 重建，天然是新比例），
+    // 不显式补算就会让字号/行高停在旧比例 —— 缩放后「清单里的字明显比其它地方小」就是这个
+    applyNavItemMetrics();
+    applyViewToggleMetrics();
+
     applyPageStyles();
     rebuildNavLists();
     updateNavCounts();
     setNavChecked();
     rebuildList();
+    // 平铺视图的内容（列 + 卡片）只在 rebuildBoard 里按新比例重建：
+    // rebuildList 只重排列表视图，看板会整块停在建板时的比例
+    // （表现为「页面各处巨大、板里的清单/卡片却还是小的」）
+    if (m_boardMode)
+        rebuildBoard();
+}
+
+// 智能清单项（收集箱 / 今天 / 最近 7 天 / 全部 / 已完成）只在 buildNav() 建一次
+void TodoPage::applyNavItemMetrics()
+{
+    for (TodoNavItem *it : {m_navInbox, m_navToday, m_navNext7, m_navAll, m_navDone}) {
+        if (it)
+            it->applyMetrics();
+    }
 }
 
 void TodoPage::buildUi()
@@ -1266,15 +1368,9 @@ void TodoPage::buildUi()
     m_dTitle = ui->TodoTitleEdit;
     // 标题框高度随内容自适应（多行完全展开），且内容变化时提交
     if (m_dTitle) {
-        auto *layout = m_dTitle->document()->documentLayout();
-        const auto updateH = [this, layout] {
-            const int docH = int(layout->documentSize().height());
-            m_dTitle->setFixedHeight(qMax(si(32), docH + si(14)));
-            m_dTitle->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-            m_dTitle->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        };
-        connect(m_dTitle->document(), &QTextDocument::contentsChanged, this, updateH);
-        updateH();
+        connect(m_dTitle->document(), &QTextDocument::contentsChanged, this,
+                &TodoPage::applyDetailTitleHeight);
+        applyDetailTitleHeight();
     }
     m_dDone = ui->dDone;
     m_dList = ui->dList;
@@ -1754,7 +1850,6 @@ void TodoPage::buildViewToggle()
         b->setFocusPolicy(Qt::NoFocus);
         b->setCursor(Qt::PointingHandCursor);
         b->setToolButtonStyle(Qt::ToolButtonTextOnly);
-        b->setFixedHeight(si(24));
         lay->addWidget(b);
         return b;
     };
@@ -1766,6 +1861,26 @@ void TodoPage::buildViewToggle()
     connect(m_segList, &QToolButton::clicked, this, [this] { setBoardMode(false); });
     connect(m_segBoard, &QToolButton::clicked, this, [this] { setBoardMode(true); });
 
+    // 几何 + 样式（含 sp() 字号）统一走 applyUiScale 也会调的那一份，避免两处数值漂移
+    applyViewToggleMetrics();
+
+    const int idx = ui->head->indexOf(ui->sortBox);
+    ui->head->insertWidget(idx >= 0 ? idx : ui->head->count(), m_viewSeg);
+}
+
+// 分段开关的几何与样式只在建时算过一次，缩放变化必须重算（否则字号/高度停在旧比例）
+void TodoPage::applyViewToggleMetrics()
+{
+    if (!m_viewSeg)
+        return;
+    if (auto *lay = qobject_cast<QHBoxLayout *>(m_viewSeg->layout())) {
+        lay->setContentsMargins(si(2), si(2), si(2), si(2));
+        lay->setSpacing(0);
+    }
+    for (QToolButton *b : {m_segList, m_segBoard}) {
+        if (b)
+            b->setFixedHeight(si(24));
+    }
     m_viewSeg->setStyleSheet(
         QStringLiteral(
             "QWidget#TodoViewSeg{background:%1;border:1px solid %2;border-radius:%3;}"
@@ -1776,9 +1891,7 @@ void TodoPage::buildViewToggle()
             .arg(withAlpha(kColorFg, 0.05), withAlpha(kColorBorder, 0.70), sp(8),
                  kColorFgMuted, sp(6), sp(12), sp(10), kColorFg,
                  withAlpha(kColorAccent, 0.22), kColorAccent));
-
-    const int idx = ui->head->indexOf(ui->sortBox);
-    ui->head->insertWidget(idx >= 0 ? idx : ui->head->count(), m_viewSeg);
+    m_viewSeg->adjustSize();
 }
 
 void TodoPage::buildBoardView()
@@ -2287,6 +2400,7 @@ bool TodoPage::matchesSearch(const TodoTask &t, const QString &needle) const
 TodoTaskRow *TodoPage::TodoPool::acquire(const TodoTask &task, const QString &dotColor,
                                          const QString &listName, bool multi, bool selected)
 {
+    syncScale();
     TodoTaskRow *row;
     bool reused = true;
     if (!m_pool.isEmpty()) {
@@ -2331,6 +2445,13 @@ void TodoPage::TodoPool::release(TodoTaskRow *row)
     if (!row)
         return;
     unArmPendingDelete(row);
+    syncScale();
+    // 跨比例的行不复用：几何/内联样式都定死在旧比例上，重新挂回列表只会得到
+    // 「内容换了、尺寸还是老的」一行
+    if (!qFuzzyCompare(row->builtScale(), gUiScale)) {
+        row->deleteLater();
+        return;
+    }
     if (m_pool.size() >= m_maxSize) {
         row->deleteLater();
     } else {
@@ -2340,15 +2461,9 @@ void TodoPage::TodoPool::release(TodoTaskRow *row)
 
 void TodoPage::TodoPool::releaseAll(const QMap<int, TodoTaskRow *> &active)
 {
-    for (auto *row : active) {
-        if (!row)
-            continue;
-        unArmPendingDelete(row);
-        if (m_pool.size() >= m_maxSize)
-            row->deleteLater();
-        else
-            m_pool.append(row);
-    }
+    // 统一走 release()：与收件箱侧同一处理（含跨比例丢弃）
+    for (auto *row : active)
+        release(row);
 }
 
 void TodoPage::TodoPool::discardAll()
@@ -2360,6 +2475,20 @@ void TodoPage::TodoPool::clear()
 {
     qDeleteAll(m_pool);
     m_pool.clear();
+}
+
+// 池里的行都是按某个 gUiScale 构造的（TodoTaskRow 的几何/内联样式在构造函数里定死），
+// 比例一变，池内容整体作废 —— 否则缩放后复用旧行，任务行会一直停在旧比例。
+void TodoPage::TodoPool::syncScale()
+{
+    if (m_pool.isEmpty() && m_scaleKey < 0.0) {
+        m_scaleKey = gUiScale;
+        return;
+    }
+    if (m_scaleKey >= 0.0 && qFuzzyCompare(m_scaleKey, gUiScale))
+        return;
+    clear();
+    m_scaleKey = gUiScale;
 }
 
 void TodoPage::rebuildList()

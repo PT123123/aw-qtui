@@ -93,11 +93,15 @@ public:
     void discardAll();
     // 清空池中所有卡并删除（彻底销毁）
     void clear();
+    // 比例对齐：池内卡片都是按某个 gUiScale 构造的，比例一变就不能再复用
+    // （见 NoteCard::builtScale()）。acquire/release 内部自动调用。
+    void syncScale();
     int count() const { return m_pool.size(); }
 
 private:
     const int m_maxSize;
     QVector<NoteCard *> m_pool; // 后进先出（最近用过的放后面，优先回收旧的）
+    qreal m_scaleKey = -1.0;    // 池内容对应的 gUiScale（-1 = 空池/未标定）
     std::function<void(NoteCard *)> m_wiring;
 };
 
@@ -145,6 +149,11 @@ public:
     void setParentReference(qint64 parentId, const QString &preview);
     // 跳转定位时的视觉反馈：边框高亮闪烁后恢复
     void flashHighlight();
+
+    // 构造时的全局 UI 缩放比。卡片的几何（si()）与内联样式（scaleQss/sp()）都在构造函数里
+    // 定死，setNote() 只换内容 —— 缩放变了之后复用旧卡，卡片就会永远停在旧比例。
+    // 池（CardPool）据此丢弃跨比例的卡。
+    qreal builtScale() const { return m_builtScale; }
 
     // ---- 多选模式（笔记页工具栏「选择」）----
     // 开启后：左侧出现圆形勾选框、右上角 ⋯ 隐藏、正文关闭文本交互，
@@ -194,6 +203,7 @@ private:
     QLabel *m_pendingLabel = nullptr;  // 待同步图标
     bool m_selectMode = false;
     bool m_checked = false;
+    qreal m_builtScale = 1.0;      // 构造时的 gUiScale（见 builtScale()）
     QGraphicsDropShadowEffect *m_shadow = nullptr; // hover-only：仅悬浮时创建，节省 GPU 资源
 };
 

@@ -102,8 +102,13 @@ static void applyWindowMinimumSize(QMainWindow *win)
 
 // 缩放吸附档位：仅 gFixSnapZoom 开启时使用，把缩放吸附到"干净"倍率，
 // 避免非整数缩放导致控件落在亚像素位置、1px 边框发虚。关闭时保留自由缩放（1.15 倍步进）。
-static const qreal kZoomSteps[] = {0.50, 0.75, 1.00, 1.25, 1.50, 1.75,
-                                   2.00, 2.25, 2.50, 2.75, 3.00};
+//
+// 上限 1.50：本应用是「重排式缩放」——字号与间距按 si()/sp() 同步放大，但左右两个侧栏是
+// 固定宽度（.ui 里的导航列 150/230、代码里的详情栏 si(340)）。默认窗口 1280px 时，
+// 1.25 已占掉约 845px，1.50 只剩约 266px 给内容区；再往上不是「字更大」，而是「侧栏把
+// 内容区吃光」。用户现场 zoom=2.75 就是这么按上去的（当时卡片被池化卡住、不跟着放大，
+// 只能一路按 +）——档位到 1.50 为止，避免再把界面推进不可用区间。
+static const qreal kZoomSteps[] = {0.50, 0.75, 1.00, 1.25, 1.50};
 static const int kZoomStepCount = int(sizeof(kZoomSteps) / sizeof(kZoomSteps[0]));
 
 static qreal snapZoom(qreal z)
@@ -197,6 +202,9 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
             m_zoom = snapped;
             saveUiZoom(m_zoom);
         }
+    } else {
+        // 兜底：关闭吸附时历史值可能停在旧上限之上（如 2.75），这里收到当前上限
+        m_zoom = qBound(0.3, m_zoom, kZoomSteps[kZoomStepCount - 1]);
     }
 
     buildUi();
@@ -1531,7 +1539,7 @@ void MainWindow::setZoom(qreal zoom, bool underMouse)
     // 缩放对齐开启时先吸附到干净档位
     if (gFixSnapZoom)
         zoom = snapZoom(zoom);
-    zoom = qBound(0.3, zoom, 3.0);
+    zoom = qBound(0.3, zoom, kZoomSteps[kZoomStepCount - 1]);
     if (qFuzzyCompare(zoom, m_zoom))
         return;
     m_zoom = zoom;
@@ -1553,7 +1561,7 @@ void MainWindow::queueZoomBy(qreal factor)
     } else {
         next = base * factor;
     }
-    m_zoomPending = qBound(0.3, next, 3.0);
+    m_zoomPending = qBound(0.3, next, kZoomSteps[kZoomStepCount - 1]);
     if (m_zoomInputTimer)
         m_zoomInputTimer->start();
 }

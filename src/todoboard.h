@@ -229,10 +229,14 @@ signals:
 
 private:
     void rebuildColumns(const QList<TodoList> &lists, const QHash<qint64, QString> &listColors);
+    // 视图自身的缩放相关部件：横向滚动条样式（sp()）与列间距（si()）都在构造时定死，
+    // 缩放变化必须重算（rebuildColumns 在比例变化时会调用它）
+    void applyMetrics();
 
     QWidget *m_canvas = nullptr;
     QHBoxLayout *m_lay = nullptr;
     QList<TodoBoardColumn *> m_cols;
+    qreal m_builtScale = -1.0;   // m_cols 是按哪个 gUiScale 建的（-1 = 还没有列）
 };
 
 } // namespace awqtui

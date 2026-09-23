@@ -30,6 +30,7 @@ class QMenu;
 class QPainter;
 class QPaintEvent;
 class QPlainTextEdit;
+class QResizeEvent;
 class QPushButton;
 class QTimer;
 class QToolButton;
@@ -59,6 +60,10 @@ public:
     void setCount(int n);
     void setSelected(bool on);
     bool isSelected() const { return m_selected; }
+    // 界面缩放变化：重算几何（最小高 / 内边距 / 图标尺寸）并重刷字体样式。
+    // 本项的几何与字体都在构造函数里按当时的 gUiScale 定死，而智能清单项只在 buildNav()
+    // 里建一次 —— 不补这一步，缩放后「收集箱 / 今天 / 最近 7 天」的字号会一直停在旧比例。
+    void applyMetrics();
 
 signals:
     void clicked();
@@ -107,6 +112,10 @@ public:
     // 长标题换行：报告行高随视口宽度变化（配合 ItemWidgetRelayoutFilter）
     bool hasHeightForWidth() const override { return true; }
     int heightForWidth(int w) const override;
+
+    // 构造时的全局 UI 缩放比：行内几何（si()）与内联样式（sp()/scaleQss）都在构造函数里
+    // 定死，setTask() 只换内容 —— 池子据此丢弃跨比例的行（见 TodoPool::syncScale）
+    qreal builtScale() const { return m_builtScale; }
 
 signals:
     void selected(qint64 taskId);
@@ -159,6 +168,7 @@ private:
     bool m_rowStyled = false;   // 行底/hover 样式是否已应用（保证首次即应用）
     bool m_hovered = false;     // 光标是否在行内（含压在子控件之上）
     qreal m_strike = 0.0;       // 完成划线进度 0..1（paintEvent 用）
+    qreal m_builtScale = 1.0;   // 构造时的 gUiScale（见 builtScale()）
     bool m_completing = false;  // 完成动画进行中：屏蔽重复点击 / 重复提交
     // 划线动画本身。池复用（setTask）时要停掉：动画是按 m_taskId 提交完成状态的，
     // 行被绑到别的任务后继续跑就会把「完成」写到新 id 上。
@@ -197,6 +207,16 @@ public:
     void applyUiScale();
     // 统一几何：页面栅格 / 卡片内边距 / 三栏内边距 / 详情栏固定宽度（buildUi 与 applyUiScale 共用）
     void applyMetrics();
+    // 只在 buildUi 里建一次的控件（智能清单导航项、「列表/平铺」分段开关）在缩放变化后的补算：
+    // 它们的几何与字体样式都按建时的 gUiScale 定死，不补就会停在旧比例
+    void applyNavItemMetrics();
+    void applyViewToggleMetrics();
+    // 详情栏标题框高度 = max(si(32), 文档高 + si(14))：文档高随内容变、si() 随缩放变，
+    // 两者都得重算，否则缩放后框高停在旧比例把标题裁掉
+    void applyDetailTitleHeight();
+    // 两个固定侧栏（左导航 / 右详情）的宽度都按 si() 放大，而页面宽度不变 —— 缩放一大就
+    // 被侧栏吃光内容区。这里按页面实际宽度再收一层上限（见 .cpp 里的详细说明）
+    void applyResponsiveWidths();
     // 退出前冲刷：把 debounce（250ms）中的标题/备注编辑立即落库。
     // 单实例让位 / 正常退出都必须在调 qApp->quit() 之前调用，否则会吃掉用户最后一次输入。
     void flushPendingEdits();
@@ -236,6 +256,8 @@ private:
     Ui::TodoPage *ui = nullptr;
     void buildUi();
     void applyPageStyles();
+    // 窗口尺寸变了要重算侧栏上限（applyResponsiveWidths 读的是真实宽度）
+    void resizeEvent(QResizeEvent *event) override;
     void buildBulkBar();
     // 左侧导航栏
     void buildNav();
@@ -387,12 +409,16 @@ private:
         void discardAll();
         // 清空池中所有行并删除（彻底销毁）
         void clear();
+        // 比例对齐：池内行都是按某个 gUiScale 构造的（TodoTaskRow 同病），比例一变即作废。
+        // acquire/release 内部自动调用。
+        void syncScale();
         int count() const { return m_pool.size(); }
 
     private:
         TodoPage *m_page;
         const int m_maxSize;
         QVector<TodoTaskRow *> m_pool; // 后进先出（最近用过的放后面，优先回收旧的）
+        qreal m_scaleKey = -1.0;       // 池内容对应的 gUiScale（-1 = 空池/未标定）
     };
     TodoPool *m_cardPool = nullptr;
 };
