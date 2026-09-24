@@ -184,8 +184,10 @@ def handoff(new_ver, target):
                      creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
 
     # 接管成功的判据：锁文件里的 pid 变成「跑着新版 exe」的那个进程
+    # 窗口取 20s：覆盖新版 C++ 侧「等旧版断开 ≤4s + 轮询抢锁 ≤13s」的最坏路径，
+    # 旧版若卡在模态窗会让这段时间偏长（现已在让位时关闭模态窗，通常 1~2s 内完成）。
     want = os.path.normcase(os.path.abspath(new_exe))
-    deadline = time.time() + 15
+    deadline = time.time() + 20
     while time.time() < deadline:
         pid2, exe2 = running_instance()
         if pid2 and os.path.normcase(os.path.abspath(exe2)) == want:

@@ -4,6 +4,7 @@ build-dbg/
 build-asan/
 build-diag/
 build-verify/
+build-envelope/
 dist/
 server-src/
 

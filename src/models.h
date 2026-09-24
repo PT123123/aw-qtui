@@ -288,6 +288,19 @@ struct SyncConfig {
 };
 
 // SyncDevice: id, name, device_kind, ip, port, paired_at, last_sync_at, last_seen_at, is_online, is_self, paired, alias
+//             + 服务端派生字段：incoming_pair_request / encrypted / fingerprint（后两个来自 B 方案信封加密）
+//             + merge_candidate（装机指纹归并提示，见 SyncMergeHint）
+/// 装机指纹相同的另一条已配记录 —— 即「这一行疑似某台的重装」。id 为空表示无候选。
+/// 归并方向固定：from=这条旧记录（归并后从列表消失），to=当前这一行。
+struct SyncMergeHint {
+    QString id;
+    QString displayName;
+    QString uidHint;
+    qint64 sincePairedDays = 0;
+
+    bool isValid() const { return !id.isEmpty(); }
+};
+
 struct SyncDevice {
     QString id;
     QString name;
@@ -303,6 +316,14 @@ struct SyncDevice {
     QString alias;
 
     bool pairRequestPending = false;
+
+    /// 与对端人工核对的安全码（两端各自算出的 4 位十六进制，一致即无中间人）。
+    /// 只在已交换加密密钥时由服务端下发，未交换时为空。
+    QString fingerprint;
+    /// 与该设备的报文体是否走信封加密
+    bool encrypted = false;
+    /// 装机指纹相同的另一条已配记录（服务端只给提示，是否归并由用户点）
+    SyncMergeHint mergeHint;
 
 
     static SyncDevice fromJson(const QJsonObject &o)
@@ -321,6 +342,17 @@ struct SyncDevice {
         d.paired = o.value(QLatin1String("paired")).toBool();
         d.alias = o.value(QLatin1String("alias")).toString();
         d.pairRequestPending = o.value(QLatin1String("incoming_pair_request")).toBool();
+        d.fingerprint = o.value(QLatin1String("fingerprint")).toString();
+        d.encrypted = o.value(QLatin1String("encrypted")).toBool();
+        // 缺 merge_candidate 时 toObject() 给空对象，id 为空即 isValid() 为假
+        const QJsonObject hint = o.value(QLatin1String("merge_candidate")).toObject();
+        d.mergeHint.id = hint.value(QLatin1String("id")).toString();
+        d.mergeHint.uidHint = hint.value(QLatin1String("uid_hint")).toString();
+        d.mergeHint.displayName = hint.value(QLatin1String("alias")).toString();
+        if (d.mergeHint.displayName.isEmpty())
+            d.mergeHint.displayName = hint.value(QLatin1String("name")).toString();
+        d.mergeHint.sincePairedDays = static_cast<qint64>(
+            hint.value(QLatin1String("since_paired_days")).toDouble());
         return d;
     }
 

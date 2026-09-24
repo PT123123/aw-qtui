@@ -31,8 +31,10 @@
 | Activity 统计 | DashboardFragment | ActivityPage (Summary/Window/Browser/Editor) | ✅ 已对齐 |
 | 时间线 | TimelineFragment | TimelinePage + TimelineWidget | ✅ 已对齐 |
 | 局域网同步 | SyncFragment | SyncPage | ✅ 已对齐 |
-| mDNS 发现 | NsdManager | MdnsDiscovery (Dnsapi) | ✅ 已对齐 |
+| mDNS 发现 | 由内嵌 Rust 服务端承担（`aw-sync-rust/src/mdns.rs`），两端共用一份 | 同左；`MdnsDiscovery`(dnsapi.dll) 是从未启动的死代码，待退役 | ✅ 已对齐（实现不在 UI 层） |
 | 设备配对 | PairingDialog | SyncPage 内对话框 | ✅ 已对齐 |
+| 同机重装归并（提示+确认） | SyncFragment/SyncRowsAdapter `mergeRow` | SyncPage 操作列「归并」按钮 | ✅ 已对齐（见 `设计-设备身份归并-2026-09-24.md`） |
+| 一键清理过期设备 | 设置面板「配对数据」区 | 「更多」菜单 | ✅ 已对齐 |
 | WebDAV / S3 云备份 | CloudBackup | SyncPage 内配置 | ✅ 已对齐 |
 
 ### 2.2 已补齐模块（Android 有 → Qtui 新增）
@@ -115,6 +117,7 @@
 | 同步详情日志分页 | Qtui 客户端分页，服务端已支持 limit/offset | 已正确使用分页参数 |
 | 安卓抽屉导航 vs Qtui 侧栏导航 | 交互习惯差异 | 保持各平台原生习惯，无需强制统一 |
 | 主题系统 | Qtui 独有 | 保留，作为桌面端优势 |
+| `aw-qtui/src/mdnsdiscovery.*` | 从未被 UI 启动的死代码，真正的发现在内嵌 Rust 服务端；留着会误导「桌面端另有两套 mDNS」 | 确认真机不再需要它做兜底后退役（见 mDNS 设计文 §9） |
 
 ## 6. 构建说明
 

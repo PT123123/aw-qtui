@@ -175,13 +175,28 @@ bool ApiClient::parseReply(QNetworkReply *reply, QJsonDocument *doc, QString *er
         return true;
     }
     if (err) {
-        QString detail;
-        if (!raw.isEmpty())
-            detail = QStringLiteral(": %1").arg(QString::fromUtf8(raw).left(300));
-        *err = QStringLiteral("%1 (HTTP %2)%3")
-                   .arg(errString)
-                   .arg(status ? QString::number(status) : QString::number(int(e)))
-                   .arg(detail);
+        // 服务端拒绝时会带 {"error":"..."}：直接展示那句话，别把 JSON 与状态码糊进消息框
+        QString reason;
+        if (!raw.isEmpty()) {
+            QJsonParseError pe;
+            const QJsonDocument d = QJsonDocument::fromJson(raw, &pe);
+            if (pe.error == QJsonParseError::NoError && d.isObject()) {
+                const QJsonObject o = d.object();
+                const QString text = o.value(QStringLiteral("error")).toString()
+                    .isEmpty() ? o.value(QStringLiteral("message")).toString()
+                               : o.value(QStringLiteral("error")).toString();
+                if (!text.isEmpty())
+                    reason = text;
+            }
+        }
+        if (!reason.isEmpty())
+            *err = reason.left(300);
+        else
+            *err = QStringLiteral("%1 (HTTP %2)%3")
+                       .arg(errString)
+                       .arg(status ? QString::number(status) : QString::number(int(e)))
+                       .arg(raw.isEmpty() ? QString()
+                                          : QStringLiteral(": %1").arg(QString::fromUtf8(raw).left(300)));
     }
     return false;
 }
@@ -209,12 +224,12 @@ QNetworkReply *ApiClient::createPairCode()
     return sendJson("POST", QStringLiteral("/api/0/sync/paircode"), QJsonObject());
 }
 
-QNetworkReply *ApiClient::joinWithCode(const QString &code, const QJsonObject &device)
+QNetworkReply *ApiClient::joinRemote(const QString &deviceId, const QString &code)
 {
     QJsonObject body;
+    body.insert(QStringLiteral("device_id"), deviceId);
     body.insert(QStringLiteral("code"), code);
-    body.insert(QStringLiteral("device"), device);
-    return sendJson("POST", QStringLiteral("/api/0/sync/join"), body);
+    return sendJson("POST", QStringLiteral("/api/0/sync/join-remote"), body);
 }
 
 QNetworkReply *ApiClient::addDevice(const QJsonObject &device)
@@ -254,6 +269,21 @@ QNetworkReply *ApiClient::removeDevice(const QString &deviceId)
 QNetworkReply *ApiClient::clearAllDevices()
 {
     return sendJson("DELETE", QStringLiteral("/api/0/sync/devices/all"), QJsonObject());
+}
+
+QNetworkReply *ApiClient::mergeDevices(const QString &fromId, const QString &toId)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("from"), fromId);
+    body.insert(QStringLiteral("to"), toId);
+    return sendJson("POST", QStringLiteral("/api/0/sync/merge"), body);
+}
+
+QNetworkReply *ApiClient::purgeDevices(int staleDays)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("stale_days"), staleDays);
+    return sendJson("POST", QStringLiteral("/api/0/sync/devices/purge"), body);
 }
 
 QNetworkReply *ApiClient::setDeviceAlias(const QString &deviceId, const QString &alias)
@@ -302,11 +332,6 @@ QNetworkReply *ApiClient::getSyncSnapshot()
 QNetworkReply *ApiClient::applySnapshot(const QJsonObject &snap)
 {
     return sendJson("POST", QStringLiteral("/api/0/sync/apply"), snap);
-}
-
-QNetworkReply *ApiClient::pushSnapshot(const QJsonObject &snap)
-{
-    return sendJson("POST", QStringLiteral("/api/0/sync/push"), snap);
 }
 
 QNetworkReply *ApiClient::getSyncStatus()

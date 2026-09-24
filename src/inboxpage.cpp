@@ -208,7 +208,9 @@ void InboxPage::buildUi()
     m_sort->setItemData(2, QStringLiteral("content"));
 
     // 卡片列表行跟随视口宽度重排（退出全屏/还原窗口时卡片右侧「⋯」不被顶出可视区）
-    new ItemWidgetRelayoutFilter(m_list, 60, m_list);
+    // 同时持有指针：每次重建/追加卡片后手动 relayout()，修正 wordWrap 正文在宽度未定时
+    // 估出的虚高行高（否则字少的卡片也会上下留大片空白）。
+    m_relayout = new ItemWidgetRelayoutFilter(m_list, 60, m_list);
 
     // ── 信号连接 ──
     connect(m_tagTree, &QTreeWidget::itemClicked, this, &InboxPage::onTagTreeItemClicked);
@@ -1055,6 +1057,9 @@ void InboxPage::appendNotes(const QList<Note> &notes, bool reset)
         }
         // 翻页追加后恢复滚动位置：追加不改变已有卡片位置，不应滚动
         //（applyClientFilter 里的 restoreScrollAnchor 对追加场景是多余干扰）
+        // 按当前视口宽度重算行高，修掉 wrap->sizeHint() 在宽度未定时估出的虚高
+        if (m_relayout)
+            m_relayout->relayout();
         m_stack->setCurrentIndex(m_list->count() > 0 ? 0 : 1);
     }
 }
@@ -1164,6 +1169,12 @@ void InboxPage::applyClientFilter(bool force)
     // 新卡片继承多选模式与勾选态（卡片是新建的，状态得重新套一遍）
     applySelectionToCards();
     pruneSelection();
+
+    // 按当前视口宽度重算每行高度：wrap->sizeHint() 是在宽度未定时取的，wordWrap 正文
+    // 会估出偏高的换行行数（表现为字少的卡片上下留大片空白）。锚点/跳转依赖最终高度，
+    // 必须先重排再恢复滚动位置。
+    if (m_relayout)
+        m_relayout->relayout();
 
     // 渲染完成后，若有待跳转目标（此前被搜索/标签过滤），滚动定位并高亮；
     // 否则按锚点把滚动位置还原（跳转本身就会滚动，两者不叠加）

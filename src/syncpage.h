@@ -55,8 +55,12 @@ private slots:
     void onAcceptPair();
     void onSyncNow();
     void onRemoveDevice();
+    // 设备行「归并」按钮：把候选旧记录归并进这一行（QMessageBox 确认，默认「否」）
+    void onMergeDevice();
     void onSetAlias();
     void onClearAllDevices();
+    // 一键清理：淘汰静默未配对行 + 删除长期同步不上的旧配对
+    void onPurgeStaleDevices();
     void onClearLogs();
     void onClearAllTrash();
     void onRestoreTrashRow();

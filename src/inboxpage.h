@@ -33,6 +33,7 @@ namespace awqtui {
 class ApiClient;
 class StatusBadge;
 class NoteEditorDialog;
+class ItemWidgetRelayoutFilter;
 
 class InboxPage : public QWidget
 {
@@ -213,6 +214,7 @@ private:
     QPushButton *m_btnFilterClear = nullptr;
     QListWidget *m_list;
     CardPool *m_cardPool = nullptr; // 虚拟化 widget 池（可见行数 + 缓冲）
+    ItemWidgetRelayoutFilter *m_relayout = nullptr; // 按视口宽度重算行高（重建/追加后需手动触发）
     QPushButton *m_fab;
     QStackedLayout *m_stack;
     // 悬浮 + 按钮的投影阴影（受全局阴影开关控制，运行时增删）

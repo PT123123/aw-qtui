@@ -34,6 +34,7 @@
 #include <QButtonGroup>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDialog>
 #include <QDateTime>
 #include <QEasingCurve>
 #include <QEvent>
@@ -1376,6 +1377,21 @@ void MainWindow::requestQuitForYield(const QString &newerExe)
         } else {
             qWarning().noquote() << "[yield] 新版 exe 不存在，跳过拉起:" << newerExe;
         }
+    }
+
+    // 4) 关键：先收起托盘图标、关掉所有顶层窗口（含 QDialog::exec() 的模态框），再 quit。
+    // QApplication::quit() 只结束主事件循环；若此刻有模态对话框在跑嵌套循环，进程不会退出，
+    // 锁就一直不释放 → 新版轮询超时误判「旧版未让位」而自身退出，留下旧版残留（0.1.28 观察到的现象）。
+    if (m_tray)
+        m_tray->hide();
+    const auto tops = QApplication::topLevelWidgets();
+    for (QWidget *w : tops) {
+        if (w == this)
+            continue; // 主窗口留到最后由 quit 统一收尾（避免在此触发 closeEvent 拦截）
+        if (auto *dlg = qobject_cast<QDialog *>(w))
+            dlg->reject(); // reject 会结束 exec() 的嵌套事件循环
+        else if (w->isVisible())
+            w->close();
     }
 
     qApp->quit();

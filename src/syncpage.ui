@@ -154,6 +154,14 @@
             </column>
             <column>
              <property name="text">
+              <string>安全码</string>
+             </property>
+             <property name="toolTip">
+              <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;与对端屏幕上显示的码核对一致，才说明中间没有第三人。同步报文体用它对应的密钥加密。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
               <string>操作</string>
              </property>
             </column>

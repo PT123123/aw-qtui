@@ -58,7 +58,7 @@ public:
     QNetworkReply *getSyncConfig();                                       // GET /config
     QNetworkReply *setSyncConfig(const QJsonObject &cfg);                 // PUT /config
     QNetworkReply *createPairCode();                                      // POST /paircode
-    QNetworkReply *joinWithCode(const QString &code, const QJsonObject &device); // POST /join
+    QNetworkReply *joinRemote(const QString &deviceId, const QString &code); // POST /join-remote（把配对码发给对端去换密钥）
     QNetworkReply *addDevice(const QJsonObject &device);                  // POST /devices
     QNetworkReply *initiatePair(const QString &deviceId);                 // POST /pair/initiate
     QNetworkReply *acceptPair(const QString &deviceId);                   // POST /pair/accept
@@ -66,6 +66,10 @@ public:
     QNetworkReply *triggerSync(const QString &deviceId);                  // POST /devices/<id>/sync
     QNetworkReply *removeDevice(const QString &deviceId);                 // DELETE /devices/<id>
     QNetworkReply *clearAllDevices();                                     // DELETE /devices/all（清空所有配对信息）
+    // 把旧 id 归并进当前活着的这一行（from=旧、to=新），装机指纹相同才允许
+    QNetworkReply *mergeDevices(const QString &fromId, const QString &toId); // POST /merge
+    // 一键清理：淘汰静默未配对行 + 删除 staleDays 天没同步成功的旧配对
+    QNetworkReply *purgeDevices(int staleDays);                           // POST /devices/purge
     QNetworkReply *setDeviceAlias(const QString &deviceId, const QString &alias); // PUT /devices/<id>/alias
     QNetworkReply *getDeviceStats(const QString &deviceId);               // GET /devices/<id>/stats
     QNetworkReply *getDeviceConflicts(const QString &deviceId);           // GET /devices/<id>/conflicts
@@ -76,7 +80,6 @@ public:
     QNetworkReply *clearSyncLogs();                                       // DELETE /log
     QNetworkReply *getSyncSnapshot();                                     // GET /snapshot
     QNetworkReply *applySnapshot(const QJsonObject &snap);                // POST /apply
-    QNetworkReply *pushSnapshot(const QJsonObject &snap);                 // POST /push
     QNetworkReply *getSyncStatus();                                       // GET /status
     // GET /revision：数据修订号。远端数据落地后该值才变，客户端低频轮询它来决定
     // 是否刷新列表（无变更的自动同步轮不写日志，不能靠日志判断）

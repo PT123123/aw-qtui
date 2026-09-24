@@ -149,7 +149,8 @@ void SyncPage::buildUi()
     m_devTable->setColumnWidth(3, 60);
     m_devTable->setColumnWidth(4, 140);
     m_devTable->setColumnWidth(5, 140);
-    m_devTable->setColumnWidth(7, si(240));
+    m_devTable->setColumnWidth(7, si(90));
+    m_devTable->setColumnWidth(8, si(240));
 
     m_cmbSyncInterval->setItemData(0, 10);
     m_cmbSyncInterval->setItemData(1, 60);
@@ -163,6 +164,7 @@ void SyncPage::buildUi()
     moreMenu->addAction(QStringLiteral("导出快照（热点直连）"), this, &SyncPage::onExportSnapshot);
     moreMenu->addAction(QStringLiteral("导入合并快照…"), this, &SyncPage::onImportSnapshot);
     moreMenu->addSeparator();
+    moreMenu->addAction(QStringLiteral("一键清理过期设备"), this, &SyncPage::onPurgeStaleDevices);
     moreMenu->addAction(QStringLiteral("清空所有配对"), this, &SyncPage::onClearAllDevices);
     ui->btnMore->setMenu(moreMenu);
 
@@ -291,7 +293,19 @@ void SyncPage::renderDevices(const QList<SyncDevice> &devices)
             status = QStringLiteral("在线");
         else
             status = QStringLiteral("离线");
+        // 归并提示标在状态列（细节见操作列「归并」按钮），让「这台疑似那台的重装」不点开也知道
+        if (!d.isSelf && d.paired && d.mergeHint.isValid())
+            status += QStringLiteral(" · 疑似重装");
         put(6, status);
+        // 安全码：两端屏幕上的一致，才证明没有中间人换走了密钥
+        QString secCode;
+        if (d.isSelf)
+            secCode = QStringLiteral("—");
+        else if (!d.fingerprint.isEmpty())
+            secCode = d.fingerprint;
+        else if (d.paired)
+            secCode = QStringLiteral("未加密");
+        put(7, secCode);
         auto *opCell = new QWidget;
         auto *opLay = new QHBoxLayout(opCell);
         opLay->setContentsMargins(4, 0, 4, 0);
@@ -332,8 +346,25 @@ void SyncPage::renderDevices(const QList<SyncDevice> &devices)
             btnAccept->setFont(f2);
             opLay->addWidget(btnAccept);
         }
+        // 归并：服务端已判定这一行与另一条已配记录装机指纹相同（同一台机器换了 ID）。
+        // 这里只把候选摆出来，必须点按钮并在对话框确认后才调 /merge。
+        if (!d.isSelf && d.mergeHint.isValid()) {
+            auto *btnMerge = new QPushButton(QStringLiteral("归并"));
+            btnMerge->setToolTip(QStringLiteral(
+                "与「%1」（配对 %2 天前，装机指纹 %3）疑似同一台机器\n"
+                "归并后该旧记录从列表消失，它的历史同步数据归到这一行")
+                                      .arg(d.mergeHint.displayName)
+                                      .arg(d.mergeHint.sincePairedDays)
+                                      .arg(d.mergeHint.uidHint));
+            btnMerge->setProperty("deviceId", d.id);       // to：保留的活行
+            btnMerge->setProperty("mergeFrom", d.mergeHint.id); // from：归并掉的旧行
+            connect(btnMerge, &QPushButton::clicked, this, &SyncPage::onMergeDevice);
+            btnMerge->setMinimumWidth(si(64));
+            btnMerge->setFixedHeight(si(34));
+            opLay->addWidget(btnMerge);
+        }
         opLay->addStretch(1);
-        m_devTable->setCellWidget(row, 7, opCell);
+        m_devTable->setCellWidget(row, 8, opCell);
         ++row;
     }
     if (m_devices.isEmpty())
@@ -381,20 +412,51 @@ void SyncPage::onUsePairCode()
             return;
         }
         const QString myCode = doc.object().value(QStringLiteral("code")).toString();
-        // ② 输入对端的配对码
+        // ② 挑一台「已发现未配对」的设备：配对码只有在生成它的那台机器上有效，
+        //    所以必须把码发到那台机器的地址，而不是发给本机（发给本机必然无效）。
+        QStringList labels;
+        QStringList ids;
+        for (const SyncDevice &d : m_devices) {
+            if (d.isSelf || d.paired)
+                continue;
+            labels << QStringLiteral("%1 · %2:%3%4")
+                          .arg(d.displayName(), d.ip, QString::number(d.port),
+                               d.isOnline ? QString() : QStringLiteral("（离线）"));
+            ids << d.id;
+        }
+        if (ids.isEmpty()) {
+            QMessageBox::information(
+                this, QStringLiteral("使用配对码配对"),
+                QStringLiteral("本机配对码：%1\n\n尚未发现任何待配对设备：请确认对端与本机在同一局域网内，"
+                               "并且对端的同步页面处于打开状态（它靠局域网广播互相看见）。")
+                    .arg(myCode));
+            return;
+        }
+        QString targetId;
+        if (ids.size() == 1) {
+            targetId = ids.first();
+        } else {
+            bool picked = false;
+            const QString label = QInputDialog::getItem(
+                this, QStringLiteral("使用配对码配对"), QStringLiteral("把配对码发给哪台设备？"),
+                labels, 0, false, &picked);
+            if (!picked)
+                return;
+            targetId = ids.value(labels.indexOf(label));
+            if (targetId.isEmpty())
+                return;
+        }
+        // ③ 输入对端展示的配对码
         bool ok = false;
         const QString peerCode = QInputDialog::getText(
             this, QStringLiteral("使用配对码配对"),
-            QStringLiteral("本机配对码：%1\n（在对端设备上输入此码）\n\n请输入对端设备的配对码：").arg(myCode),
+            QStringLiteral("本机配对码：%1（5 分钟内有效，用过即废）\n"
+                           "请在对端设备上输入它，再把对端显示的配对码填在这里：\n\n目标：%2")
+                .arg(myCode, labels.value(ids.indexOf(targetId))),
             QLineEdit::Normal, QString(), &ok);
         if (!ok || peerCode.trimmed().isEmpty())
             return;
-        // ③ 带上本机设备信息加入
-        QJsonObject self;
-        for (const SyncDevice &d : m_devices)
-            if (d.isSelf)
-                self = d.toJson();
-        QNetworkReply *rj = m_api->joinWithCode(peerCode.trimmed(), self);
+        QNetworkReply *rj = m_api->joinRemote(targetId, peerCode.trimmed());
         connect(rj, &QNetworkReply::finished, this, [this, rj] {
             QJsonDocument doc2;
             QString err2;
@@ -402,7 +464,12 @@ void SyncPage::onUsePairCode()
                 log(QStringLiteral("配对码配对失败：%1").arg(err2));
                 return;
             }
-            log(QStringLiteral("配对码配对成功"));
+            // 握手成功后两端各自算出同一个安全码；两端人工核对一致才说明没被中间人换包
+            const QString fp = doc2.object().value(QStringLiteral("fingerprint")).toString();
+            if (fp.isEmpty())
+                log(QStringLiteral("配对码配对成功（对端未回传安全码，报文体仍是明文）"));
+            else
+                log(QStringLiteral("配对码配对成功，安全码 %1 —— 请与对端屏幕显示的核对一致").arg(fp));
             refreshDevices();
             // 配对成功立即补一次全量同步
             if (m_service)
@@ -477,7 +544,8 @@ void SyncPage::onSaveConfig()
     cfg.selfAlias = m_editAlias->text().trimmed();
     cfg.listenPort = m_editListenPort->text().toInt();
     cfg.udpPort = m_editUdpPort->text().toInt();
-    cfg.discoveryMethod = QStringLiteral("broadcast");
+    // 与 aw-sync-rust 的默认一致：mDNS 为首选路径，UDP 广播自动兜底
+    cfg.discoveryMethod = QStringLiteral("mdns");
     cfg.syncInterval = m_cmbSyncInterval->currentData().toULongLong();
 
     QNetworkReply *r = m_api->setSyncConfig(cfg.toJson());
@@ -620,6 +688,83 @@ void SyncPage::onClearAllDevices()
         }
         const int n = doc.object().value(QStringLiteral("cleared")).toInt();
         log(QStringLiteral("已清除 %1 台配对设备").arg(n));
+        refreshDevices();
+    });
+}
+
+/// 「一键清理」删除旧配对的天数阈值（未配对发现行的静默阈值由服务端常量决定）
+static constexpr int kPurgeStaleDays = 30;
+
+void SyncPage::onPurgeStaleDevices()
+{
+    if (!m_api)
+        return;
+    const auto ret = QMessageBox::question(
+        this, QStringLiteral("一键清理过期设备"),
+        QStringLiteral("清理两类记录：\n"
+                       "• 静默已久的未配对发现行（阈值由服务端决定）\n"
+                       "• 连续 %1 天没同步成功过的旧配对\n\n"
+                       "正常同步的设备不受影响，本操作不可恢复。").arg(kPurgeStaleDays),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (ret != QMessageBox::Yes)
+        return;
+    QNetworkReply *r = m_api->purgeDevices(kPurgeStaleDays);
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            log(QStringLiteral("清理失败：%1").arg(err));
+            return;
+        }
+        const QJsonObject o = doc.object();
+        log(QStringLiteral("已清理：静默发现行 %1 条，%2 天未同步的旧配对 %3 台")
+                .arg(o.value(QStringLiteral("discovered_removed")).toInt())
+                .arg(kPurgeStaleDays)
+                .arg(o.value(QStringLiteral("paired_removed")).toInt()));
+        refreshDevices();
+    });
+}
+
+/// 把候选旧记录（mergeFrom）并进当前这一行（deviceId）。方向不能反：只有新 id
+/// 还可能被访问到，反了会让历史数据挂在一条再也连不上的记录上。
+void SyncPage::onMergeDevice()
+{
+    auto *b = qobject_cast<QPushButton *>(sender());
+    if (!b || !m_api)
+        return;
+    const QString toId = b->property("deviceId").toString();
+    const QString fromId = b->property("mergeFrom").toString();
+    const SyncDevice *cur = nullptr;
+    for (const SyncDevice &d : m_devices) {
+        if (d.id == toId) {
+            cur = &d;
+            break;
+        }
+    }
+    if (!cur || !cur->mergeHint.isValid())
+        return;
+    const SyncMergeHint &hint = cur->mergeHint;
+    const auto ret = QMessageBox::warning(
+        this, QStringLiteral("归并为同一台机器？"),
+        QStringLiteral("「%1」与「%2」的装机指纹相同（%3），判定为同一台机器在重装或升级后换了设备 ID。\n\n"
+                       "归并后：\n"
+                       "• 旧记录「%2」从列表消失\n"
+                       "• 它的历史同步数据与配对时间归到当前这条记录\n"
+                       "• 旧记录的配对密钥作废（该 ID 已不再可达）\n\n"
+                       "拿不准就选「否」保持两台并存 —— 不影响同步。安全码仍需与对端屏幕核对。")
+            .arg(cur->displayName(), hint.displayName, hint.uidHint),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (ret != QMessageBox::Yes)
+        return;
+    QNetworkReply *r = m_api->mergeDevices(fromId, toId);
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument doc;
+        QString err;
+        if (!ApiClient::parseReply(r, &doc, &err)) {
+            log(QStringLiteral("归并失败：%1").arg(err));
+            return;
+        }
+        log(QStringLiteral("已归并旧记录，其历史同步数据已归到当前设备"));
         refreshDevices();
     });
 }

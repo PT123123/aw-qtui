@@ -6,7 +6,7 @@
 - 📥 **收件箱（Inbox）**：MoeMemos 风格 Markdown 卡片流 + 层级标签侧栏 + 评论 + 任务清单勾选
 - ☑ **任务（Todo）**：TickTick 式多清单 Todo（快速添加 / 子任务 / 优先级 / 重复 / 截止日期 / 5 种排序）
 - 🍅 **专注**：番茄倒计时 + 正计时、专注记录概览、专注记录详情（关联 Todo 任务）、周热力格、月度/年度热力图、24h 最佳时段、日历、倒数纪念日
-- ⇄ **同步**（单入口，页内 Tab 切换）：局域网同步（UDP 广播发现 / 设备配对 / 自动同步）、同步详情（日志 / 回收站）、☁ D1 云同步（Cloudflare D1）、💾 云备份（WebDAV / S3 冷备）
+- ⇄ **同步**（单入口，页内 Tab 切换）：局域网同步（mDNS/UDP 广播发现 / 设备配对 / 自动同步）、同步详情（日志 / 回收站）、☁ D1 云同步（Cloudflare D1）、💾 云备份（WebDAV / S3 冷备）
 - ⚙ **设置**：收件箱设置 + 通用设置（主题 / 图标 / 全局快捷键 / 缩放 / 同步配置）
 
 服务端来自 `aw-server-plus`（aw-server-rust fork），`feature/inbox` 分支已融合官方
@@ -18,7 +18,8 @@
 
 - 原生编译，启动与渲染性能远高于 Python 绑定（PySide/PyQt）
 - 零运行时依赖（除 Qt 动态库），单 exe 可分发
-- `QNetworkAccessManager` 异步 HTTP，`QThread` + Win32 DNS-SD 做 mDNS 自动发现
+- `QNetworkAccessManager` 异步 HTTP；设备发现与同步协议全在内嵌的 Rust 服务端
+  （`aw-sync-rust`：mDNS 首选 + UDP 广播兜底），UI 只调 REST
 
 ## 页面
 
@@ -379,7 +380,7 @@ aw-qtui/
 │   ├── syncdetailspage.h/.cpp/.ui  # 同步详情（日志 + 回收站 + 最近同步结果）
 │   ├── d1syncpage.h/.cpp/.ui       # D1 云同步页
 │   ├── cloudbackuppage.h/.cpp/.ui  # 云备份（WebDAV / S3）
-│   ├── mdnsdiscovery.h/.cpp        # Win32 DNS-SD mDNS（QThread 工作线程 + 信号桥接）
+│   ├── mdnsdiscovery.h/.cpp        # Win32 DNS-SD 封装（未接入 UI 的死代码，待退役，见「mDNS 说明」）
 │   ├── tagstore.h/.cpp             # 时间标签本地存储（段 CRUD/颜色/快捷键/自动标签）
 │   ├── filterparser.h/.cpp         # 当日过滤/高级搜索共用过滤语法解析器
 │   ├── autotagengine.h/.cpp        # 自动标签计算引擎
@@ -456,11 +457,18 @@ Rust 侧：融合后的服务端在**独立 `todo.db`** 中提供 `/inbox/todos`
 
 ## mDNS 说明
 
-局域网自动发现使用 Windows 10+ 原生 `DnsServiceBrowse` / `DnsServiceResolve` /
-`DnsServiceRegister`（`dnsapi.dll`），不依赖 Bonjour 或第三方库。服务类型
-`_activitywatch._tcp.local.`，与 `aw-sync-transport/src/discovery.rs` 一致。
-发现/注册在独立 QThread 里运行，结果通过 Qt 信号投递到 UI 线程。
-若所在网络屏蔽多播，可用「手动添加对端」兜底。
+局域网自动发现（mDNS/DNS-SD + UDP 广播兜底）**实现在内嵌的 Rust 服务端**
+`aw-server-plus/aw-sync-rust/src/mdns.rs`，桌面与 Android 共用同一份，本仓库的 UI 只调
+`/api/0/sync/*`。仲裁规则、宣告字段与配置词汇见
+[设计-局域网同步mDNS发现](docs/设计-局域网同步mDNS发现-2026-09-24.md)，
+「哪一行是哪台机器」的归并见[设计-设备身份归并](docs/设计-设备身份归并-2026-09-24.md)。
+
+> `src/mdnsdiscovery.h/.cpp`（Win32 `dnsapi.dll` 的 `DnsServiceBrowse`/`DnsServiceRegister` 封装）
+> 是历史遗留：`mainwindow.cpp:160` 只把它 `new` 出来，`startBrowse()`/`registerService()` 无人调用，
+> 因此从未参与发现。服务类型常量与 Rust 侧一致（`_activitywatch._tcp.local.`），
+> 待确认真机不再需要它做兜底后退役。
+>
+> 若所在网络屏蔽多播，服务端会自动退回 UDP 广播；仍不通时用「手动添加对端」兜底。
 
 ## 内存与性能基线
 
@@ -547,5 +555,6 @@ just mem-baseline offscreen       # 离屏平台：快，但绝对值偏低，�
 
 - CMake + MSVC 19.44 编译链接通过，产物 `awqtui.exe`（~270KB）
 - 连 mock 服务端启动：收件箱加载 3 条种子笔记、5 个标签、状态「已连接」；
-  同步页设备表加载、心跳注册、mDNS 浏览/注册接口可用
+  同步页设备表加载、心跳注册可用（当期 `MdnsDiscovery` 接口编译通过，但从未被 UI 启动，
+  发现实际由内嵌 Rust 服务端承担，见「mDNS 说明」）
 - API 全链路：创建 / 标签过滤 / 更新 / 评论 / sync / 心跳 / 设备表 / 删除

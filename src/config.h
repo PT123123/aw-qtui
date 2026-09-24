@@ -7,7 +7,7 @@ namespace awqtui {
 
 // 服务端默认地址（aw-inbox 监听 0.0.0.0:5600）
 inline const QString kDefaultServerUrl = QStringLiteral("http://127.0.0.1:5600");
-// mDNS 服务类型（对齐 aw-sync-transport/src/discovery.rs）
+// mDNS 服务类型（对齐 aw-server-plus/aw-sync-rust/src/mdns.rs 的 SERVICE_TYPE）
 inline const QString kMdnsServiceType = QStringLiteral("_activitywatch._tcp.local.");
 inline const QString kAppName = QStringLiteral("aw-qtui");
 #ifndef AW_VERSION
