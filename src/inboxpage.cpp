@@ -1032,16 +1032,16 @@ void InboxPage::clearAllFilters()
 // 目标用 uuid（推荐、跨设备唯一）或 id 指定；action 支持 create / update / delete / restore。
 void InboxPage::onOpenCommands()
 {
-    bool ok = false;
-    const QString text = QInputDialog::getMultiLineText(
-        this, QStringLiteral("批量操作指令（笔记）"),
-        QStringLiteral("粘贴 AI 返回的 JSON，例如：\n"
-                       "{\"operations\":[\n"
-                       "  {\"action\":\"delete\",\"uuid\":\"<笔记ID>\"},\n"
-                       "  {\"action\":\"update\",\"uuid\":\"<笔记ID>\",\"content\":\"新内容\",\"tags\":[\"a\"]}\n"
-                       "]}\naction 支持 create / update / delete / restore；目标用 uuid（推荐）或 id。"),
-        QString(), &ok);
-    if (!ok || text.trimmed().isEmpty())
+    BatchCommandsDialog dlg(
+        QStringLiteral("批量操作指令（笔记）"),
+        QStringLiteral("粘贴 AI 返回的 JSON 并执行。action 支持 create / update / delete / restore / "
+                       "add_tags / remove_tags / set_tags / comment；目标用 uuid（推荐、跨设备唯一）或 id。"
+                       "点「复制示例」可拿到带全部动作的模板。"),
+        noteBatchExample(), this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const QString text = dlg.text().trimmed();
+    if (text.isEmpty())
         return;
 
     QJsonParseError perr;

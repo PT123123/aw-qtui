@@ -2550,16 +2550,17 @@ void TodoPage::onOpenCommands()
         QMessageBox::warning(this, QStringLiteral("批量操作指令"), QStringLiteral("未连接服务端，无法执行指令"));
         return;
     }
-    bool ok = false;
-    const QString text = QInputDialog::getMultiLineText(
-        this, QStringLiteral("批量操作指令（任务）"),
-        QStringLiteral("粘贴 AI 返回的 JSON，例如：\n"
-                       "{\"operations\":[\n"
-                       "  {\"action\":\"update\",\"uuid\":\"<任务ID>\",\"completed\":true},\n"
-                       "  {\"action\":\"delete\",\"uuid\":\"<任务ID>\"}\n"
-                       "]}\naction 支持 create / update / delete / restore；目标用 uuid（推荐）或 id。"),
-        QString(), &ok);
-    if (!ok || text.trimmed().isEmpty())
+    BatchCommandsDialog dlg(
+        QStringLiteral("批量操作指令（任务）"),
+        QStringLiteral("粘贴 AI 返回的 JSON 并执行。action 支持 create / update / delete / restore / "
+                       "add_tags / remove_tags / set_tags / set_completed / move / set_priority / set_due / "
+                       "add_subtask / remove_subtask / set_subtask / comment；目标用 uuid（推荐）或 id。"
+                       "点「复制示例」可拿到带全部动作的模板。"),
+        todoBatchExample(), this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const QString text = dlg.text().trimmed();
+    if (text.isEmpty())
         return;
 
     QJsonParseError perr;

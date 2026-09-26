@@ -33,6 +33,10 @@ QString formatRelative(const QString &iso);
 // 从纯文本提取 #tag
 QStringList extractTags(const QString &text);
 
+// 批量操作指令示例（覆盖全部动作），供「批量操作指令」对话框的「复制示例」使用
+QString noteBatchExample();
+QString todoBatchExample();
+
 // 屏幕底部居中的短暂气泡提示（淡入 → 停留 → 淡出后自毁，约 1.8s）。
 // 独立无边框置顶工具窗：不抢焦点、不进任务栏/Alt+Tab，主窗口隐藏时也可见；
 // anchorScreen 为空时取光标所在屏。用于快捷输入提交后的「已发送」等反馈。
@@ -324,6 +328,22 @@ private:
     QPushButton *m_btnRestore = nullptr;
     QList<NoteHistory> m_items;
     qint64 m_noteId = 0;
+};
+
+// ------------------------------------------------------------------ //
+// 批量操作指令对话框：多行输入粘贴 AI 返回的 JSON，底部「复制示例」把带全部动作的
+// 示例直接拷到剪贴板（示例本身就是可用的完整 JSON，改改 uuid 就能执行）。
+class BatchCommandsDialog : public QDialog
+{
+    Q_OBJECT
+public:
+    explicit BatchCommandsDialog(const QString &title, const QString &hint,
+                                 const QString &example, QWidget *parent = nullptr);
+    QString text() const;
+
+private:
+    QPlainTextEdit *m_edit = nullptr;
+    QString m_example;
 };
 
 } // namespace awqtui

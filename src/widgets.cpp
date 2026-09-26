@@ -1441,4 +1441,96 @@ void NoteDetailsDialog::onRestoreClicked()
     accept();
 }
 
+// ── 批量操作指令示例（覆盖全部动作；改改 uuid / id 即可直接执行）──────────
+
+QString noteBatchExample()
+{
+    return QStringLiteral(
+        "{\n"
+        "  \"operations\": [\n"
+        "    {\"action\": \"create\", \"content\": \"新笔记正文 #项目/工作\", \"tags\": [\"项目/工作\"]},\n"
+        "    {\"action\": \"update\", \"uuid\": \"在此填笔记ID\", \"content\": \"改后的正文\", \"tags\": [\"项目\"]},\n"
+        "    {\"action\": \"add_tags\", \"uuid\": \"在此填笔记ID\", \"tags\": [\"重要\", \"待办\"]},\n"
+        "    {\"action\": \"remove_tags\", \"uuid\": \"在此填笔记ID\", \"tags\": [\"待办\"]},\n"
+        "    {\"action\": \"set_tags\", \"uuid\": \"在此填笔记ID\", \"tags\": [\"项目/工作\", \"重要\"]},\n"
+        "    {\"action\": \"comment\", \"uuid\": \"在此填笔记ID\", \"content\": \"给这条笔记加一条评论\"},\n"
+        "    {\"action\": \"delete\", \"uuid\": \"在此填笔记ID\"},\n"
+        "    {\"action\": \"restore\", \"uuid\": \"在此填笔记ID\"}\n"
+        "  ]\n"
+        "}");
+}
+
+QString todoBatchExample()
+{
+    return QStringLiteral(
+        "{\n"
+        "  \"operations\": [\n"
+        "    {\"action\": \"create\", \"title\": \"新任务\", \"content\": \"备注\", \"tags\": [\"项目/工作\"], \"priority\": 2, \"due_date\": \"2026-10-01T00:00:00Z\", \"list_id\": 0},\n"
+        "    {\"action\": \"update\", \"uuid\": \"在此填任务ID\", \"title\": \"改后标题\", \"content\": \"改后备注\"},\n"
+        "    {\"action\": \"add_tags\", \"uuid\": \"在此填任务ID\", \"tags\": [\"重要\"]},\n"
+        "    {\"action\": \"remove_tags\", \"uuid\": \"在此填任务ID\", \"tags\": [\"重要\"]},\n"
+        "    {\"action\": \"set_completed\", \"uuid\": \"在此填任务ID\", \"completed\": true},\n"
+        "    {\"action\": \"move\", \"uuid\": \"在此填任务ID\", \"list_name\": \"工作\"},\n"
+        "    {\"action\": \"set_priority\", \"uuid\": \"在此填任务ID\", \"priority\": 3},\n"
+        "    {\"action\": \"set_due\", \"uuid\": \"在此填任务ID\", \"due_date\": \"2026-10-01T00:00:00Z\"},\n"
+        "    {\"action\": \"set_due\", \"uuid\": \"在此填任务ID\", \"clear_due\": true},\n"
+        "    {\"action\": \"add_subtask\", \"uuid\": \"在此填任务ID\", \"title\": \"子任务 1\"},\n"
+        "    {\"action\": \"set_subtask\", \"uuid\": \"在此填任务ID\", \"subtask_id\": 1, \"completed\": true},\n"
+        "    {\"action\": \"remove_subtask\", \"uuid\": \"在此填任务ID\", \"subtask_id\": 1},\n"
+        "    {\"action\": \"comment\", \"uuid\": \"在此填任务ID\", \"content\": \"追加到任务备注的评论\"},\n"
+        "    {\"action\": \"delete\", \"uuid\": \"在此填任务ID\"},\n"
+        "    {\"action\": \"restore\", \"uuid\": \"在此填任务ID\"}\n"
+        "  ]\n"
+        "}");
+}
+
+BatchCommandsDialog::BatchCommandsDialog(const QString &title, const QString &hint,
+                                         const QString &example, QWidget *parent)
+    : QDialog(parent), m_example(example)
+{
+    setWindowTitle(title);
+    resize(si(640), si(440));
+
+    auto *lay = new QVBoxLayout(this);
+    lay->setContentsMargins(si(16), si(14), si(16), si(14));
+    lay->setSpacing(si(10));
+
+    auto *hintLabel = new QLabel(hint, this);
+    hintLabel->setWordWrap(true);
+    hintLabel->setStyleSheet(scaleQss(QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted)));
+    lay->addWidget(hintLabel);
+
+    m_edit = new QPlainTextEdit(this);
+    m_edit->setPlaceholderText(QStringLiteral(
+        "在此粘贴 AI 返回的 JSON…（也可点「复制示例」拿到带全部动作的模板）"));
+    m_edit->setStyleSheet(scaleQss(QStringLiteral(
+        "QPlainTextEdit { background: %1; border: 1px solid %2; border-radius: 6px;"
+        " color: %3; font-family: Consolas, monospace; }")
+        .arg(kColorBgElev, kColorBorder, kColorFg)));
+    lay->addWidget(m_edit, 1);
+
+    auto *btnRow = new QHBoxLayout;
+    auto *btnExample = new QPushButton(QStringLiteral("复制示例"), this);
+    btnExample->setToolTip(QStringLiteral("把带全部动作的示例 JSON 复制到剪贴板（改改 uuid 即可执行）"));
+    connect(btnExample, &QPushButton::clicked, this, [this] {
+        QApplication::clipboard()->setText(m_example);
+        showToast(QStringLiteral("示例已复制到剪贴板"), screen());
+    });
+    btnRow->addWidget(btnExample);
+    btnRow->addStretch(1);
+    auto *btnOk = new QPushButton(QStringLiteral("执行"), this);
+    btnOk->setDefault(true);
+    connect(btnOk, &QPushButton::clicked, this, &QDialog::accept);
+    auto *btnCancel = new QPushButton(QStringLiteral("取消"), this);
+    connect(btnCancel, &QPushButton::clicked, this, &QDialog::reject);
+    btnRow->addWidget(btnOk);
+    btnRow->addWidget(btnCancel);
+    lay->addLayout(btnRow);
+}
+
+QString BatchCommandsDialog::text() const
+{
+    return m_edit ? m_edit->toPlainText() : QString();
+}
+
 } // namespace awqtui
