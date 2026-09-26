@@ -59,13 +59,18 @@ QNetworkReply *ApiClient::sendJson(const QByteArray &method, const QString &path
 // ------------------------------------------------------------------ //
 
 QNetworkReply *ApiClient::getNotes(int limit, int offset, const QString &tag, const QString &search,
-                                   const QString &sortBy)
+                                   const QString &sortBy, const QStringList &excludeTags)
 {
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("limit"), QString::number(limit));
     q.addQueryItem(QStringLiteral("offset"), QString::number(offset));
     if (!tag.isEmpty())
         q.addQueryItem(QStringLiteral("tag"), tag);
+    // 反向筛选：同一 key 重复出现，服务端按 Vec<String> 收集
+    for (const QString &ex : excludeTags) {
+        if (!ex.isEmpty())
+            q.addQueryItem(QStringLiteral("exclude_tag"), ex);
+    }
     if (!search.isEmpty())
         q.addQueryItem(QStringLiteral("search"), search);
     if (!sortBy.isEmpty())
@@ -111,6 +116,11 @@ QNetworkReply *ApiClient::getNoteHistory(qint64 id)
 QNetworkReply *ApiClient::restoreNote(qint64 id)
 {
     return sendJson("PUT", QStringLiteral("/inbox/notes/%1/restore").arg(id), QJsonObject());
+}
+
+QNetworkReply *ApiClient::batchNotes(const QJsonObject &payload)
+{
+    return sendJson("POST", QStringLiteral("/inbox/notes/batch"), payload);
 }
 
 QNetworkReply *ApiClient::getTags()
@@ -520,6 +530,11 @@ QNetworkReply *ApiClient::deleteTodo(qint64 id)
 QNetworkReply *ApiClient::restoreTodo(qint64 id)
 {
     return sendJson("PUT", QStringLiteral("/inbox/todos/%1/restore").arg(id), QJsonObject());
+}
+
+QNetworkReply *ApiClient::batchTodos(const QJsonObject &payload)
+{
+    return sendJson("POST", QStringLiteral("/inbox/todos/batch"), payload);
 }
 
 // ── Inbox Todo Lists（清单实体） ───────────────────────────────

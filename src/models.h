@@ -11,6 +11,8 @@ namespace awqtui {
 // NoteResponse: id, content, tags, created_at, updated_at, version, device_id, deleted, synced_at, conflict
 struct Note {
     qint64 id = 0;
+    // 全局唯一逻辑键（服务端 NoteResponse.uuid）：AI 批量指令按它唯一定位笔记
+    QString uuid;
     QString content;
     QStringList tags;
     QString createdAt;
@@ -33,6 +35,7 @@ struct Note {
     {
         Note n;
         n.id = o.value(QLatin1String("id")).toVariant().toLongLong();
+        n.uuid = o.value(QLatin1String("uuid")).toString();
         n.content = o.value(QLatin1String("content")).toString();
         const auto t = o.value(QLatin1String("tags")).toArray();
         for (const auto &v : t)

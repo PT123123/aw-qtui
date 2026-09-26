@@ -516,6 +516,7 @@ TodoTask TodoApiStore::todoToTask(const QJsonObject &o)
 {
     TodoTask t;
     t.id = o.value(QLatin1String("id")).toVariant().toLongLong();
+    t.uuid = o.value(QLatin1String("uuid")).toString();
     t.title = o.value(QLatin1String("title")).toString();
     t.notes = o.value(QLatin1String("content")).toString();
     t.priority = o.value(QLatin1String("priority")).toInt(TodoPriorityNone);

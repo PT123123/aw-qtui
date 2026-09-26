@@ -12,8 +12,10 @@
 #include <QColor>
 #include <QComboBox>
 #include <QCursor>
+#include <QFont>
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -22,6 +24,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMap>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
@@ -158,6 +161,8 @@ void InboxPage::buildUi()
     m_btnSidebar = ui->btnSidebar;
     m_sort = ui->sortBox;
     m_btnCopy = ui->btnCopy;
+    m_btnCommands = ui->btnCommands;
+    m_btnExclude = ui->btnExclude;
     m_btnRefresh = ui->btnRefresh;
     m_badge = ui->badge;
     m_filterBar = ui->filterBar;
@@ -214,7 +219,25 @@ void InboxPage::buildUi()
 
     // ── 信号连接 ──
     connect(m_tagTree, &QTreeWidget::itemClicked, this, &InboxPage::onTagTreeItemClicked);
-    connect(m_btnClear, &QPushButton::clicked, this, [this] { applyTagFilterPath(QString()); });
+    // 右键标签：包含 / 排除 / 清除（左键仍是「包含」切换）
+    m_tagTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_tagTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        QTreeWidgetItem *item = m_tagTree->itemAt(pos);
+        if (!item)
+            return;
+        const QString path = item->data(0, Qt::UserRole).toString();
+        QMenu menu(this);
+        menu.addAction(QStringLiteral("仅显示此标签"), this, [this, path] { applyTagFilterPath(path); });
+        menu.addAction(m_excludedTags.contains(path) ? QStringLiteral("取消排除此标签")
+                                                     : QStringLiteral("排除此标签"),
+                       this, [this, path] { toggleExclude(path); });
+        menu.addSeparator();
+        menu.addAction(QStringLiteral("清除全部筛选"), this, &InboxPage::clearAllFilters);
+        menu.exec(m_tagTree->viewport()->mapToGlobal(pos));
+    });
+    connect(m_btnClear, &QPushButton::clicked, this, &InboxPage::clearAllFilters);
+    connect(m_btnExclude, &QPushButton::clicked, this, &InboxPage::onExcludeCurrentTag);
+    connect(m_btnCommands, &QPushButton::clicked, this, &InboxPage::onOpenCommands);
     connect(m_search, &QLineEdit::textChanged, this, &InboxPage::onSearchChanged);
     connect(m_btnSidebar, &QPushButton::clicked, this, [this] {
         m_sidebarVisible = !m_sidebarVisible;
@@ -227,7 +250,7 @@ void InboxPage::buildUi()
         const int slash = m_currentTag.lastIndexOf(QLatin1Char('/'));
         applyTagFilterPath(slash > 0 ? m_currentTag.left(slash) : QString());
     });
-    connect(m_btnFilterClear, &QPushButton::clicked, this, [this] { applyTagFilterPath(QString()); });
+    connect(m_btnFilterClear, &QPushButton::clicked, this, &InboxPage::clearAllFilters);
     connect(m_list->verticalScrollBar(), &QScrollBar::valueChanged, this, &InboxPage::onScroll);
 
     // ── 多选 ──
@@ -287,8 +310,9 @@ void InboxPage::applyStyles()
                     " color: %1; padding: 5px 10px; font-size: 12px; }"
                     "QPushButton:hover { background: %2; color: %3; }")
                                                      .arg(kColorFgMuted, kColorBgElev2, kColorFg)));
-        if (m_btnClear)
-            m_btnClear->setStyleSheet(chipBtn);
+        for (QPushButton *b : {m_btnClear, m_btnExclude})
+            if (b)
+                b->setStyleSheet(chipBtn);
     }
 
     // 工具栏
@@ -322,7 +346,7 @@ void InboxPage::applyStyles()
         " color: %1; padding: 5px 10px; font-size: 12px; }"
         "QPushButton:hover { background: %2; color: %3; }");
     const QString subtleStyle = scaleQss(subtleBtn.arg(kColorFgMuted, kColorBgElev2, kColorFg));
-    for (QPushButton *b : {m_btnSidebar, m_btnRefresh, m_btnCopy}) {
+    for (QPushButton *b : {m_btnSidebar, m_btnRefresh, m_btnCopy, m_btnCommands}) {
         if (b)
             b->setStyleSheet(subtleStyle);
     }
@@ -499,6 +523,8 @@ void InboxPage::renderLocal()
         if (!search.isEmpty() && !n.content.toLower().contains(search))
             continue;
         if (!tagPathMatches(n.tags, m_currentTag))
+            continue;
+        if (matchesAnyExcluded(n.tags))
             continue;
         visible << n;
     }
@@ -839,6 +865,11 @@ void InboxPage::rebuildTagTree()
     // 标签树内容签名（路径 + 计数，含当前筛选路径）：一致就不重建。
     // 重建会 clear() 掉整棵树并重新展开，侧栏会明显闪一下（同步轮询每次都会走到这里）。
     QString sig = m_currentTag + QLatin1Char('\n');
+    {   // 排除集合也进签名：排除态变化时树上的 ⊘/删除线要跟着刷新
+        QStringList ex = m_excludedTags.values();
+        std::sort(ex.begin(), ex.end());
+        sig += QLatin1Char('X') + ex.join(QLatin1Char('\x1f')) + QLatin1Char('\n');
+    }
     std::function<void(const QList<TagNode> &)> appendSig = [&](const QList<TagNode> &nodes) {
         for (const TagNode &n : nodes) {
             sig += n.path + QLatin1Char('\x1f') + QString::number(n.count) + QLatin1Char('\n');
@@ -859,9 +890,18 @@ void InboxPage::rebuildTagTree()
                 auto *item = parentItem ? new QTreeWidgetItem(parentItem) : new QTreeWidgetItem(m_tagTree);
                 const int slash = n.path.lastIndexOf(QLatin1Char('/'));
                 const QString lastSeg = slash >= 0 ? n.path.mid(slash + 1) : n.path;
-                item->setText(0, QStringLiteral("#%1 (%2)").arg(lastSeg).arg(n.count));
-                item->setToolTip(0, n.path);
+                const bool excluded = m_excludedTags.contains(n.path);
+                item->setText(0, QStringLiteral("%1#%2 (%3)")
+                                     .arg(excluded ? QStringLiteral("⊘ ") : QString())
+                                     .arg(lastSeg)
+                                     .arg(n.count));
+                item->setToolTip(0, excluded ? QStringLiteral("%1（已排除）").arg(n.path) : n.path);
                 item->setData(0, Qt::UserRole, n.path);
+                if (excluded) {
+                    QFont f = item->font(0);
+                    f.setStrikeOut(true);
+                    item->setFont(0, f);
+                }
                 addNodes(item, n.children);
             }
         };
@@ -892,6 +932,11 @@ void InboxPage::rebuildTagTree()
 void InboxPage::onTagTreeItemClicked(QTreeWidgetItem *item, int column)
 {
     const QString path = item->data(column, Qt::UserRole).toString();
+    // 被排除的标签：左键点它先解除排除（避免「既排除又仅显示」自相矛盾）
+    if (m_excludedTags.remove(path)) {
+        rebuildTagTree();
+        updateFilterBar();
+    }
     // 再点当前筛选中的标签 = 取消筛选（与 Android 再点同标签/✕ 取消一致）
     applyTagFilterPath(path == m_currentTag ? QString() : path);
 }
@@ -900,13 +945,33 @@ void InboxPage::updateFilterBar()
 {
     if (!m_filterBar)
         return;
-    m_filterBar->setVisible(!m_currentTag.isEmpty());
-    if (m_currentTag.isEmpty())
+    const bool hasInclude = !m_currentTag.isEmpty();
+    const bool hasExclude = !m_excludedTags.isEmpty();
+    m_filterBar->setVisible(hasInclude || hasExclude);
+    if (!hasInclude && !hasExclude) {
+        if (m_btnFilterUp)
+            m_btnFilterUp->setVisible(false);
         return;
-    const QStringList segs = m_currentTag.split(QLatin1Char('/'), Qt::SkipEmptyParts);
-    m_filterText->setText(QStringLiteral("仅显示 #%1").arg(segs.join(QStringLiteral(" / "))));
-    if (m_btnFilterUp)
-        m_btnFilterUp->setVisible(segs.size() > 1);
+    }
+
+    QStringList parts;
+    if (hasInclude) {
+        const QStringList segs = m_currentTag.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        parts << QStringLiteral("仅显示 #%1").arg(segs.join(QStringLiteral(" / ")));
+        if (m_btnFilterUp)
+            m_btnFilterUp->setVisible(segs.size() > 1);
+    } else if (m_btnFilterUp) {
+        m_btnFilterUp->setVisible(false);
+    }
+    if (hasExclude) {
+        QStringList ex = m_excludedTags.values();
+        std::sort(ex.begin(), ex.end());
+        QStringList marked;
+        for (const QString &e : ex)
+            marked << QStringLiteral("⊘ #%1").arg(e);
+        parts << QStringLiteral("排除 %1").arg(marked.join(QStringLiteral(" ")));
+    }
+    m_filterText->setText(parts.join(QStringLiteral(" · ")));
 }
 
 void InboxPage::applyTagFilterPath(const QString &path)
@@ -914,6 +979,107 @@ void InboxPage::applyTagFilterPath(const QString &path)
     m_currentTag = path;
     updateFilterBar();
     loadNotes(true);
+}
+
+// 某条笔记是否命中任一排除标签：与「仅显示」同款段边界前缀匹配（排除父标签会连同子孙一起隐藏）
+bool InboxPage::matchesAnyExcluded(const QStringList &tags) const
+{
+    for (const QString &ex : m_excludedTags) {
+        if (tagPathMatches(tags, ex))
+            return true;
+    }
+    return false;
+}
+
+void InboxPage::toggleExclude(const QString &path)
+{
+    if (path.isEmpty())
+        return;
+    if (m_excludedTags.contains(path)) {
+        m_excludedTags.remove(path);
+    } else {
+        m_excludedTags.insert(path);
+        // 排除与「仅显示」互斥：正在显示的标签被排除时，取消「仅显示」
+        if (m_currentTag == path || m_currentTag.startsWith(path + QLatin1Char('/')))
+            m_currentTag.clear();
+    }
+    rebuildTagTree();   // 刷新 ⊘ / 删除线
+    updateFilterBar();
+    loadNotes(true);
+}
+
+void InboxPage::onExcludeCurrentTag()
+{
+    QTreeWidgetItem *item = m_tagTree->currentItem();
+    if (!item) {
+        setStatus(StatusBadge::State::Connected, QStringLiteral("请先在标签树中点选一个标签"));
+        QTimer::singleShot(1800, this, [this] { setStatus(StatusBadge::State::Connected); });
+        return;
+    }
+    toggleExclude(item->data(0, Qt::UserRole).toString());
+}
+
+void InboxPage::clearAllFilters()
+{
+    m_currentTag.clear();
+    m_excludedTags.clear();
+    rebuildTagTree();
+    updateFilterBar();
+    loadNotes(true);
+}
+
+// 批量操作指令：粘贴 AI 返回的 JSON 并 POST /inbox/notes/batch
+// 目标用 uuid（推荐、跨设备唯一）或 id 指定；action 支持 create / update / delete / restore。
+void InboxPage::onOpenCommands()
+{
+    bool ok = false;
+    const QString text = QInputDialog::getMultiLineText(
+        this, QStringLiteral("批量操作指令（笔记）"),
+        QStringLiteral("粘贴 AI 返回的 JSON，例如：\n"
+                       "{\"operations\":[\n"
+                       "  {\"action\":\"delete\",\"uuid\":\"<笔记ID>\"},\n"
+                       "  {\"action\":\"update\",\"uuid\":\"<笔记ID>\",\"content\":\"新内容\",\"tags\":[\"a\"]}\n"
+                       "]}\naction 支持 create / update / delete / restore；目标用 uuid（推荐）或 id。"),
+        QString(), &ok);
+    if (!ok || text.trimmed().isEmpty())
+        return;
+
+    QJsonParseError perr;
+    const QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8(), &perr);
+    if (perr.error != QJsonParseError::NoError) {
+        QMessageBox::warning(this, QStringLiteral("批量操作指令"),
+                             QStringLiteral("JSON 解析失败：%1").arg(perr.errorString()));
+        return;
+    }
+    QJsonObject body;
+    if (doc.isArray())
+        body.insert(QStringLiteral("operations"), doc.array());
+    else if (doc.isObject() && doc.object().contains(QStringLiteral("operations")))
+        body = doc.object();
+    else {
+        QMessageBox::warning(this, QStringLiteral("批量操作指令"),
+                             QStringLiteral("需要 JSON 对象且包含 operations 字段，或直接给 operations 数组"));
+        return;
+    }
+
+    QNetworkReply *r = m_api->batchNotes(body);
+    setStatus(StatusBadge::State::Syncing, QStringLiteral("执行指令…"));
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument rdoc;
+        QString err;
+        if (!ApiClient::parseReply(r, &rdoc, &err)) {
+            setStatus(StatusBadge::State::Error, err);
+            return;
+        }
+        const QJsonObject o = rdoc.object();
+        const int applied = o.value(QStringLiteral("applied")).toInt();
+        const int failed = o.value(QStringLiteral("failed")).toInt();
+        setStatus(failed > 0 ? StatusBadge::State::Error : StatusBadge::State::Connected,
+                  QStringLiteral("指令完成：成功 %1 / 失败 %2").arg(applied).arg(failed));
+        QTimer::singleShot(2500, this, [this] { setStatus(StatusBadge::State::Connected); });
+        loadNotes(true);
+        refreshTagTree();
+    });
 }
 
 void InboxPage::loadNotes(bool reset)
@@ -938,7 +1104,8 @@ void InboxPage::loadNotes(bool reset)
 
     // 层级标签路径筛选：交给服务端 ?tag= 段边界前缀匹配（bc2647b）
     const QString sortBy = m_sort->currentData().toString();
-    QNetworkReply *r = m_api->getNotes(m_limit, m_offset, m_currentTag, m_search->text(), sortBy);
+    QNetworkReply *r = m_api->getNotes(m_limit, m_offset, m_currentTag, m_search->text(), sortBy,
+                                       m_excludedTags.values());
     const int gen = m_reqGen;
 
     // 兜底：本机“连接被拒”可能要数秒才回报，超过阈值直接判离线，避免界面长时间卡在“加载中”
@@ -2206,12 +2373,13 @@ void InboxPage::onCopyAll()
 {
     QStringList lines;
     for (const Note &n : m_notes) {
-        // 与 aw-webui「复制全部」同款格式：修改时间∣内容
-        lines << QStringLiteral("%1∣%2").arg(formatLocal(n.updatedAt.isEmpty() ? n.createdAt : n.updatedAt),
-                                              n.content);
+        // 与 aw-webui「复制全部」同款格式：修改时间∣内容；并附带唯一 ID（uuid）供 AI 指令引用
+        const QString uid = n.uuid.isEmpty() ? QStringLiteral("local:%1").arg(n.id) : n.uuid;
+        lines << QStringLiteral("%1∣%2\nID: %3")
+                     .arg(formatLocal(n.updatedAt.isEmpty() ? n.createdAt : n.updatedAt), n.content, uid);
     }
     QApplication::clipboard()->setText(lines.join(QLatin1Char('\n')));
-    setStatus(StatusBadge::State::Connected, QStringLiteral("已复制 %1 条").arg(lines.size()));
+    setStatus(StatusBadge::State::Connected, QStringLiteral("已复制 %1 条（含 ID）").arg(lines.size()));
     QTimer::singleShot(1500, this, [this] { setStatus(StatusBadge::State::Connected); });
 }
 

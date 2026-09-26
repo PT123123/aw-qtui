@@ -300,6 +300,15 @@ private:
     // 标题 / 备注 / 标签 / 所属清单名 任一命中即保留（子串匹配、不区分大小写）
     bool matchesSearch(const TodoTask &t, const QString &needle) const;
 
+    // ── 标签筛选（含反向/排除；内存过滤，列表与看板同口径）──
+    // 命中「仅显示」标签（或其子孙）且不命中任何「排除」标签才保留
+    bool taskPassesTagFilter(const TodoTask &t) const;
+    void buildTagFilterButton();      // 顶栏「标签」筛选入口 + 「指令」批量操作入口
+    void openTagFilterDialog();       // 选择「仅显示」标签 / 勾选「排除」标签
+    void updateTagFilterButton();     // 按钮文案提示当前是否有生效的标签筛选
+    // 打开「批量操作指令」对话框：粘贴 AI 返回的 JSON 并 POST /inbox/todos/batch
+    void onOpenCommands();
+
     QWidget *makeSubtaskRow(const TodoSubtask &s);
     TodoNavItem *makeNavItem(const QString &name);
 
@@ -337,6 +346,10 @@ private:
     QLabel *m_viewCount;
     QComboBox *m_sortBox = nullptr;   // 排序模式（默认/最近添加/倒序/按优先级/按截止日期）
     QLineEdit *m_search = nullptr;    // 当前视图内的任务搜索（纯内存过滤）
+    QToolButton *m_tagFilterBtn = nullptr;  // 顶栏「标签」筛选入口（含反向/排除）
+    QToolButton *m_commandsBtn = nullptr;   // 顶栏「指令」批量操作入口
+    QString m_tagInclude;                   // 仅显示标签路径（空 = 不限）
+    QSet<QString> m_tagExclude;             // 反向筛选：被排除的标签路径集合
     QLineEdit *m_quickAdd;
     QListWidget *m_list;
     QPushButton *m_completedBtn;

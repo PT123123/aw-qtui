@@ -6,6 +6,7 @@
 #include "appsettings.h"
 #include "apiclient.h"
 #include "config.h"
+#include "models.h"
 #include "theme.h"
 #include "mockdata.h"
 #include "todoboard.h"
@@ -22,6 +23,8 @@
 #include <QCursor>
 #include <QDate>
 #include <QDateEdit>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QEnterEvent>
 #include <QFont>
 #include <QFontMetrics>
@@ -1145,14 +1148,21 @@ TaskDetailsDialog::TaskDetailsDialog(const TodoTask &task, const QString &listNa
     lay->addWidget(notes, 1);
 
     auto *btnRow = new QHBoxLayout;
-    auto *btnCopy = new QPushButton(QStringLiteral("复制标题与备注"));
-    connect(btnCopy, &QPushButton::clicked, this, [this, task] {
-        const QString text = task.notes.isEmpty()
+    // 复制时附带唯一 ID（uuid），便于把内容交给 AI 后按 ID 回传批量操作指令
+    const QString uid = task.uuid.isEmpty() ? QStringLiteral("local:%1").arg(task.id) : task.uuid;
+    auto *btnCopy = new QPushButton(QStringLiteral("复制标题与备注（含 ID）"));
+    connect(btnCopy, &QPushButton::clicked, this, [task, uid] {
+        const QString body = task.notes.isEmpty()
                                  ? task.title
                                  : QStringLiteral("%1\n\n%2").arg(task.title, task.notes);
-        QApplication::clipboard()->setText(text);
+        QApplication::clipboard()->setText(body + QStringLiteral("\n\nID: ") + uid);
     });
     btnRow->addWidget(btnCopy);
+    auto *btnCopyId = new QPushButton(QStringLiteral("复制 ID"));
+    connect(btnCopyId, &QPushButton::clicked, this, [uid] {
+        QApplication::clipboard()->setText(uid);
+    });
+    btnRow->addWidget(btnCopyId);
     btnRow->addStretch(1);
     auto *btnClose = new QPushButton(QStringLiteral("关闭"));
     connect(btnClose, &QPushButton::clicked, this, &QDialog::reject);
@@ -1395,6 +1405,9 @@ void TodoPage::buildUi()
     // ── 视图模式（列表 / 平铺）分段开关，插在「排序」左侧 ──
     m_boardMode = loadTodoBoardMode();
     buildViewToggle();
+
+    // ── 顶栏「标签」筛选（含反向/排除）+「指令」批量操作 ──
+    buildTagFilterButton();
 
     // 字段标签 objectName（applyPageStyles 按 TodoFieldLabel findChildren 匹配）
     for (QLabel *l : {ui->lblList, ui->lblPriority, ui->lblDue, ui->lblRecur,
@@ -1981,10 +1994,9 @@ void TodoPage::rebuildBoard()
     // 看板列是按清单铺开全部任务的，不走 visibleTasks()，所以搜索词在这里单独过一遍
     QList<TodoTask> tasks = m_tasks;
     const QString needle = searchNeedle();
-    if (!needle.isEmpty()) {
-        for (int i = tasks.size() - 1; i >= 0; --i)
-            if (!matchesSearch(tasks.at(i), needle))
-                tasks.removeAt(i);
+    for (int i = tasks.size() - 1; i >= 0; --i) {
+        if (!taskPassesTagFilter(tasks.at(i)) || !matchesSearch(tasks.at(i), needle))
+            tasks.removeAt(i);
     }
 
     m_board->setData(m_lists, tasks, m_listColors, m_settleTask,
@@ -2358,6 +2370,8 @@ QList<TodoTask> TodoPage::visibleTasks() const
         }
         if (!inView)
             continue;
+        if (!taskPassesTagFilter(t))
+            continue;
         if (!matchesSearch(t, needle))
             continue;
         if (t.completed)
@@ -2394,6 +2408,194 @@ bool TodoPage::matchesSearch(const TodoTask &t, const QString &needle) const
         if (l.id == t.listId && l.name.toLower().contains(needle))
             return true;
     return false;
+}
+
+// ── 标签筛选（含反向/排除）────────────────────────────────────────────────────
+
+bool TodoPage::taskPassesTagFilter(const TodoTask &t) const
+{
+    // 「仅显示」：标签路径段边界前缀匹配（与笔记页/服务端一致）
+    if (!m_tagInclude.isEmpty() && !tagPathMatches(t.tags, m_tagInclude))
+        return false;
+    // 「排除」：命中任一排除标签（或其子孙）即隐藏
+    for (const QString &ex : m_tagExclude) {
+        if (tagPathMatches(t.tags, ex))
+            return false;
+    }
+    return true;
+}
+
+void TodoPage::updateTagFilterButton()
+{
+    if (!m_tagFilterBtn)
+        return;
+    const bool active = !m_tagInclude.isEmpty() || !m_tagExclude.isEmpty();
+    QStringList bits;
+    if (!m_tagInclude.isEmpty())
+        bits << QStringLiteral("含 #%1").arg(m_tagInclude);
+    if (!m_tagExclude.isEmpty()) {
+        QStringList ex = m_tagExclude.values();
+        std::sort(ex.begin(), ex.end());
+        QStringList marked;
+        for (const QString &e : ex)
+            marked << QStringLiteral("⊘#%1").arg(e);
+        bits << QStringLiteral("排除 %1").arg(marked.join(QStringLiteral(" ")));
+    }
+    m_tagFilterBtn->setText(active ? QStringLiteral("标签 •") : QStringLiteral("标签"));
+    m_tagFilterBtn->setToolTip(active
+                                   ? QStringLiteral("标签筛选：%1（点开修改）").arg(bits.join(QStringLiteral("，")))
+                                   : QStringLiteral("标签筛选：可选择「仅显示」标签与「排除」标签（反向筛选）"));
+}
+
+void TodoPage::buildTagFilterButton()
+{
+    const QString chip = QStringLiteral(
+        "QToolButton{color:%1;border:1px solid %2;border-radius:8px;padding:%3 %4;background:transparent;"
+        "font-size:%5;font-weight:500;}"
+        "QToolButton:hover{border-color:%6;color:%6;}")
+        .arg(kColorFgMuted, kColorBorder, sp(5), sp(12), sp(12), kColorAccent);
+
+    m_tagFilterBtn = new QToolButton(this);
+    m_tagFilterBtn->setObjectName(QStringLiteral("TodoTagFilter"));
+    m_tagFilterBtn->setCursor(Qt::PointingHandCursor);
+    m_tagFilterBtn->setAutoRaise(true);
+    m_tagFilterBtn->setStyleSheet(scaleQss(chip));
+    connect(m_tagFilterBtn, &QToolButton::clicked, this, &TodoPage::openTagFilterDialog);
+
+    m_commandsBtn = new QToolButton(this);
+    m_commandsBtn->setObjectName(QStringLiteral("TodoCommands"));
+    m_commandsBtn->setText(QStringLiteral("指令"));
+    m_commandsBtn->setToolTip(QStringLiteral("粘贴 AI 返回的批量操作 JSON（create/update/delete/restore），按 uuid 执行"));
+    m_commandsBtn->setCursor(Qt::PointingHandCursor);
+    m_commandsBtn->setAutoRaise(true);
+    m_commandsBtn->setStyleSheet(scaleQss(chip));
+    connect(m_commandsBtn, &QToolButton::clicked, this, &TodoPage::onOpenCommands);
+
+    // 插在「排序」左侧（与视图分段开关并列）
+    const int idx = ui->sortBox ? ui->head->indexOf(ui->sortBox) : -1;
+    int at = idx >= 0 ? idx : ui->head->count();
+    ui->head->insertWidget(at, m_tagFilterBtn);
+    ui->head->insertWidget(at + 1, m_commandsBtn);
+    updateTagFilterButton();
+}
+
+void TodoPage::openTagFilterDialog()
+{
+    // 已知标签池：当前所有任务的标签并集（升序）
+    QStringList known;
+    QSet<QString> seen;
+    for (const auto &t : m_tasks) {
+        for (const QString &tag : t.tags) {
+            if (!seen.contains(tag)) {
+                seen.insert(tag);
+                known << tag;
+            }
+        }
+    }
+    std::sort(known.begin(), known.end());
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(QStringLiteral("标签筛选"));
+    auto *root = new QVBoxLayout(&dlg);
+    root->setContentsMargins(si(16), si(14), si(16), si(14));
+    root->setSpacing(si(8));
+
+    root->addWidget(new QLabel(QStringLiteral("仅显示标签（留空 = 不限，支持 父/子 层级）："), &dlg));
+    auto *inc = new QLineEdit(m_tagInclude, &dlg);
+    inc->setPlaceholderText(QStringLiteral("如 项目/工作"));
+    root->addWidget(inc);
+
+    root->addWidget(new QLabel(QStringLiteral("排除标签（反向筛选：勾选后不显示含该标签及其子标签的任务）："), &dlg));
+    auto *list = new QListWidget(&dlg);
+    for (const QString &tag : known) {
+        auto *it = new QListWidgetItem(tag, list);
+        it->setFlags(it->flags() | Qt::ItemIsUserCheckable);
+        it->setCheckState(m_tagExclude.contains(tag) ? Qt::Checked : Qt::Unchecked);
+    }
+    if (known.isEmpty()) {
+        auto *empty = new QListWidgetItem(QStringLiteral("（暂无标签）"), list);
+        empty->setFlags(Qt::NoItemFlags);
+    }
+    root->addWidget(list, 1);
+
+    auto *btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    auto *clearBtn = btns->addButton(QStringLiteral("清除筛选"), QDialogButtonBox::ResetRole);
+    connect(clearBtn, &QPushButton::clicked, &dlg, [inc, list] {
+        inc->clear();
+        for (int i = 0; i < list->count(); ++i)
+            list->item(i)->setCheckState(Qt::Unchecked);
+    });
+    root->addWidget(btns);
+
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+
+    m_tagInclude = inc->text().trimmed();
+    m_tagExclude.clear();
+    for (int i = 0; i < list->count(); ++i) {
+        QListWidgetItem *it = list->item(i);
+        if (it && it->checkState() == Qt::Checked && known.contains(it->text()))
+            m_tagExclude.insert(it->text());
+    }
+    updateTagFilterButton();
+    rebuildList();
+}
+
+// 批量操作指令（任务）：粘贴 AI 返回的 JSON 并 POST /inbox/todos/batch
+void TodoPage::onOpenCommands()
+{
+    if (!m_api) {
+        QMessageBox::warning(this, QStringLiteral("批量操作指令"), QStringLiteral("未连接服务端，无法执行指令"));
+        return;
+    }
+    bool ok = false;
+    const QString text = QInputDialog::getMultiLineText(
+        this, QStringLiteral("批量操作指令（任务）"),
+        QStringLiteral("粘贴 AI 返回的 JSON，例如：\n"
+                       "{\"operations\":[\n"
+                       "  {\"action\":\"update\",\"uuid\":\"<任务ID>\",\"completed\":true},\n"
+                       "  {\"action\":\"delete\",\"uuid\":\"<任务ID>\"}\n"
+                       "]}\naction 支持 create / update / delete / restore；目标用 uuid（推荐）或 id。"),
+        QString(), &ok);
+    if (!ok || text.trimmed().isEmpty())
+        return;
+
+    QJsonParseError perr;
+    const QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8(), &perr);
+    if (perr.error != QJsonParseError::NoError) {
+        QMessageBox::warning(this, QStringLiteral("批量操作指令"),
+                             QStringLiteral("JSON 解析失败：%1").arg(perr.errorString()));
+        return;
+    }
+    QJsonObject body;
+    if (doc.isArray())
+        body.insert(QStringLiteral("operations"), doc.array());
+    else if (doc.isObject() && doc.object().contains(QStringLiteral("operations")))
+        body = doc.object();
+    else {
+        QMessageBox::warning(this, QStringLiteral("批量操作指令"),
+                             QStringLiteral("需要 JSON 对象且包含 operations 字段，或直接给 operations 数组"));
+        return;
+    }
+
+    QNetworkReply *r = m_api->batchTodos(body);
+    connect(r, &QNetworkReply::finished, this, [this, r] {
+        QJsonDocument rdoc;
+        QString err;
+        if (!ApiClient::parseReply(r, &rdoc, &err)) {
+            QMessageBox::warning(this, QStringLiteral("批量操作指令"), err);
+            return;
+        }
+        const QJsonObject o = rdoc.object();
+        const int applied = o.value(QStringLiteral("applied")).toInt();
+        const int failed = o.value(QStringLiteral("failed")).toInt();
+        QMessageBox::information(this, QStringLiteral("批量操作指令"),
+                                 QStringLiteral("完成：成功 %1 / 失败 %2").arg(applied).arg(failed));
+        if (m_source)
+            m_source->load();
+    });
 }
 
 // ── widget 池实现 ─────────────────────────────────────────────────────────────

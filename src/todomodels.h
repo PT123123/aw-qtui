@@ -51,6 +51,8 @@ struct TodoSubtask {
 // 任务
 struct TodoTask {
     qint64 id = 0;
+    // 全局唯一逻辑键（服务端 TodoResponse.uuid）：AI 批量指令按它唯一定位任务
+    QString uuid;
     QString title;
     QString notes;             // 备注/描述
     qint64 listId = 0;         // 0 = 收集箱
@@ -74,6 +76,8 @@ struct TodoTask {
     {
         QJsonObject o;
         o.insert(QLatin1String("id"), id);
+        if (!uuid.isEmpty())
+            o.insert(QLatin1String("uuid"), uuid);
         o.insert(QLatin1String("title"), title);
         o.insert(QLatin1String("notes"), notes);
         o.insert(QLatin1String("list_id"), listId);
@@ -101,6 +105,7 @@ struct TodoTask {
     {
         TodoTask t;
         t.id = o.value(QLatin1String("id")).toVariant().toLongLong();
+        t.uuid = o.value(QLatin1String("uuid")).toString();
         t.title = o.value(QLatin1String("title")).toString();
         t.notes = o.value(QLatin1String("notes")).toString();
         t.listId = o.value(QLatin1String("list_id")).toVariant().toLongLong();

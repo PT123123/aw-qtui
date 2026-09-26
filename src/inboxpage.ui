@@ -15,63 +15,10 @@
     <height>640</height>
    </rect>
   </property>
-  <layout class="QHBoxLayout" name="rootLayout" stretch="0,1">
+  <layout class="QHBoxLayout" name="rootLayout" stretch="1,0">
    <property name="spacing">
     <number>0</number>
    </property>
-   <item>
-    <widget class="QWidget" name="TagPanel" native="true">
-     <layout class="QVBoxLayout" name="tagLay" stretch="0,1,0,0">
-      <property name="leftMargin">
-       <number>10</number>
-      </property>
-      <property name="topMargin">
-       <number>12</number>
-      </property>
-      <property name="rightMargin">
-       <number>10</number>
-      </property>
-      <property name="bottomMargin">
-       <number>12</number>
-      </property>
-      <property name="spacing">
-       <number>8</number>
-      </property>
-      <item>
-       <widget class="QLabel" name="TagTitle">
-        <property name="text">
-         <string>标签</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QTreeWidget" name="TagTree">
-        <property name="headerHidden">
-         <bool>true</bool>
-        </property>
-        <property name="columnCount">
-         <number>1</number>
-        </property>
-        <property name="selectionMode">
-         <enum>QAbstractItemView::SingleSelection</enum>
-        </property>
-        <column>
-         <property name="text">
-          <string/>
-         </property>
-        </column>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="btnClear">
-        <property name="text">
-         <string>清除过滤</string>
-        </property>
-       </widget>
-      </item>
-      </layout>
-    </widget>
-   </item>
    <item>
     <widget class="QWidget" name="host" native="true">
      <layout class="QVBoxLayout" name="hostLay" stretch="1,0">
@@ -197,6 +144,16 @@
              </property>
              <property name="cursor">
               <cursorShape>PointingHandCursor</cursorShape>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btnCommands">
+             <property name="text">
+              <string>指令…</string>
+             </property>
+             <property name="toolTip">
+              <string>粘贴 AI 返回的批量操作 JSON（create/update/delete/restore），按 uuid 执行</string>
              </property>
             </widget>
            </item>
@@ -518,6 +475,69 @@
      </layout>
     </widget>
    </item>
+   <item>
+    <widget class="QWidget" name="TagPanel" native="true">
+     <layout class="QVBoxLayout" name="tagLay" stretch="0,1,0,0">
+      <property name="leftMargin">
+       <number>10</number>
+      </property>
+      <property name="topMargin">
+       <number>12</number>
+      </property>
+      <property name="rightMargin">
+       <number>10</number>
+      </property>
+      <property name="bottomMargin">
+       <number>12</number>
+      </property>
+      <property name="spacing">
+       <number>8</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="TagTitle">
+        <property name="text">
+         <string>标签</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QTreeWidget" name="TagTree">
+        <property name="headerHidden">
+         <bool>true</bool>
+        </property>
+        <property name="columnCount">
+         <number>1</number>
+        </property>
+        <property name="selectionMode">
+         <enum>QAbstractItemView::SingleSelection</enum>
+        </property>
+        <column>
+         <property name="text">
+          <string/>
+         </property>
+        </column>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnExclude">
+        <property name="text">
+         <string>排除选中标签</string>
+        </property>
+        <property name="toolTip">
+         <string>反向筛选：隐藏含该标签及其子标签的笔记（再点一次取消）</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnClear">
+        <property name="text">
+         <string>清除全部筛选</string>
+        </property>
+       </widget>
+      </item>
+      </layout>
+     </widget>
+    </item>
   </layout>
  </widget>
  <customwidgets>

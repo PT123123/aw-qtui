@@ -32,6 +32,19 @@
 
 namespace awqtui {
 
+namespace {
+// 条目的全局唯一 ID（服务端 uuid）；本地未同步条目没有 uuid，用 local:<id> 兜底。
+// 复制时带上它，便于把内容交给 AI 分析后按 ID 回传批量操作指令。
+QString entryUid(const Note &n)
+{
+    return n.uuid.isEmpty() ? QStringLiteral("local:%1").arg(n.id) : n.uuid;
+}
+QString contentWithId(const Note &n)
+{
+    return n.content + QStringLiteral("\n\nID: ") + entryUid(n);
+}
+} // namespace
+
 QString formatLocal(const QString &iso, const QString &fmt)
 {
     if (iso.isEmpty())
@@ -501,7 +514,8 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
         // 菜单在栈上构建，exec() 关闭后才执行动作，避免列表重建时销毁打开中的菜单
         QMenu menu(menuBtn);
         QAction *actPin = menu.addAction(m_pinned ? QStringLiteral("取消置顶") : QStringLiteral("置顶"));
-        QAction *actCopy = menu.addAction(QStringLiteral("复制内容"));
+        QAction *actCopy = menu.addAction(QStringLiteral("复制内容（含 ID）"));
+        QAction *actCopyId = menu.addAction(QStringLiteral("复制 ID"));
         QAction *actEdit = menu.addAction(QStringLiteral("编辑"));
         QAction *actCmt = menu.addAction(QStringLiteral("评论"));
         QAction *actDetails = menu.addAction(QStringLiteral("详细信息"));
@@ -512,7 +526,9 @@ NoteCard::NoteCard(const Note &note, bool pinned, QWidget *parent)
         if (chosen == actPin)
             emit togglePinnedRequested(m_note.id);
         else if (chosen == actCopy)
-            QApplication::clipboard()->setText(m_note.content);
+            QApplication::clipboard()->setText(contentWithId(m_note));
+        else if (chosen == actCopyId)
+            QApplication::clipboard()->setText(entryUid(m_note));
         else if (chosen == actEdit)
             emit editRequested(m_note.id);
         else if (chosen == actCmt)
@@ -1212,7 +1228,12 @@ NoteDetailsDialog::NoteDetailsDialog(const Note &note, QWidget *parent)
     };
 
     static const QString kTimeFmt = QStringLiteral("yyyy-MM-dd HH:mm:ss");
-    addRow(0, QStringLiteral("笔记 ID"), QStringLiteral("#%1").arg(note.id), kColorFg);
+    // 唯一 ID（uuid）用于 AI 批量指令定位；本地未同步条目没有 uuid
+    addRow(0, QStringLiteral("笔记 ID"),
+           QStringLiteral("#%1 · %2")
+               .arg(note.id)
+               .arg(note.uuid.isEmpty() ? QStringLiteral("(本地未同步)") : note.uuid),
+           kColorFg);
     addRow(1, QStringLiteral("添加时间"), formatLocal(note.createdAt, kTimeFmt), kColorFg);
     addRow(2, QStringLiteral("更新时间"), formatLocal(note.updatedAt, kTimeFmt), kColorFg);
     if (note.syncedAt.isEmpty())

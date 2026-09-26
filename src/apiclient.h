@@ -6,6 +6,7 @@
 #include <QNetworkReply>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 class QNetworkAccessManager;
 
@@ -28,8 +29,9 @@ signals:
 
 public:
     // 笔记 CRUD
+    // excludeTags：反向筛选，排除含这些标签（及其子标签）的笔记（服务端 ?exclude_tag= 重复参数）
     QNetworkReply *getNotes(int limit, int offset, const QString &tag, const QString &search,
-                            const QString &sortBy);
+                            const QString &sortBy, const QStringList &excludeTags = {});
     QNetworkReply *getNote(qint64 id);
     QNetworkReply *createNote(const QString &content, const QStringList &tags);
     QNetworkReply *updateNote(qint64 id, const QString &content, const QStringList &tags);
@@ -38,6 +40,8 @@ public:
     QNetworkReply *getNoteHistory(qint64 id);
     // 恢复软删除的笔记：PUT /inbox/notes/<id>/restore
     QNetworkReply *restoreNote(qint64 id);
+    // 批量操作（AI 指令）：POST /inbox/notes/batch，body 形如 {"operations":[...]}
+    QNetworkReply *batchNotes(const QJsonObject &payload);
 
     // 标签
     QNetworkReply *getTags();
@@ -120,6 +124,8 @@ public:
     QNetworkReply *deleteTodo(qint64 id);
     // 恢复软删除的任务：PUT /inbox/todos/<id>/restore
     QNetworkReply *restoreTodo(qint64 id);
+    // 批量操作（AI 指令）：POST /inbox/todos/batch，body 形如 {"operations":[...]}
+    QNetworkReply *batchTodos(const QJsonObject &payload);
 
     // 清单实体 (/inbox/todo-lists，7116825：清单与 tag 独立，任务以 list_id 关联)
     QNetworkReply *getTodoLists();                              // GET /todo-lists

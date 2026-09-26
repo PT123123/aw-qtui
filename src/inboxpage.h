@@ -97,6 +97,14 @@ private:
     void rebuildTagTree();            // 按 m_tagRoots 重建侧栏层级标签树并恢复当前选中
     void updateFilterBar();           // 同步筛选面包屑条（显示/隐藏、文案、↑ 可用性）
     void applyTagFilterPath(const QString &path); // 进入/切换/清除层级标签筛选（空 = 清除）
+    // 反向筛选：把当前选中的标签加入/移出排除集合（隐藏含该标签及其子标签的笔记）
+    void onExcludeCurrentTag();
+    void toggleExclude(const QString &path); // 切换某标签路径的排除态
+    void clearAllFilters();           // 清除包含（m_currentTag）与排除（m_excludedTags）全部筛选
+    // 某条笔记是否命中任一排除标签（段边界前缀匹配，与包含语义一致）
+    bool matchesAnyExcluded(const QStringList &tags) const;
+    // 打开「批量操作指令」对话框：粘贴 AI 返回的 JSON 并 POST /inbox/notes/batch
+    void onOpenCommands();
     static QList<TagNode> buildTagTreeFromExact(const QMap<QString, qint64> &exact);
     // force=true 时无条件重建（缩放变化后卡片需按新比例重取样式）
     void applyClientFilter(bool force = false);
@@ -184,6 +192,7 @@ private:
     QList<DetailedTag> m_tags;        // 扁平标签（编辑器联想用）
     QList<TagNode> m_tagRoots;        // 层级标签树（服务端 /tags/tree 或本地构建）
     QString m_currentTag;             // 当前筛选路径（空 = 无筛选；?tag= 段边界前缀匹配）
+    QSet<QString> m_excludedTags;     // 反向筛选：被排除的标签路径集合（隐藏含这些标签的笔记）
     // 当前渲染列表的笔记 id 顺序（与 m_list 逐项对应），供「跳转到被评论笔记」定位
     QList<qint64> m_visibleIds;
     // 上次实际渲染的笔记内容签名：相同则跳过重建，避免同步轮询把列表清空重画导致闪动
@@ -199,6 +208,8 @@ private:
     QPushButton *m_btnSidebar;
     QPushButton *m_btnRefresh;
     QPushButton *m_btnCopy;
+    QPushButton *m_btnCommands;
+    QPushButton *m_btnExclude;
     QPushButton *m_btnClear;
     QLabel *m_tagTitle;
     QLabel *m_title;
