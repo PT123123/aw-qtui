@@ -264,15 +264,15 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
-// 系统托盘：图标用 makeAppIcon()（透明底绿色描边：折角文档 + L 形时钟指针），
-// 已含 16/32px 托盘尺寸，零外部资源。
+// 系统托盘：图标用 makeTrayIcon()（实心折页文档 + 白色 L 指针，与窗口同款），
+// 已含 16/24/32/48px 托盘尺寸，零外部资源。
 // 交互：左键/双击切换显示隐藏；右键菜单「显示/隐藏主窗口」「退出」；关窗默认最小化到托盘。
 void MainWindow::setupTray()
 {
     if (!QSystemTrayIcon::isSystemTrayAvailable())
         return;
     m_tray = new QSystemTrayIcon(this);
-    m_tray->setIcon(makeAppIcon());
+    m_tray->setIcon(makeTrayIcon());
     m_tray->setToolTip(QStringLiteral("aw-qtui v%1 · %2").arg(kAppVersion, QString::fromUtf8(gTheme->name)));
 
     auto *menu = new QMenu(this);
@@ -1075,7 +1075,7 @@ void MainWindow::applySettingsValues(const SettingsWidget &w)
         saveAppIconId(newIconId);
         setWindowIcon(makeAppIcon());
         if (m_tray)
-            m_tray->setIcon(makeAppIcon());
+            m_tray->setIcon(makeTrayIcon());
     }
     if (fxChanged) {
         // 界面效果变更：更新全局配置并持久化
@@ -1259,7 +1259,7 @@ void MainWindow::applyTheme(const QString &themeId)
         w->update();
     // 托盘图标随主题刷新（makeAppIcon 固定设计，与主题无关）
     if (m_tray) {
-        m_tray->setIcon(makeAppIcon());
+        m_tray->setIcon(makeTrayIcon());
         m_tray->setToolTip(QStringLiteral("aw-qtui v%1 · %2").arg(kAppVersion, QString::fromUtf8(gTheme->name)));
     }
     qDebug() << "[MainWindow] theme applied:" << t->id;

@@ -199,7 +199,8 @@ int main(int argc, char *argv[])
         int written = 0;
         for (const int px : {16, 24, 32, 48, 64, 128, 256}) {
             const QString out = emitIconDir + QStringLiteral("/icon_%1.png").arg(px);
-            if (renderAppIconPixmap(px).save(out, "PNG"))
+            // 全端统一实心折页款，导出的 PNG 直接合成 exe 内嵌 app.ico
+            if (renderAppIconPixmap(px, nullptr, true).save(out, "PNG"))
                 ++written;
             else
                 qWarning() << "[emit-icon] write failed:" << out;
@@ -235,7 +236,7 @@ int main(int argc, char *argv[])
     applyThemeColors(*gTheme);
     app.setStyleSheet(gGlobalQss);
     // 程序图标（纯代码渲染，无需额外资源文件）
-    // —— 透明底 + 绿色描边：带折角的文档 + L 形时钟指针，款式可在设置中切换，详见 theme.h makeAppIcon()
+    // —— 实心折页文档 + 白色 L 形时钟指针，款式可在设置中切换，详见 theme.h makeAppIcon()
     gAppIcon = findAppIcon(loadAppIconId());
     app.setWindowIcon(makeAppIcon());
     qDebug() << "stylesheet set, theme =" << gTheme->id;

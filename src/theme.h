@@ -230,7 +230,7 @@ inline const AppIconVariant *findAppIcon(const QString &id)
 // 按像素尺寸渲染单个程序图标（透明底 + 单色描边）。
 // 独立成函数是为了让 --emit-icon 能渲染 .ico 需要的任意尺寸（含 24px），
 // 也让 makeAppIcon() 与 exe 内嵌图标共用同一份绘制真相。
-inline QPixmap renderAppIconPixmap(int px, const AppIconVariant *variant = nullptr)
+inline QPixmap renderAppIconPixmap(int px, const AppIconVariant *variant = nullptr, bool solid = false)
 {
     if (!variant)
         variant = gAppIcon;
@@ -238,6 +238,66 @@ inline QPixmap renderAppIconPixmap(int px, const AppIconVariant *variant = nullp
 
     QPixmap pm(px, px);
     pm.fill(Qt::transparent); // 透明背景：只有轮廓线条
+
+    // 全端统一实心折页款（窗口 / 任务栏 / 托盘 / exe 内嵌共用）：实心色块饱满不发空，
+    // 右上折页 + 白色反白 L 指针。solid 保留参数位，当前所有出口均传 true。
+    if (solid) {
+        QPainter ps(&pm);
+        ps.setRenderHint(QPainter::Antialiasing);
+        ps.scale(px / 100.0, px / 100.0);
+
+        // 完整圆角实心文档块（比描边款收边放大，撑满托盘格子）
+        ps.setPen(Qt::NoPen);
+        ps.setBrush(strokeC);
+        const qreal L = 9, T = 9, R = 91, B = 91, rad = 11;
+        ps.drawRoundedRect(QRectF(L, T, R - L, B - T), rad, rad);
+
+        // 右上折页两层：① 外侧翻走三角完全挖空（透明露底）；② 折痕斜边内侧往内折出
+        // 一个白色三角面（折起的页）。折痕 e1→e3 为公共斜边，外侧空、内侧实。
+        const QPointF e1(66, 9);    // 顶边折点（落在顶边上，避免白三角上方留缝）
+        const QPointF e3(89, 34);   // 右边折点
+        // ① 外侧翻走区域挖空：折痕 e1→e3 右上方整个角（顶边右段 + 右边上段 + 圆角），
+        // 顶点/右缘抬到块外，连圆角外凸一起吃掉，避免右上角残留蓝弧或细竖边。
+        ps.save();
+        ps.setCompositionMode(QPainter::CompositionMode_DestinationOut);
+        QPainterPath gone;
+        gone.moveTo(e1);
+        gone.lineTo(R + 2, T - 2);
+        gone.lineTo(R + 2, e3.y());
+        gone.lineTo(e3);
+        gone.closeSubpath();
+        ps.drawPath(gone);
+        ps.restore();
+        // ② 内侧往内折的白色三角面
+        ps.setPen(Qt::NoPen);
+        ps.setBrush(QColor(255, 255, 255));
+        QPainterPath flap;
+        flap.moveTo(e1);
+        flap.lineTo(e3);
+        flap.lineTo(QPointF(62, 31)); // 内折点（块内）
+        flap.closeSubpath();
+        ps.drawPath(flap);
+        // 折痕压边
+        ps.setPen(QPen(strokeC.darker(160), qMax(1.4, 2.2 * 100.0 / px),
+                       Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        ps.drawLine(e1, e3);
+
+        // 白色 L 形时钟指针：往左下挪，加长上竖与右横，给右上折页三角让出空间。
+        // 关键：复位画刷为 NoBrush——前面折页三角把 brush 设成了白色，若不复位，
+        // drawPath 会把开放的 L 折线自动闭合并填充，糊成一个实心直角三角。
+        // 笔宽随尺寸缩放：小尺寸保底够粗可见，大尺寸收细成清晰 L。
+        ps.setBrush(Qt::NoBrush);
+        const qreal handW = qMax(3.5, 208.0 / px);
+        ps.setPen(QPen(QColor(255, 255, 255), handW, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        const QPointF c(39, 61);
+        QPainterPath hands;
+        hands.moveTo(c.x(), c.y() - 23);    // 12 点方向
+        hands.lineTo(c);
+        hands.lineTo(c.x() + 22, c.y());    // 3 点方向
+        ps.drawPath(hands);
+        return pm;
+    }
+
     {
         QPainter p(&pm);
         p.setRenderHint(QPainter::Antialiasing);
@@ -290,12 +350,23 @@ inline QPixmap renderAppIconPixmap(int px, const AppIconVariant *variant = nullp
     return pm;
 }
 
+// 全端统一实心折页款：窗口 / 任务栏 / 托盘 / exe 内嵌共用同一份渲染。
 inline QIcon makeAppIcon(const AppIconVariant *variant = nullptr)
 {
     QIcon icon;
-    const int sizes[] = {256, 128, 64, 48, 32, 16};
+    const int sizes[] = {256, 128, 64, 48, 32, 24, 16};
     for (const int px : sizes)
-        icon.addPixmap(renderAppIconPixmap(px, variant));
+        icon.addPixmap(renderAppIconPixmap(px, variant, true));
+    return icon;
+}
+
+// 托盘图标：与 makeAppIcon 同款实心，仅覆盖托盘常用尺寸。
+inline QIcon makeTrayIcon(const AppIconVariant *variant = nullptr)
+{
+    QIcon icon;
+    const int sizes[] = {48, 32, 24, 16};
+    for (const int px : sizes)
+        icon.addPixmap(renderAppIconPixmap(px, variant, true));
     return icon;
 }
 
