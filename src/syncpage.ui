@@ -363,39 +363,14 @@
           <item row="5" column="1">
            <widget class="QLineEdit" name="editUdpPort"/>
           </item>
-          <item row="6" column="0">
-           <widget class="QLabel" name="labelSyncInterval">
-            <property name="text">
-             <string>自动同步频率</string>
-            </property>
-           </widget>
-          </item>
-          <item row="6" column="1">
-           <widget class="QComboBox" name="cmbSyncInterval">
+          <item row="6" column="0" colspan="2">
+           <widget class="QLabel" name="lblRealtimeHint">
             <property name="toolTip">
-             <string>已配对设备间自动双向同步的周期。PC 端建议「实时」；手机端建议「省电」。
-本机数据改动后会自动即时推送，不必等到下个周期；「仅手动」只在使用「立即同步」时同步。</string>
+             <string>本机 Inbox/Todo 内容写入落定后立即推送到已配对设备；activity 事件流与漏推内容由每 60 秒的兜底对账轮带走。</string>
             </property>
-            <item>
-             <property name="text">
-              <string>实时（每 10 秒）</string>
-             </property>
-            </item>
-            <item>
-             <property name="text">
-              <string>标准（每 1 分钟）</string>
-             </property>
-            </item>
-            <item>
-             <property name="text">
-              <string>省电（每 5 分钟）</string>
-             </property>
-            </item>
-            <item>
-             <property name="text">
-              <string>仅手动</string>
-             </property>
-            </item>
+            <property name="text">
+             <string>同步是实时的：内容一有改动立即推送，无需设置频率</string>
+            </property>
            </widget>
           </item>
           <item row="7" column="0" colspan="2">

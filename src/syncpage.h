@@ -98,7 +98,7 @@ private:
     QLineEdit *m_editAlias;
     QLineEdit *m_editListenPort;
     QLineEdit *m_editUdpPort;
-    QComboBox *m_cmbSyncInterval = nullptr;    // 自动同步频率（实时10s/标准60s/省电5min/仅手动）
+    quint64 m_syncInterval = 10;               // 服务端 sync_interval 原值透传（已废弃档位语义，0=仅手动仍保留）
     QPushButton *m_btnSaveConfig;
 
     // 操作

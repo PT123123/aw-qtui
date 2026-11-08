@@ -113,3 +113,69 @@ aw-server-rust（同步由服务端承担）
   同步靠 IP 仍能工作，但 LWW 的 device_id 决胜会错位（历史上反复出现「13 条进入回收站」）。
   发现恢复后会看到该手机以**未配对**身份出现，重新配对一次并删掉旧记录即可。
 
+
+---
+
+# 2026-11-08 更新：档位取消，实时 write-kick（LocalSend 式，quire 同款）
+
+> 背景：quire 已把同步改成「内容写入落定即推」（write-kick，WRITE_KICK_SECS=1s + 60s 对账兜底），
+> 不再按用户选的周期档位轮询。本次把 aw 对齐到同一模型。
+
+## 服务端（aw-sync-rust / aw-server）
+
+| 位置 | 改动 |
+|------|------|
+| `aw-sync-rust/src/manager.rs` | 新增 `kick_content()`（AtomicU64 时间戳 + Condvar）：HTTP 层内容写入成功时打点并唤醒自动同步线程 |
+| `aw-sync-rust/src/manager.rs` | `spawn_auto_sync` 重写：不再按 `sync_interval` 周期轮询。触发点变为 ①内容 kick 落定 2s（去抖合并连续保存）→ 实时推一轮；②开关 false→true；③设备在线 0→1；④每 60s 兜底对账（接住 activity 流与漏推）。等待用 Condvar（按落定/对账最近到期计算，封顶 5s），新 kick 立即唤醒 |
+| `aw-sync-rust/src/models.rs` | `sync_interval` 标记废弃：字段仅为旧 sync.db 反序列化兼容保留，`= 0`（仅手动）仍作为自动同步总开关 |
+| `aw-server/src/endpoints/mod.rs`（`build_rocket`） | 响应 fairing：`/inbox/**` 的非 GET 请求 2xx 即 `kick_content()` |
+| ~~`aw-server/src/main.rs`~~ | ~~原挂载点~~ 已删除：只挂桌面 main 会漏掉 Android（见下方「2026-11-08 实测修正」） |
+
+**两条纪律**（quire 踩过的坑，原样遵守）：
+- activity 事件流**不** kick —— 心跳量大且连续，秒推等于整库快照对刷；由 60s 对账轮带走。
+- 远端合并落地（apply_snapshot / /sync/push）**不** kick —— 合并数据算「本机新写入」会让两端互推成回声死循环（quire `record_quiet` 的教训）。
+
+## 客户端（aw-qtui）
+
+| 位置 | 改动 |
+|------|------|
+| `src/syncpage.ui` | 「自动同步频率」四档下拉（实时10s/标准1min/省电5min/仅手动）移除，换成一行说明文字 |
+| `src/syncpage.{h,cpp}` | `m_cmbSyncInterval` 删除；`m_syncInterval` 只透传服务端原值（保住历史「仅手动」=0 设置不被重置） |
+| `src/models.h` | `fromJson` 的 `syncInterval==0 → 10` 强转移除（会破坏「仅手动」透传） |
+| `src/syncservice.cpp` | 客户端侧 4s 去抖推送**保留未动**：与服务器 kick 冗余但幂等无害 |
+
+## 端到端延迟（改后）
+
+| 场景 | 延迟 |
+|------|------|
+| Inbox/Todo 写入 → 对端 | 去抖 2s 落定 + 传输（原：档位周期，平和档 5 分钟） |
+| activity 事件 → 对端 | ≤ 60s（原：档位周期，狂暴档 10s——为避免整库快照高频对刷，接受变长） |
+| 对端回到局域网 | 在线翻转立即同步（不变） |
+
+## 2026-11-08 实测修正：fairing 挂错了层
+
+双机实测准备时发现，第一版把 fairing 挂在 `aw-server/src/main.rs`（桌面二进制），
+而 **Android 根本不走 main.rs**：`android/mod.rs` 直接 `endpoints::build_rocket()` 起服务。
+后果是 Android 上 write-kick 从未触发，自动同步只剩「开启翻转 / 在线翻转 / 60s 对账」，
+内容写入最长等 60s——比它还慢于旧版的 10s 周期。
+
+- 修复：fairing 移到 `endpoints/mod.rs::build_rocket()`（桌面与 Android 共用入口），`main.rs` 删除重复挂载。
+- 自证：Redmi 上写笔记后 2.1s，`/api/0/sync/debuglog` 出现 `[auto] 本机内容有写入且已落定，实时推送一轮`。
+- 教训：**凡是「覆盖所有客户端」的钩子，必须挂在所有客户端共用的构建函数上，不能挂在某一个 main 上。**
+
+## 双机实测（2026-11-08）
+
+两台 Android（Redmi release + Lenovo 平板 debug，0.13.38 + 本改动）跑完 6 个用例，
+完整方案、原始数据与结果见 `aw-android-native/docs/lan-sync-dual-device-test-2026-11-08.md`：
+
+| 场景 | 实测 |
+|------|------|
+| 在线写入 → 对端可见（笔记/todo，双向） | p50 2.30–2.43s、p95 ≤ 2.45s（2s 落定去抖 + 传输） |
+| 对端进程销毁期间写 7 项，重启追平 | 全部追平、0 重复；从 `am start` 算 1.44s（含 ~0.8s 启动） |
+| 同步中途强杀（2 轮） | 重启后 0.98–1.05s 收敛，0 重复 |
+| 双端离线各写，重启合并 | 2.18s 两端一致 |
+| 同笔记并发改（LWW） | 收敛到后写版本，旧版进 trash；两端各 1 条 |
+| 冷启动到对端数据可见 | 1.68–2.52s（启动 ~0.78s，服务显示后 6–12ms 可用，其余是重发现/全量快照） |
+
+实测还暴露一个与 write-kick 无关的独立问题：网络切换导致 IP 变化后，重新配对会沿用设备记录里的旧 IP
+并返回 500；自动同步链路有重发现可自愈，配对链路没有。详见测试文档「发现 1」。

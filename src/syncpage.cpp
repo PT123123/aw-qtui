@@ -117,7 +117,6 @@ void SyncPage::buildUi()
     m_editAlias = ui->editAlias;
     m_editListenPort = ui->editListenPort;
     m_editUdpPort = ui->editUdpPort;
-    m_cmbSyncInterval = ui->cmbSyncInterval;
     m_btnSaveConfig = ui->btnSaveConfig;
     m_btnSyncNow = ui->btnSyncNow;
     m_btnRemoveDevice = ui->btnRemoveDevice;
@@ -131,7 +130,7 @@ void SyncPage::buildUi()
     m_pairBanner = ui->pairBanner;
     m_pairBannerLbl = ui->pairBannerLbl;
 
-    // ── 运行时才能确定的内容：主题色、DPI 缩放、菜单、档位数据 ──
+    // ── 运行时才能确定的内容：主题色、DPI 缩放、菜单 ──
     m_pairBanner->setStyleSheet(QStringLiteral(
         "QWidget { background: rgba(76,139,245,0.14); border: 1px solid %1; border-radius: 6px; }")
                                     .arg(kColorAccent));
@@ -152,10 +151,10 @@ void SyncPage::buildUi()
     m_devTable->setColumnWidth(7, si(90));
     m_devTable->setColumnWidth(8, si(240));
 
-    m_cmbSyncInterval->setItemData(0, 10);
-    m_cmbSyncInterval->setItemData(1, 60);
-    m_cmbSyncInterval->setItemData(2, 300);
-    m_cmbSyncInterval->setItemData(3, 0);
+    // 档位已废弃：局域网同步是实时 write-kick（内容写入落定即推 + 60s 兜底对账），
+    // 频率不再可调。m_syncInterval 只透传服务端原值，保住历史上的「仅手动」(0) 设置。
+    ui->lblRealtimeHint->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 12px;").arg(kColorFgMuted));
 
     auto *moreMenu = new QMenu(ui->btnMore);
     moreMenu->addAction(QStringLiteral("设置别名…"), this, &SyncPage::onSetAlias);
@@ -517,17 +516,8 @@ void SyncPage::refreshSyncConfig()
         m_editAlias->setText(cfg.selfAlias);
         m_editListenPort->setText(QString::number(cfg.listenPort));
         m_editUdpPort->setText(QString::number(cfg.udpPort));
-        {
-            const quint64 val = cfg.syncInterval;
-            while (m_cmbSyncInterval->count() > 4)
-                m_cmbSyncInterval->removeItem(m_cmbSyncInterval->count() - 1);
-            int idx = m_cmbSyncInterval->findData(val);
-            if (idx < 0) {
-                m_cmbSyncInterval->addItem(QStringLiteral("自定义（每 %1 秒）").arg(val), val);
-                idx = m_cmbSyncInterval->count() - 1;
-            }
-            m_cmbSyncInterval->setCurrentIndex(idx);
-        }
+        // 档位下拉已移除：只记住服务端原值，保存时原样带回（不重置用户的「仅手动」设置）
+        m_syncInterval = cfg.syncInterval;
         if (m_service)
             m_service->setEnabled(cfg.enabled);
         log(QStringLiteral("同步配置已刷新（同步范围请在「设置 → 同步」中查看）"));
@@ -546,7 +536,7 @@ void SyncPage::onSaveConfig()
     cfg.udpPort = m_editUdpPort->text().toInt();
     // 与 aw-sync-rust 的默认一致：mDNS 为首选路径，UDP 广播自动兜底
     cfg.discoveryMethod = QStringLiteral("mdns");
-    cfg.syncInterval = m_cmbSyncInterval->currentData().toULongLong();
+    cfg.syncInterval = m_syncInterval;
 
     QNetworkReply *r = m_api->setSyncConfig(cfg.toJson());
     connect(r, &QNetworkReply::finished, this, [this, r] {

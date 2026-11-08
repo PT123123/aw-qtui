@@ -257,8 +257,7 @@ struct SyncConfig {
         c.selfAlias = o.value(QLatin1String("self_alias")).toString();
         c.probeInterval = o.value(QLatin1String("probe_interval")).toInt(10);
         c.syncInterval = o.value(QLatin1String("sync_interval")).toVariant().toULongLong();
-        if (c.syncInterval == 0)
-            c.syncInterval = 10;
+        // 0（仅手动）原样保留：档位已废弃，此值只透传回服务端，不再决定同步节奏
         c.d1Enabled = o.value(QLatin1String("d1_enabled")).toBool();
         c.d1AccountId = o.value(QLatin1String("d1_account_id")).toString();
         c.d1DatabaseId = o.value(QLatin1String("d1_database_id")).toString();
