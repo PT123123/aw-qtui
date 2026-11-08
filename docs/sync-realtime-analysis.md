@@ -283,3 +283,90 @@ write-kick 在推送的同时，给在线已配对设备发一个小 UDP「有�
 - **方案 B**：`transport.rs` UDP 通知 + 接收侧触发拉取，改动面小。
 - 主要风险点：游标与实际数据的缝隙（如时钟回拨、对端库被外部改写）——全部由
   「确认后才前移 + 异常退回全量」两道闸兜住，最坏退化为现状。
+
+---
+
+# 2026-11-08 实施报告：方案 A+B 落地，端到端进入秒级
+
+> 上一节提案已定稿实施。**相对提案有两处收敛**，都是量化数据之后做的更稳选择：
+>
+> 1. **游标改用 `events.id`（AUTOINCREMENT 插入序），不用事件时间戳。**
+>    实测 activity 库里 `starttime` 是纳秒时间戳，notes/todos 的 `updated_at` 还有
+>    32/35 两种长度混存；时间戳游标会被「watcher 补写更旧时间戳」「两端时钟回拨」
+>    打穿，而 id 单调递增，任何新插入的行都必然落在高水位之后。
+> 2. **只对 activity 做增量，inbox / todo 保持全量。**
+>    实测本机 `notes` 内容 ~107KB、`todos` ~7KB，序列化后合计约 308KB；
+>    activity 12.4MB 占载荷 98%。裁掉 activity 就能拿到 40× 的收益，
+>    没必要为剩下 2% 引入 per-store 游标和混合时间戳格式的复杂度。
+>    rev 仲裁、软删墓碑、清单整表替换的语义因此**完全没动**。
+
+## 改动清单
+
+| 仓库 / 文件 | 改动 |
+|---|---|
+| `aw-sync-rust/src/models.rs` | `SyncSnapshot` 加 `incremental` / `activity_cursor`（serde default，旧端忽略即按全量） |
+| `aw-sync-rust/src/storage.rs` | 新表 `activity_cursors(peer_id, inbound, outbound)`；`advance_activity_cursor`（只增）/ `reset_activity_cursor`（可减，换库重建基线）/ `clear_activity_cursor` |
+| `aw-sync-rust/src/serialize.rs` | `export_activity_with_cursor(since)`：`WHERE id > since-16 AND id <= 本次 MAX(id)`；16 行重叠防游标分叉，`import_activity` 指纹去重保证幂等；原 `export_activity` 保留为全量入口 |
+| `aw-sync-rust/src/manager.rs` | `export_for_peer()`；`apply_snapshot` 在 activity 完整落地后才推进入站游标；`sync_to_unlocked` 拉带 `since`、推带游标，**仅推送成功才前移出站游标**；`kick_peer()` + 定向拉取队列 |
+| `aw-sync-rust/src/transport.rs` | `fetch_snapshot` 加 `since` 参数；`push_snapshot` 返回 `PushAck{applied, peer_cursor}`，接收端回显的游标才是「确实收到多少」的权威 |
+| `aw-sync-rust/src/endpoints.rs` | `/snapshot?<from>&<since>` 走增量导出；`/push` 与 `/apply` 回显 `cursor`（activity 导入失败回 -1，让推方整轮不推进） |
+| `aw-sync-rust/src/discovery.rs` | `AW-SYNC-CHANGE/1.0` 变更通知报文 + `notify_content_change()`（500ms 去抖）；`listener_loop` 分流处理，只接受**已配对**设备、按 rev 去重 + 500ms 限流 |
+| `aw-server/src/endpoints/mod.rs` | write-kick fairing 同时调用 `notify_content_change()` |
+| `aw-android-native/.../SyncModels.kt` | `SyncSnapshot` 补齐两个新字段（带默认值，Gson 与老端双向兼容） |
+
+### 协议与回退规则
+
+- **首次同步 / 旧端不认识 `since`** → 全量，快照仍带回真实高水位，两端据此重建基线，下一轮即增量。
+- **对端游标 > 本机 MAX(id)**（对端换库/重装）→ 退回全量并**重置**游标（允许变小），不会返回空增量导致数据永远停在旧共识。
+- **推送失败 / 中断** → 出站游标不动，下一轮重发；apply 是 UPSERT + 指纹去重，重发幂等。
+- **回声防护**：通知只由 HTTP 内容写入的 fairing 发出，远端合并落地、拉取、`/push` 都不发通知；接收到通知只做定向拉取，不产生新的通知。实测无互推循环。
+
+## 验证结果
+
+### 自动化（全绿）
+
+`cargo test -p aw-sync-rust`：**47 lib + 10 + 7 + 8 集成，0 失败**。
+新增 `serialize` 单测 4 个（首次全量 / 越界游标退回 / 旧时间戳事件由 id 游标接住 / 重叠行幂等）、
+`discovery` 单测 1 个（通知报文与身份宣告分流）、
+集成测试 `incremental_activity_cursor_end_to_end`（两台真实 HTTP 实例）：
+1000 条全量建基线 → 两端游标落 1000 → 增量载荷 < 全量 1/10 →
+越界游标退回全量 → 新写 10 条后两端游标 1010、对端恰好 1010 条事件。
+Android 侧 `./gradlew :mobile:compileDebugKotlin --offline` **BUILD SUCCESSFUL**；
+`cargo build -p aw-server`（dev/release）均通过。
+
+### 生产二进制实测（桌面端新 release，本地假对端 `127.0.0.1:5699`）
+
+| 指标 | 改造前 | 改造后 |
+|---|---|---|
+| `/snapshot` 全量载荷 | 12.7MB（activity 12.4MB + inbox 245KB + todo 63KB） | 不变（仅首次/回退时用） |
+| 同一对端第二轮推送 | 15,151,133 B | **380,148 B（40×）** |
+| 一轮手动同步（loopback） | 0.21s | **0.11s** |
+| **内容写入 → 对端收到推送** | 11-19s（真机，27MB/轮） | **2.6s**（kick 落定 2s + 380KB 推送） |
+| UDP 变更通知 → 定向拉取+推送 | 无此机制 | **~50ms** |
+
+边界场景逐项通过：
+
+- **修改 / 删除**：增量快照里 inbox 仍全量，对端载荷可见 `[INC-TEST] modified` 且 `deleted=1` 墓碑，语义未退化。
+- **推送返回 500**：日志「出站游标保持不动（下一轮重发）」，游标停在 52998；恢复后重试仍是 380KB 增量而非 15MB 全量。
+- **进程被杀 / qtui 自动重启**：`activity_cursors` 持久化，重启后第一轮仍是 380KB 增量，启动轮「立即同步一轮」照常补推。
+- **空清单闸门**（quire 事故场景回归）：`{todos:[],lists:[]}` 仍被拒，`applied=0`、错误信息明确、本地清单完好。
+- **防回声 / 安全**：一条已配对通知 7 秒内只触发 1 轮；同批再发一条未配对设备 id 的通知被直接丢弃。
+- 测试数据、假对端设备记录与游标行已全部清理；部署位 `C:\workshop\aw-qtui-0.1.41\server\aw-server.exe` 已是新二进制。
+
+### 本轮未覆盖
+
+**两台手机（192.168.88.148 / .155）在本轮测试期间 HTTP 全程无响应**（息屏/休眠，
+`last_seen` 停在上午），因此没有复跑真机 T1-T7。本轮用「两台 HTTP 实例集成测试 +
+生产二进制 + 本地假对端」覆盖了同一条链路；上一节的真机 7 场景报告仍然有效
+（改动未触碰 inbox/todo 合并语义）。手机唤醒后首次与桌面同步会走一次全量建立游标基线，
+之后自动进入 380KB 级增量。**手机端若仍是旧构建，反向仍靠 60s 对账轮；升级到含
+write-kick + UDP 通知的新构建后双向才都是秒级**——UDP 通知救不了不发通知的旧端。
+
+## 预期（修正后）
+
+| 场景 | 现在 | 两端都是新构建 |
+|---|---|---|
+| 桌面写入 → 手机 | **2.6s**（本地实测；真机 WiFi 预计 3-5s） | 3-5s |
+| 手机写入 → 桌面（手机旧构建） | ≤60s（对账轮） | — |
+| 手机写入 → 桌面（手机新构建） | — | 秒级（UDP 通知 + 增量） |
+| 首次 / 长期离线重连 | 全量 15MB 一次 | 全量 15MB 一次，随后增量 |
