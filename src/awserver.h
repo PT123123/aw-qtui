@@ -14,8 +14,8 @@ constexpr quint16 kServerPort = 5600;
 constexpr quint16 kServerDiscoveryPort = 46000;
 constexpr const char *kServerListenHost = "0.0.0.0";   // 监听所有网卡（局域网多机互通）
 constexpr const char *kServerProbeHost = "127.0.0.1";  // 探测始终用回环（0.0.0.0 监听时回环可连）
-constexpr const char *kServerFirewallRule = "aw-qtui-server";         // 防火墙规则名（TCP 5600）
-constexpr const char *kServerFirewallRuleUdp = "aw-qtui-server-udp";  // 防火墙规则名（UDP 46000 发现）
+constexpr const char *kServerFirewallRule = "aw-qtui-server";         // 惯用防火墙规则名（TCP 5600，手动添加时对齐它便于检测）
+constexpr const char *kServerFirewallRuleUdp = "aw-qtui-server-udp";  // 惯用防火墙规则名（UDP 46000 发现）
 
 // 本地服务端管理（sidecar）。
 // 客户端通过相对路径定位打包的 aw-server.exe，端口探测确认未运行则拉起，
@@ -52,14 +52,11 @@ public:
     static bool uninstallAutostart();
     static bool autostartInstalled();
 
-    // 防火墙：5600/TCP 入站规则是否已存在；不存在则提权请求放行（ShellExecute runas → UAC）。
-    // 局域网多机互通依赖 server 监听 0.0.0.0，放行由程序主动向用户请求，而非留给手动。
+    // 防火墙（与 LocalSend 同策略）：程序**不代写规则、不提权**，入站放行交给
+    // Windows 首次监听时的「允许访问」弹窗（普通权限，点一次允许即建规则），
+    // 或用户手动放行。这里只做被动检测（纯读，无需 admin）：两条命名规则
+    // （TCP 5600 / UDP 46000）是否都在，供启动日志提示与排错。
     static bool firewallRuleExists();
-    static bool requestFirewallAllow();
-
-    // 提权实例执行的落地动作：用 netsh 添加 5600/TCP 入站放行规则（当前进程须已提权）。
-    // 返回 netsh 退出码（0=成功）。由 main 的 --firewall-allow 分支调用。
-    static int applyFirewallRule();
 
 signals:
     // server 运行状态变化（看护轮询探测到后发出）

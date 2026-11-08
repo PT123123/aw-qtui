@@ -309,4 +309,24 @@ void saveDeviceName(const QString &name)
     s.sync();
 }
 
+VigorHubRelayConfig loadVigorHubRelay()
+{
+    VigorHubRelayConfig c;
+    c.address = QStringLiteral("http://127.0.0.1:18765");
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    c.enabled = s.value(QStringLiteral("vigorhub/enabled"), c.enabled).toBool();
+    c.address = s.value(QStringLiteral("vigorhub/address"), c.address).toString();
+    c.intervalSec = s.value(QStringLiteral("vigorhub/intervalSec"), c.intervalSec).toInt();
+    return c;
+}
+
+void saveVigorHubRelay(const VigorHubRelayConfig &c)
+{
+    QSettings s(settingsFilePath(), QSettings::IniFormat);
+    s.setValue(QStringLiteral("vigorhub/enabled"), c.enabled);
+    s.setValue(QStringLiteral("vigorhub/address"), c.address);
+    s.setValue(QStringLiteral("vigorhub/intervalSec"), c.intervalSec);
+    s.sync();
+}
+
 } // namespace awqtui

@@ -124,12 +124,6 @@ static void debugMessageHandler(QtMsgType type, const QMessageLogContext &ctx, c
 
 int main(int argc, char *argv[])
 {
-    // 防火墙放行提权模式：由提权后的自身实例执行 netsh 添加规则后退出。
-    // 发起端以 runas 运行自身（--firewall-allow），因此 UAC 授权对象是 aw-qtui 自身而非系统工具。
-    for (int i = 1; i < argc; ++i) {
-        if (qstrcmp(argv[i], "--firewall-allow") == 0)
-            return ServerLauncher::applyFirewallRule();
-    }
     qInstallMessageHandler(debugMessageHandler);
     SetUnhandledExceptionFilter(&CrashHandler);
     qDebug() << "=== awqtui starting ===";
@@ -256,10 +250,14 @@ int main(int argc, char *argv[])
                 ServerLauncher::installAutostart(exe, dataDir, kServerPort);
         }
         server.setWatch(true, kServerProbeHost, kServerPort, dataDir);
-        // 局域网互通：server 监听 0.0.0.0:5600，主窗口显示后若入站规则缺失则主动弹 UAC 请求放行
+        // 局域网互通（与 LocalSend 同策略）：不主动提权写规则。server 监听 0.0.0.0:5600
+        // 后，Windows 会在首次监听时自己弹「允许访问」确认框（普通权限，点一次即建规则）。
+        // 这里只做被动检测记条日志，便于日后「同步不通」时排查，绝不弹窗打扰。
         QTimer::singleShot(400, [] {
             if (!ServerLauncher::firewallRuleExists())
-                ServerLauncher::requestFirewallAllow();
+                qInfo() << "[main] 尚无 aw-qtui 命名的防火墙放行规则：若局域网同步不通，"
+                           "请在系统弹窗中允许 aw-server.exe（或手动放行 5600/TCP + 46000/UDP）。"
+                           "系统按 exe 路径自建的规则检测不到，属正常。";
         });
         qInfo() << "[main] 本地服务端管理已启用（监听" << kServerListenHost << ":" << kServerPort << "）";
     }

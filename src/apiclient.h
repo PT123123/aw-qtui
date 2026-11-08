@@ -108,6 +108,8 @@ public:
     // ActivityWatch /api/0
     QNetworkReply *getBuckets();
     QNetworkReply *getEvents(const QString &bucketId, qint64 startMs, qint64 endMs);
+    // 最近 N 条事件（不带时间窗口；VigorHub relay 按事件 id 游标增量消费用）
+    QNetworkReply *getRecentEvents(const QString &bucketId, int limit);
     QNetworkReply *createBucket(const QString &bucketId, const QString &client, const QString &type);
     QNetworkReply *heartbeat(const QString &bucketId, const QJsonObject &data, double durationSec,
                               const QDateTime &timestamp);

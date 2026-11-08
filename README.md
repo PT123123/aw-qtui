@@ -6,7 +6,7 @@
 - 📥 **收件箱（Inbox）**：MoeMemos 风格 Markdown 卡片流 + 层级标签侧栏 + 评论 + 任务清单勾选
 - ☑ **任务（Todo）**：TickTick 式多清单 Todo（快速添加 / 子任务 / 优先级 / 重复 / 截止日期 / 5 种排序）
 - 🍅 **专注**：番茄倒计时 + 正计时、专注记录概览、专注记录详情（关联 Todo 任务）、周热力格、月度/年度热力图、24h 最佳时段、日历、倒数纪念日
-- ⇄ **同步**（单入口，页内 Tab 切换）：局域网同步（mDNS/UDP 广播发现 / 设备配对 / 自动同步）、同步详情（日志 / 回收站）、☁ D1 云同步（Cloudflare D1）、💾 云备份（WebDAV / S3 冷备）
+- ⇄ **同步**（单入口，页内 Tab 切换）：局域网同步（mDNS/UDP 广播发现 / 设备配对 / 自动同步）、同步详情（日志 / 回收站）、☁ D1 云同步（Cloudflare D1）、💾 云备份（WebDAV / S3 冷备）、🖥 VigorHub（屏幕使用数据推送到健康运动桌面端）
 - ⚙ **设置**：收件箱设置 + 通用设置（主题 / 图标 / 全局快捷键 / 缩放 / 同步配置）
 
 服务端来自 `aw-server-plus`（aw-server-rust fork），`feature/inbox` 分支已融合官方
@@ -53,6 +53,7 @@
 | 📋 同步详情 | 同步日志（方向/协议/事件/类型过滤 + 分页 + 逐条明细）、回收站（软删条目恢复 / 彻底删除）、最近一次同步结果摘要 |
 | ☁ D1 云同步 | Cloudflare D1 云同步配置 + 连接测试 + 手动同步 + 全量同步 + 同步状态 / 日志 |
 | 💾 云备份 | WebDAV / S3 冷备配置、连接测试、立即备份、自动备份定时、最后备份状态 |
+| 🖥 VigorHub | 屏幕使用数据推送到 VigorHub「健康运动」桌面端（默认 `127.0.0.1:18765`，参考手环管家推送链路）：开关 / 地址 / 自动间隔可配、立即同步、推送状态与日志。读本机 aw-server 的 currentwindow/afk 桶按游标增量聚合，AFK 裁剪后按天**全量幂等**推送（重复推送不重复累计）；游标与累计表落 QSettings，重启不重算 |
 
 ### 独立页面
 
@@ -269,12 +270,13 @@ git -C vendor/aw-server-rust pull --ff-only origin main
   单实例互斥：`QLockFile` 防双开（重复启动直接退出）。
 - 数据库三文件分离：`aw-server.db`（活动）/ `inbox.db`（笔记）/ `todo.db`（任务），均 WAL 模式；
   客户端经 `--dbpath` 指定活动数据位置，inbox/todo 落在服务端工作目录（与 aw-server.db 同目录）。
-- 防火墙放行：server 监听 `0.0.0.0:5600` 后，首次启动检测入站规则缺失则**主动弹 UAC 请求授权**——
-  **提权运行 aw-qtui 自身**（`runas` + `--firewall-allow`，UAC 授权对象是 aw-qtui，而非系统工具 net/netsh），
-  提权实例执行 `netsh advfirewall` 添加规则（规则名 `aw-qtui-server` / `aw-qtui-server-udp`，
-  覆盖**专用 + 公用**两个网络配置文件——只绑专用时，被 Windows 判为公用网络的 Wi-Fi/热点会
-  静默丢弃入站广播与连接，表现为局域网里彻底发现不到对端；添加前先删同名旧规则以保证幂等）后静默退出；
-  用户确认即放行，无需手动；拒绝/未提权则仅本机可用，下次启动重试。
+- 防火墙放行（**与 LocalSend 同策略**）：程序**不代写规则、不提权**。server 监听 `0.0.0.0:5600`
+  后，Windows 在首次监听时自己弹「允许访问」确认框（**普通权限**，不是 UAC），点一次「允许」
+  即由系统按 exe 路径自动建规则，此后不再询问。程序仅在启动时被动检测惯用名规则
+  （`aw-qtui-server` / `aw-qtui-server-udp`，TCP 5600 + UDP 46000）是否存在并记一条日志——
+  检测不到不代表没放行（系统自建规则按 exe 路径命名）；若同步不通，在系统弹窗中允许
+  `aw-server.exe`，或手动放行 5600/TCP + 46000/UDP 即可。若把防火墙「通知」关掉，
+  确认框不会出现、入站被静默拦截，此风险与 LocalSend 一致。
 - 服务端未启动/外部地址不可达：UI 保持可用，收件箱/同步页显示离线徽标「已离线 · 本地已存/待同步」，
   断线自动重连，本地数据离线优先（写入待同步队列，恢复后自动补推）。
 - 用 mock 联调（不拉起真实服务端）：`awqtui.exe --url http://127.0.0.1:5620`；
@@ -355,7 +357,7 @@ aw-qtui/
 │   ├── settingsdialog.h/.cpp  # 设置界面（快捷键录入/校验/保存）
 │   ├── models.h               # Note/Tag/Comment/DeviceInfo/SyncSummary + JSON
 │   ├── apiclient.h/.cpp       # QNetworkAccessManager REST 客户端（/inbox/...）
-│   ├── awserver.h/.cpp        # 本地 aw-server.exe 自动管理（拉起/看护/端口探测/防火墙/自启）
+│   ├── awserver.h/.cpp        # 本地 aw-server.exe 自动管理（拉起/看护/端口探测/防火墙检测/自启）
 │   ├── theme.h                # 全局语义色常量 + QSS + ItemWidgetRelayoutFilter
 │   ├── widgets.h/.cpp         # 通用控件：StatusBadge / 错误处理
 │   ├── charts.h/.cpp          # 自绘基础图表：HorizontalBarChart / VerticalBarChart / LineChart
@@ -380,6 +382,8 @@ aw-qtui/
 │   ├── syncdetailspage.h/.cpp/.ui  # 同步详情（日志 + 回收站 + 最近同步结果）
 │   ├── d1syncpage.h/.cpp/.ui       # D1 云同步页
 │   ├── cloudbackuppage.h/.cpp/.ui  # 云备份（WebDAV / S3）
+│   ├── vigorhubrelay.h/.cpp        # VigorHub 推送引擎（常驻）：AW 增量聚合 + AFK 裁剪 + 幂等推送
+│   ├── vigorhubpage.h/.cpp         # 「同步 → VigorHub」标签页（配置 / 立即同步 / 状态日志）
 │   ├── mdnsdiscovery.h/.cpp        # Win32 DNS-SD 封装（未接入 UI 的死代码，待退役，见「mDNS 说明」）
 │   ├── tagstore.h/.cpp             # 时间标签本地存储（段 CRUD/颜色/快捷键/自动标签）
 │   ├── filterparser.h/.cpp         # 当日过滤/高级搜索共用过滤语法解析器

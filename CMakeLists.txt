@@ -51,6 +51,10 @@ add_executable(awqtui WIN32
     src/syncpage.ui
     src/syncservice.cpp
     src/syncservice.h
+    src/vigorhubrelay.cpp
+    src/vigorhubrelay.h
+    src/vigorhubpage.cpp
+    src/vigorhubpage.h
     src/syncdetailspage.cpp
     src/syncdetailspage.h
     src/syncdetailspage.ui

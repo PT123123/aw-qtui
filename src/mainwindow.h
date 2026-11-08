@@ -41,6 +41,8 @@ class D1SyncPage;
 class QueryPage;
 class SyncDetailsPage;
 class CloudBackupPage;
+class VigorHubRelay;
+class VigorHubPage;
 class TodoPage;
 class FocusTimerPage;
 class FocusOverviewPage;
@@ -199,6 +201,8 @@ private:
     MdnsDiscovery *m_mdns = nullptr;
     // 无界面常驻的局域网同步引擎：独立于同步页生命周期（即使页控件被销毁也照常工作）
     SyncService *m_syncService = nullptr;
+    // 无界面常驻的 VigorHub 推送引擎：屏幕使用数据 → 健康运动桌面端
+    VigorHubRelay *m_vigorRelay = nullptr;
     GlobalHotkey *m_hotkey = nullptr;
     TagStore *m_tagStore = nullptr;
     TodoSource *m_todoStore = nullptr;
@@ -215,6 +219,7 @@ private:
     QueryPage *m_query = nullptr;
     SyncDetailsPage *m_syncDetails = nullptr;
     CloudBackupPage *m_cloudBackup = nullptr;
+    VigorHubPage *m_vigorHub = nullptr;
     QStackedWidget *m_stack = nullptr;
     // 左侧导航栏（缩放时按比例调整宽度）
     QWidget *m_nav = nullptr;

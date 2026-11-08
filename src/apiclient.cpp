@@ -444,6 +444,12 @@ QNetworkReply *ApiClient::getEvents(const QString &bucketId, qint64 startMs, qin
     return get(path);
 }
 
+QNetworkReply *ApiClient::getRecentEvents(const QString &bucketId, int limit)
+{
+    const QString encodedId = QString::fromUtf8(QUrl::toPercentEncoding(bucketId));
+    return get(QStringLiteral("/api/0/buckets/%1/events?limit=%2").arg(encodedId).arg(limit));
+}
+
 QNetworkReply *ApiClient::createBucket(const QString &bucketId, const QString &client, const QString &type)
 {
     QJsonObject body;

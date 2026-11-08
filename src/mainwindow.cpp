@@ -24,6 +24,8 @@
 #include "cloudbackuppage.h"
 #include "querypage.h"
 #include "d1syncpage.h"
+#include "vigorhubpage.h"
+#include "vigorhubrelay.h"
 #include "tagstore.h"
 #include "theme.h"
 #include "todopage.h"
@@ -160,6 +162,8 @@ MainWindow::MainWindow(const QString &serverUrl, QWidget *parent) : QMainWindow(
     m_mdns = new MdnsDiscovery(this);
     // 无界面常驻的局域网同步引擎：独立于同步页生命周期（页控件销毁/重建照常工作）
     m_syncService = new SyncService(m_api, this);
+    // 无界面常驻的 VigorHub 推送引擎：屏幕使用数据 → 健康运动桌面端（手环管家同款推送模型）
+    m_vigorRelay = new VigorHubRelay(m_api, this);
     // 配对请求到达 → 系统托盘气泡（无论是否打开同步页都能第一时间知道）
     connect(m_syncService, &SyncService::pairRequestReceived, this,
             [this](const QString &deviceName) {
@@ -659,10 +663,12 @@ bool MainWindow::ensureSyncPages()
     m_d1Sync = new D1SyncPage(m_api);
     m_syncDetails = new SyncDetailsPage(m_api);
     m_cloudBackup = new CloudBackupPage(m_api);
+    m_vigorHub = new VigorHubPage(m_vigorRelay);
     ui->syncHostLay->addWidget(m_sync);
     ui->syncDetailsHostLay->addWidget(m_syncDetails);
     ui->d1HostLay->addWidget(m_d1Sync);
     ui->cloudBackupHostLay->addWidget(m_cloudBackup);
+    ui->syncTabs->addTab(m_vigorHub, QStringLiteral("🖥 VigorHub"));
     styleSubTabs(m_syncTabs);
     // SyncDetailsPage：「返回同步」切到容器内第一个子标签 + 转发日志到同步页
     connect(m_syncDetails, &SyncDetailsPage::backToSync, this, [this] { m_syncTabs->setCurrentIndex(0); });
@@ -681,6 +687,13 @@ void MainWindow::releaseSyncPages()
     if (m_d1Sync)     { ui->d1HostLay->removeWidget(m_d1Sync);       m_d1Sync->deleteLater();     m_d1Sync = nullptr; }
     if (m_syncDetails){ ui->syncDetailsHostLay->removeWidget(m_syncDetails); m_syncDetails->deleteLater(); m_syncDetails = nullptr; }
     if (m_cloudBackup){ ui->cloudBackupHostLay->removeWidget(m_cloudBackup); m_cloudBackup->deleteLater(); m_cloudBackup = nullptr; }
+    if (m_vigorHub)   {
+        const int idx = ui->syncTabs->indexOf(m_vigorHub);
+        if (idx >= 0)
+            ui->syncTabs->removeTab(idx);
+        m_vigorHub->deleteLater();
+        m_vigorHub = nullptr;
+    }
 }
 
 // 设置容器：懒建「收件箱设置」+「通用设置」内嵌编辑器 + 还原上次子标签现场

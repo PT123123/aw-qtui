@@ -140,4 +140,16 @@ void saveFocusModules(const FocusModules &m);
 QString loadDeviceName();
 void saveDeviceName(const QString &name);
 
+// ── VigorHub（健康运动桌面端）推送：把本机屏幕使用数据推过去 ──
+struct VigorHubRelayConfig {
+    bool enabled = true;     // 自动推送总开关（默认开）
+    QString address;         // VigorHub 桌面端地址（含端口，默认本机 18765）
+    int intervalSec = 300;   // 自动推送间隔秒数（<=0 = 仅手动）
+};
+
+// 读取 VigorHub 推送配置（首次运行：开 / http://127.0.0.1:18765 / 5 分钟）
+VigorHubRelayConfig loadVigorHubRelay();
+// 持久化 VigorHub 推送配置
+void saveVigorHubRelay(const VigorHubRelayConfig &c);
+
 } // namespace awqtui
