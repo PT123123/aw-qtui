@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(aw-qtui VERSION 0.1.41 LANGUAGES CXX)
+project(aw-qtui VERSION 0.1.44 LANGUAGES CXX)
 
 # Ninja 编译 .rc 资源（exe 内嵌图标）需要 CMP0116=NEW（CMake 3.19+ 引入）。
 # 显式设定而非抬高 cmake_minimum_required，保留 3.16 的最低版本声明。
@@ -53,6 +53,8 @@ add_executable(awqtui WIN32
     src/syncservice.h
     src/vigorhubrelay.cpp
     src/vigorhubrelay.h
+    src/vigorhubpeer.cpp
+    src/vigorhubpeer.h
     src/vigorhubpage.cpp
     src/vigorhubpage.h
     src/syncdetailspage.cpp
