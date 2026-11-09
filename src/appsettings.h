@@ -140,16 +140,24 @@ void saveFocusModules(const FocusModules &m);
 QString loadDeviceName();
 void saveDeviceName(const QString &name);
 
-// ── VigorHub（健康运动桌面端）推送：把本机屏幕使用数据推过去 ──
+// ── VigorHub（健康运动桌面端）同步：把本机屏幕使用数据交给它 ──
+// 两条路同时开着：主动 POST 推送（address 指定目标），以及局域网伴随服务
+// （组播宣告 + /info + /snapshot，让桌面端自己发现并来拉）。后者不依赖 address，
+// 本机传输和局域网其它主机走同一套代码。
 struct VigorHubRelayConfig {
-    bool enabled = true;     // 自动推送总开关（默认开）
+    bool enabled = true;     // 同步总开关（默认开；关掉则推送与伴随服务都停）
     QString address;         // VigorHub 桌面端地址（含端口，默认本机 18765）
-    int intervalSec = 300;   // 自动推送间隔秒数（<=0 = 仅手动）
+    int intervalSec = 300;   // 自动推送间隔秒数（<=0 = 仅手动；伴随服务不受它影响）
+    QString alias;           // 组播宣告里的显示名（空 = "ActivityWatch（主机名）"）
+    // 使用聚合落盘的来源标识（空 = "desktop"）。桌面端按 (day, source, app) 全量
+    // 替换合并，所以局域网里**每台** AW 主机必须填不同值，否则两台机器的时长会
+    // 互相覆盖。本机保持默认 "desktop" 是为了不和存量数据断开。
+    QString sourceLabel;
 };
 
-// 读取 VigorHub 推送配置（首次运行：开 / http://127.0.0.1:18765 / 5 分钟）
+// 读取 VigorHub 同步配置（首次运行：开 / http://127.0.0.1:18765 / 5 分钟）
 VigorHubRelayConfig loadVigorHubRelay();
-// 持久化 VigorHub 推送配置
+// 持久化 VigorHub 同步配置
 void saveVigorHubRelay(const VigorHubRelayConfig &c);
 
 } // namespace awqtui

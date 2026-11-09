@@ -2,6 +2,7 @@
 #include "vigorhubrelay.h"
 
 #include <QDateTime>
+#include <QHostInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -11,6 +12,7 @@
 #include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QStringList>
 #include <QTimer>
 #include <QUrl>
 #include <algorithm>
@@ -19,6 +21,7 @@
 #include "apiclient.h"
 #include "awdatastore.h"
 #include "config.h"
+#include "vigorhubpeer.h"
 
 namespace awqtui {
 
@@ -29,6 +32,9 @@ constexpr int kFirstPullLookbackDays = 30;  // 首次接入最多回溯多少天
 constexpr int kPruneDays = 180;             // 累计表只保留最近 180 天（对齐桌面端裁剪）
 constexpr int kInitialDelayMs = 15000;      // 启动后首轮推送的宽限（等 aw-server 就绪）
 constexpr int kPushTimeoutMs = 15000;
+constexpr int kVigorHubDefaultPort = 18765;     // 对齐 vigorhub lan.rs DEFAULT_HTTP_PORT
+constexpr int kVigorHubPortFallbackCount = 16;  // 对齐 lan.rs PORT_FALLBACK_COUNT（18765~18780）
+constexpr int kFallbackTimeoutMs = 3000;       // 回退探测别卡满 kPushTimeoutMs
 
 // 地址归一：补协议、去尾斜杠 → "http://127.0.0.1:18765"
 QString normalizeAddress(QString addr)
@@ -40,6 +46,22 @@ QString normalizeAddress(QString addr)
     while (addr.endsWith(QLatin1Char('/')))
         addr.chop(1);
     return addr;
+}
+
+// 桌面端 18765 被占用时会顺延监听端口（lan.rs::port_candidates）。只在用户仍用
+// 默认端口时生成候选；自定义地址 / 自定义端口一律原样推，不擅自换目标。
+QStringList pushBaseCandidates(const QString &base)
+{
+    QStringList out{base};
+    const QUrl u(base);
+    if (u.port() != kVigorHubDefaultPort)
+        return out;
+    for (int i = 1; i < kVigorHubPortFallbackCount; ++i) {
+        QUrl c(base);
+        c.setPort(kVigorHubDefaultPort + i);
+        out.append(c.toString(QUrl::RemovePath | QUrl::RemoveQuery | QUrl::RemoveFragment));
+    }
+    return out;
 }
 } // namespace
 
@@ -56,6 +78,20 @@ VigorHubRelay::VigorHubRelay(ApiClient *api, QObject *parent)
 
     loadState();
     applyTimer();
+
+    // 伴随服务：让桌面端能发现本机并主动来拉。报的是已持久化的全量累计表，
+    // 与推送共用同一份数据，所以「被拉取」不需要等一轮推送跑完才有内容。
+    m_peer = new VigorHubPeer(this);
+    m_peer->setSnapshotProvider([this] { return fullSnapshot(); });
+    connect(m_peer, &VigorHubPeer::logLine, this, &VigorHubRelay::logLine);
+    connect(m_peer, &VigorHubPeer::snapshotServed, this, [this] {
+        m_lastPullAt = QDateTime::currentDateTime().toString(QStringLiteral("MM-dd hh:mm"));
+        emit logLine(QStringLiteral("[vigorhub] 桌面端来拉了一次快照（全量 %1 天）")
+                         .arg(m_totals.size()));
+        emit peerStateChanged();
+    });
+    applyPeer();
+
     // 启动后宽限片刻再推首轮：等内嵌 aw-server 拉起、攒一点窗口事件
     if (m_cfg.enabled)
         QTimer::singleShot(kInitialDelayMs, this, [this] {
@@ -69,6 +105,7 @@ void VigorHubRelay::setConfig(const VigorHubRelayConfig &cfg)
     m_cfg = cfg;
     saveVigorHubRelay(cfg);
     applyTimer();
+    applyPeer();
     emit logLine(QStringLiteral("[vigorhub] 配置已保存（%1 · 间隔 %2 秒 · 地址 %3）")
                      .arg(cfg.enabled ? QStringLiteral("开") : QStringLiteral("关"))
                      .arg(cfg.intervalSec)
@@ -81,6 +118,40 @@ void VigorHubRelay::applyTimer()
         m_timer->start(m_cfg.intervalSec * 1000);
     else
         m_timer->stop();
+}
+
+// 伴随服务只跟总开关走，不跟推送间隔走：间隔设成「仅手动」时桌面端照样能来拉，
+// 否则用户一关自动推送就把「被发现」这条路也一起断了。
+void VigorHubRelay::applyPeer()
+{
+    if (!m_peer)
+        return;
+    m_peer->setAlias(effectiveAlias());
+    if (m_cfg.enabled)
+        m_peer->start();
+    else
+        m_peer->stop();
+    emit peerStateChanged();
+}
+
+quint16 VigorHubRelay::peerPort() const
+{
+    return m_peer ? m_peer->port() : 0;
+}
+
+QString VigorHubRelay::effectiveAlias() const
+{
+    if (!m_cfg.alias.trimmed().isEmpty())
+        return m_cfg.alias.trimmed();
+    return QStringLiteral("ActivityWatch（%1）").arg(QHostInfo::localHostName());
+}
+
+// 存量数据的来源标识一直是 "desktop"，默认值必须保持它，否则旧行和新行会按
+// 不同的 (day, source, app) 键并存，同一天的时长被算两遍。
+QString VigorHubRelay::effectiveSource() const
+{
+    const QString s = m_cfg.sourceLabel.trimmed();
+    return s.isEmpty() ? QStringLiteral("desktop") : s;
 }
 
 void VigorHubRelay::onAutoTimer()
@@ -247,60 +318,128 @@ void VigorHubRelay::pushSnapshot()
             dayTotals[appIt.key()] += appIt.value();
     }
 
-    QJsonArray rows;
-    qint64 totalSec = 0;
     QList<qint64> days = m_touchedDays.values();
     std::sort(days.begin(), days.end());
+    const QJsonArray rows = usageRows(merged, days);
+    const QJsonArray cursors = cursorsArray(m_newCursors);
+    qint64 totalActiveSec = 0;  // 日志用：协议字段 active_sec 的合计（秒）
+    for (const QJsonValue &v : rows)
+        totalActiveSec += v.toObject().value(QStringLiteral("active_sec")).toVariant().toLongLong();
+
+    m_payload = wrapAw(rows, cursors);
+    m_tryBases = pushBaseCandidates(normalizeAddress(m_cfg.address));
+    m_tryIndex = 0;
+    emit logLine(QStringLiteral("[vigorhub] 本轮 %1 天 / %2 行 / 共 %3 秒")
+                     .arg(m_touchedDays.size()).arg(rows.size()).arg(totalActiveSec));
+    postToCurrent();
+}
+
+// 累计表 → 协议行。内部累计一律毫秒，协议 active_sec 与桌面端 aw.rs::ms/1000
+// 对齐是**秒**，只在这里换算；m_totals / QSettings 里的值不要跟着改单位。
+QJsonArray VigorHubRelay::usageRows(const QHash<qint64, QHash<QString, qint64>> &totals,
+                                    const QList<qint64> &days) const
+{
+    const QString source = effectiveSource();
+    QJsonArray rows;
     for (const qint64 day : days) {
-        const QHash<QString, qint64> &dayTotals = merged.value(day);
+        const QHash<QString, qint64> &dayTotals = totals.value(day);
         for (auto appIt = dayTotals.constBegin(); appIt != dayTotals.constEnd(); ++appIt) {
             QJsonObject row;
             row.insert(QStringLiteral("day"), static_cast<qint64>(day));
-            row.insert(QStringLiteral("source"), QStringLiteral("desktop"));
+            row.insert(QStringLiteral("source"), source);
             row.insert(QStringLiteral("app"), appIt.key());
-            row.insert(QStringLiteral("active_sec"), static_cast<qint64>(appIt.value()));
+            row.insert(QStringLiteral("active_sec"), static_cast<qint64>(appIt.value() / 1000));
             rows.append(row);
-            totalSec += appIt.value();
         }
     }
-    QJsonArray cursors;
-    for (auto it = m_newCursors.constBegin(); it != m_newCursors.constEnd(); ++it) {
+    return rows;
+}
+
+QJsonArray VigorHubRelay::cursorsArray(const QHash<QString, qint64> &cursors)
+{
+    QJsonArray out;
+    for (auto it = cursors.constBegin(); it != cursors.constEnd(); ++it) {
         QJsonObject c;
         c.insert(QStringLiteral("bucket"), it.key());
         c.insert(QStringLiteral("last_id"), static_cast<qint64>(it.value()));
-        cursors.append(c);
+        out.append(c);
     }
+    return out;
+}
+
+QByteArray VigorHubRelay::wrapAw(const QJsonArray &rows, const QJsonArray &cursors)
+{
     QJsonObject aw;
     aw.insert(QStringLiteral("app_usage"), rows);
     aw.insert(QStringLiteral("cursors"), cursors);
     QJsonObject body;
     body.insert(QStringLiteral("aw"), aw);
+    return QJsonDocument(body).toJson(QJsonDocument::Compact);
+}
 
-    QUrl url(normalizeAddress(m_cfg.address) + QStringLiteral("/api/health-motion/v1/push"));
+// 被拉取时报**全部**已持久化的天，而不是本轮触碰的天：桌面端可能在任何时刻来拉，
+// 只报增量会让它那边缺掉之前推过的天。全量替换合并（model.rs::merge_usage_full）
+// 保证重复拉取幂等。游标同样报已提交的那份，不报本轮还没推送成功的 m_newCursors。
+QByteArray VigorHubRelay::fullSnapshot() const
+{
+    QList<qint64> days = m_totals.keys();
+    std::sort(days.begin(), days.end());
+    return wrapAw(usageRows(m_totals, days), cursorsArray(m_cursors));
+}
+
+void VigorHubRelay::postToCurrent()
+{
+    const QString base = m_tryBases.value(m_tryIndex);
+    const QUrl url(base + QStringLiteral("/api/health-motion/v1/push"));
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    const QByteArray payload = QJsonDocument(body).toJson(QJsonDocument::Compact);
-    QNetworkReply *reply = m_pushNam->post(req, payload);
+    QNetworkReply *reply = m_pushNam->post(req, m_payload);
+    if (m_tryIndex > 0) {
+        // 回退请求快速失败：端口被别的程序占着时不要卡满 15s 才试下一个
+        QTimer::singleShot(kFallbackTimeoutMs, reply, [reply] {
+            if (!reply->isFinished())
+                reply->abort();
+        });
+    }
     connect(reply, &QNetworkReply::finished, this, &VigorHubRelay::onPushReply);
 }
 
 void VigorHubRelay::onPushReply()
 {
     auto *reply = qobject_cast<QNetworkReply *>(sender());
+    const bool netOk = reply->error() == QNetworkReply::NoError;
+    const QString reason = netOk ? QStringLiteral("应答非 ok") : reply->errorString();
+    const QByteArray body = netOk ? reply->readAll() : QByteArray();
     reply->deleteLater();
     if (!m_busy)
         return;
 
-    if (reply->error() != QNetworkReply::NoError) {
-        // 失败不动游标/累计表：下一轮会用同样的增量重推（全量语义保证不会算重）
-        finish(false, QStringLiteral("推送失败：%1").arg(reply->errorString()));
+    // 失败不动游标/累计表：下一轮会用同样的增量重推（全量语义保证不会算重）
+    const bool ok = netOk
+                    && QJsonDocument::fromJson(body).object()
+                           .value(QStringLiteral("ok")).toBool();
+    if (!ok) {
+        if (m_tryIndex + 1 < m_tryBases.size()) {
+            const QString from = m_tryBases.at(m_tryIndex);
+            ++m_tryIndex;
+            emit logLine(QStringLiteral("[vigorhub] %1 不通（%2），改试 %3")
+                             .arg(from, reason, m_tryBases.at(m_tryIndex)));
+            postToCurrent();
+            return;
+        }
+        finish(false, QStringLiteral("推送失败（%1）：%2")
+                          .arg(m_tryBases.value(m_tryIndex), reason));
         return;
     }
-    const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-    if (!doc.object().value(QStringLiteral("ok")).toBool()) {
-        finish(false, QStringLiteral("VigorHub 返回了非预期应答"));
-        return;
+
+    // 顺延端口命中：记住实际地址，后续轮次不必再从 18765 逐个试
+    if (m_tryIndex > 0) {
+        m_cfg.address = m_tryBases.at(m_tryIndex);
+        saveVigorHubRelay(m_cfg);
+        emit logLine(QStringLiteral("[vigorhub] 桌面端端口已顺延，自动记住 %1")
+                         .arg(m_cfg.address));
     }
+
     // 成功才提交本轮结果：游标推进 + 累计表并入并落盘（重启不重算）
     for (auto dayIt = m_runTotals.constBegin(); dayIt != m_runTotals.constEnd(); ++dayIt) {
         QHash<QString, qint64> &dayTotals = m_totals[dayIt.key()];

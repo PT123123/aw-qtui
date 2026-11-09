@@ -29,6 +29,7 @@ private slots:
     void onSyncNow();
     void onSyncStarted();
     void onSyncFinished(bool ok, const QString &msg);
+    void refreshPeerStatus();
 
 private:
     void buildUi();
@@ -41,10 +42,13 @@ private:
     QCheckBox *m_chkEnabled = nullptr;
     QLineEdit *m_editAddress = nullptr;
     QComboBox *m_cmbInterval = nullptr;
+    QLineEdit *m_editAlias = nullptr;   // 组播宣告里的显示名
+    QLineEdit *m_editSource = nullptr;  // 使用聚合的来源标识（多台 AW 主机必须各不相同）
     QPushButton *m_btnSave = nullptr;
     QPushButton *m_btnSyncNow = nullptr;
     StatusBadge *m_badge = nullptr;
     QLabel *m_lblStatus = nullptr;   // 最近一次推送结果
+    QLabel *m_lblPeer = nullptr;     // 伴随服务端口 + 最近被拉取时间（底栏读数）
     QPlainTextEdit *m_log = nullptr; // 本页日志（引擎 logLine 转发到此）
 };
 

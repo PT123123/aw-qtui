@@ -13,6 +13,7 @@
 #   just install        把已部署的 build/ 拷贝到安装目录（默认 %LOCALAPPDATA%/Programs/aw-qtui）
 #   just asan           AddressSanitizer 诊断构建
 #   just selftest       编译并运行 TodoStore 自测
+#   just peer-selftest  编译并运行 VigorHub 局域网对等自测（真 TCP + 真组播）
 #   just mem-baseline   逐级量 base 内存（详见 README「内存与性能基线」）
 #   just run            运行 build/awqtui.exe
 #   just notify         发送 Windows Toast 通知
@@ -66,6 +67,7 @@ help:
     Write-Host '  just install       copy deployed build/ into install dir'
     Write-Host '  just asan          AddressSanitizer build'
     Write-Host '  just selftest      compile & run TodoStore self-test'
+    Write-Host '  just peer-selftest compile & run VigorHub LAN peer self-test (real TCP + multicast)'
     Write-Host '  just mem-baseline  逐级量 base 内存（私有/工作集），核对 README 的内存基线'
     Write-Host '  just run           run build/awqtui.exe'
     Write-Host '  just notify        send Windows Toast notification'
@@ -287,6 +289,29 @@ selftest:
     )
     cl @clArgs
     Write-Host 'selftest built: tools/todostore_selftest.exe (run: tools/todostore_selftest.exe)'
+
+# ---------- VigorHub 局域网对等半边自测（真起服务、真收组播） ----------
+# 只构造 VigorHubPeer，不构造 VigorHubRelay，所以不读写真实 awqtui.ini、不碰用户数据。
+# 编译 + 运行一条命令做完；退出码非 0 即失败（$PSNativeCommandUseErrorActionPreference）。
+peer-selftest:
+    #!pwsh -NoProfile
+    $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+    . '{{VCENV}}'
+    $qtDir = '{{QT}}'
+    & "$qtDir/bin/moc.exe" src/vigorhubpeer.h -o tools/moc_vigorhubpeer.cpp -I src -I "$qtDir/include"
+    $clArgs = @(
+        '/std:c++17', '/permissive-', '/Zc:__cplusplus', '/EHsc', '/utf-8', '/DQT_CORE_LIB', '/DQT_NETWORK_LIB'
+        "/I$qtDir/include", "/I$qtDir/include/QtCore", "/I$qtDir/include/QtNetwork"
+        "/I$qtDir/mkspecs/win32-msvc", '/I', 'src'
+        'tools/vigorhubpeer_selftest.cpp', 'tools/moc_vigorhubpeer.cpp', 'src/vigorhubpeer.cpp'
+        '/Fe:tools/vigorhubpeer_selftest.exe'
+        '/link', "$qtDir/lib/Qt6Core.lib", "$qtDir/lib/Qt6Network.lib"
+    )
+    cl @clArgs
+    $env:PATH = "$qtDir/bin;$env:PATH"
+    & 'tools/vigorhubpeer_selftest.exe'
+    Write-Host "peer-selftest exit=$LASTEXITCODE"
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # ---------- 内存基线自测（tools/mem_baseline.cpp） ----------
 # 逐级构造真实控件，每级打印进程私有内存 / 工作集 —— README「内存与性能基线」里的

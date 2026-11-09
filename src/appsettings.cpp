@@ -317,6 +317,8 @@ VigorHubRelayConfig loadVigorHubRelay()
     c.enabled = s.value(QStringLiteral("vigorhub/enabled"), c.enabled).toBool();
     c.address = s.value(QStringLiteral("vigorhub/address"), c.address).toString();
     c.intervalSec = s.value(QStringLiteral("vigorhub/intervalSec"), c.intervalSec).toInt();
+    c.alias = s.value(QStringLiteral("vigorhub/alias"), QString()).toString();
+    c.sourceLabel = s.value(QStringLiteral("vigorhub/sourceLabel"), QString()).toString();
     return c;
 }
 
@@ -326,6 +328,8 @@ void saveVigorHubRelay(const VigorHubRelayConfig &c)
     s.setValue(QStringLiteral("vigorhub/enabled"), c.enabled);
     s.setValue(QStringLiteral("vigorhub/address"), c.address);
     s.setValue(QStringLiteral("vigorhub/intervalSec"), c.intervalSec);
+    s.setValue(QStringLiteral("vigorhub/alias"), c.alias);
+    s.setValue(QStringLiteral("vigorhub/sourceLabel"), c.sourceLabel);
     s.sync();
 }
 

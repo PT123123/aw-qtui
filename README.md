@@ -53,7 +53,7 @@
 | 📋 同步详情 | 同步日志（方向/协议/事件/类型过滤 + 分页 + 逐条明细）、回收站（软删条目恢复 / 彻底删除）、最近一次同步结果摘要 |
 | ☁ D1 云同步 | Cloudflare D1 云同步配置 + 连接测试 + 手动同步 + 全量同步 + 同步状态 / 日志 |
 | 💾 云备份 | WebDAV / S3 冷备配置、连接测试、立即备份、自动备份定时、最后备份状态 |
-| 🖥 VigorHub | 屏幕使用数据推送到 VigorHub「健康运动」桌面端（默认 `127.0.0.1:18765`，参考手环管家推送链路）：开关 / 地址 / 自动间隔可配、立即同步、推送状态与日志。读本机 aw-server 的 currentwindow/afk 桶按游标增量聚合，AFK 裁剪后按天**全量幂等**推送（重复推送不重复累计）；游标与累计表落 QSettings，重启不重算 |
+| 🖥 VigorHub | 屏幕使用数据交给 VigorHub「健康运动」桌面端，**两条路同时开着**：① 主动推送到可配地址（默认 `127.0.0.1:18765`；该端口被占用时桌面端顺延到 18766+，本端自动探测并记住）；② 局域网伴随服务——每 2 秒往组播 `224.0.0.167:53317` 宣告自身（`device_type=aw`），并暴露 `GET /api/health-motion/v1/info`、`GET /api/health-motion/v1/snapshot` 让桌面端发现后主动来拉。第二条不依赖推送地址：监听 `Any` + 系统分配端口，本机回环与局域网其它 AW 主机走**同一套代码**。开关 / 地址 / 自动间隔 / 本机名称 / 来源标识可配、立即同步、推送与被拉取状态、日志。读本机 aw-server 的 currentwindow/afk 桶按游标增量聚合，AFK 裁剪后按天**全量幂等**（推送发本轮触碰的天，被拉取发全部已持久化的天；重复同步不重复累计）；游标与累计表落 QSettings，重启不重算 |
 
 ### 独立页面
 
@@ -344,7 +344,7 @@ PT123123/aw-qtui ── junction: vendor/aw-server-rust ──▶ ../aw-server-p
 ```
 aw-qtui/
 ├── CMakeLists.txt
-├── justfile                  # 任务编排入口（just：客户端/服务端/dist/install/asan/notify/selftest/run；recipe 均为 PowerShell 7 脚本）
+├── justfile                  # 任务编排入口（just：客户端/服务端/dist/install/asan/notify/selftest/peer-selftest/run；recipe 均为 PowerShell 7 脚本）
 ├── tools/
 │   ├── vcenv.ps1             # VC / Windows SDK 环境注入（被 justfile recipe dot-source，无需 Developer Prompt）
 │   └── make_zip.py           # 标准库打包脚本
@@ -382,8 +382,9 @@ aw-qtui/
 │   ├── syncdetailspage.h/.cpp/.ui  # 同步详情（日志 + 回收站 + 最近同步结果）
 │   ├── d1syncpage.h/.cpp/.ui       # D1 云同步页
 │   ├── cloudbackuppage.h/.cpp/.ui  # 云备份（WebDAV / S3）
-│   ├── vigorhubrelay.h/.cpp        # VigorHub 推送引擎（常驻）：AW 增量聚合 + AFK 裁剪 + 幂等推送
-│   ├── vigorhubpage.h/.cpp         # 「同步 → VigorHub」标签页（配置 / 立即同步 / 状态日志）
+│   ├── vigorhubrelay.h/.cpp        # VigorHub 同步引擎（常驻）：AW 增量聚合 + AFK 裁剪 + 幂等推送 + 全量快照供给
+│   ├── vigorhubpeer.h/.cpp         # 局域网对等半边：伴随 HTTP（/info、/snapshot）+ 组播宣告 + 稳定设备身份
+│   ├── vigorhubpage.h/.cpp         # 「同步 → VigorHub」标签页（配置 / 立即同步 / 推送与被拉取状态 / 日志）
 │   ├── mdnsdiscovery.h/.cpp        # Win32 DNS-SD 封装（未接入 UI 的死代码，待退役，见「mDNS 说明」）
 │   ├── tagstore.h/.cpp             # 时间标签本地存储（段 CRUD/颜色/快捷键/自动标签）
 │   ├── filterparser.h/.cpp         # 当日过滤/高级搜索共用过滤语法解析器
@@ -400,7 +401,8 @@ aw-qtui/
 │   └── ...
 └── tools/
     ├── mock_inbox_server.py        # 联调用 mock 服务端（纯标准库）
-    └── todostore_selftest.cpp      # TodoStore 本地 mock 逻辑自测（回归测试）
+    ├── todostore_selftest.cpp      # TodoStore 本地 mock 逻辑自测（回归测试）
+    └── vigorhubpeer_selftest.cpp   # VigorHub 对等半边自测（just peer-selftest；真起监听 + 真 TCP 往返）
 ```
 
 ## 对接的服务端端点（API 契约核对）
@@ -562,3 +564,10 @@ just mem-baseline offscreen       # 离屏平台：快，但绝对值偏低，�
   同步页设备表加载、心跳注册可用（当期 `MdnsDiscovery` 接口编译通过，但从未被 UI 启动，
   发现实际由内嵌 Rust 服务端承担，见「mDNS 说明」）
 - API 全链路：创建 / 标签过滤 / 更新 / 评论 / sync / 心跳 / 设备表 / 删除
+- VigorHub 对等半边：`just peer-selftest` **48 条 PASS / fail=0 / skip=0**（2026-11-09）。
+  纯函数段验路由、指纹命名空间、扁平宣告 JSON；真网络段真起 `QTcpServer` + 真组播，
+  硬门是 `bindAddress() == Any`（不是只绑回环），另有 LocalHost-only 的 control 臂自证这条门会红。
+  **真网络段一律挂空快照**：同机跑着的 vigorhub 会发现这个自测对端并按 60 秒节拍真的来拉，
+  挂假数据会把假游标写进它的 `state.json`（第一版夹具就这么污染过真库，已清理）。
+  详见 `docs/设计-VigorHub局域网对等-2026-11-09.md`。
+  注意：这条自测**没装机**——运行中的仍是 `C:\workshop\aw-qtui-0.1.43\awqtui.exe` 旧构建。
